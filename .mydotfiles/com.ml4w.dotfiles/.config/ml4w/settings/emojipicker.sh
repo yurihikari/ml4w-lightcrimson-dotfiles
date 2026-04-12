@@ -1,0 +1,1 @@
+flatpak run com.tomjwatson.Emote

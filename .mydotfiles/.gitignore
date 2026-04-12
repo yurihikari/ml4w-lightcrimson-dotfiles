@@ -1,0 +1,6 @@
+# --- Directories ---
+backups/
+
+# --- Files ---
+config/.gtkrc-2.0
+.Xresources

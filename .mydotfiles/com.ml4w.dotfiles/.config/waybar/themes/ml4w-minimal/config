@@ -1,0 +1,76 @@
+{
+    // General Settings
+    "layer": "top",
+    "margin-bottom": 0,
+    "margin-left": 0,
+    "margin-right": 0,
+    "spacing": 0,
+    // Load Modules
+    "include": [
+        "~/.config/ml4w/settings/waybar-quicklinks.json",
+        "~/.config/waybar/modules.json"
+    ],
+    // Updates Count
+    "custom/updates": {
+        "format": "   {}",
+        "escape": true,
+        "return-type": "json",
+        "exec": "~/.config/ml4w/scripts/ml4w-check-system-updates",
+        "restart-interval": 60,
+        "on-click": "~/.config/ml4w/settings/installupdates.sh",
+        "on-click-right": "~/.config/ml4w/settings/software.sh"
+    },
+    // Pulseaudio
+    "pulseaudio": {
+        // "scroll-step": 1, // %, can be a float
+        "format": "{icon}   {volume}%",
+        "format-bluetooth": "{volume}% {icon} {format_source}",
+        "format-bluetooth-muted": " {icon} {format_source}",
+        "format-muted": " {format_source}",
+        "format-source": "{volume}% ",
+        "format-source-muted": "",
+        "format-icons": {
+            "headphone": " ",
+            "hands-free": " ",
+            "headset": " ",
+            "phone": " ",
+            "portable": " ",
+            "car": " ",
+            "default": [
+                " ",
+                " ",
+                " "
+            ]
+        },
+        "on-click": "pavucontrol"
+    },
+    // Modules Left
+    "modules-left": [
+        "custom/appmenuicon",
+        "hyprland/workspaces",
+        //"group/quicklinks",
+        "custom/empty"
+    ],
+    // Modules Center
+    "modules-center": [
+        "hyprland/window",
+        "custom/empty"
+    ],
+    // Modules Right    
+    "modules-right": [
+        "custom/updates",
+        "pulseaudio",
+        //"backlight",
+        "bluetooth",
+        "network",
+        "battery",
+        "power-profiles-daemon",
+        "group/hardware",
+        "group/tools",
+        "custom/exit",
+        "clock",
+        "tray",
+        "custom/notification",
+        "custom/ml4w-welcome"
+    ]
+}
