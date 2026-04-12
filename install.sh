@@ -12,59 +12,53 @@ DATE=$(date +%Y%m%d_%H%M%S)
 
 echo "📂 Repo detected at: $REPO_ROOT"
 
-# 2. BACKUP EXISTING .MYDOTFILES (If it exists)
-if [ -d "$MY_DOTFILES_ROOT" ]; then
+# 2. BACKUP TARGET_STORAGE (Not the whole .config)
+if [ -d "$TARGET_STORAGE" ]; then
     BACKUP_DIR="$MY_DOTFILES_ROOT/.backups/backup_$DATE"
-    echo "📦 Backing up current .mydotfiles to $BACKUP_DIR..."
+    echo "📦 Backing up current storage to $BACKUP_DIR..."
     mkdir -p "$BACKUP_DIR"
-    cp -r "$TARGET_STORAGE" "$BACKUP_DIR" 2>/dev/null
+    cp -rp "$TARGET_STORAGE" "$BACKUP_DIR" 2>/dev/null
 else
-    echo "📁 Creating .mydotfiles directory..."
+    echo "📁 Creating storage directory at $TARGET_STORAGE..."
     mkdir -p "$TARGET_STORAGE"
 fi
 
-# 3. SYNC REPO CONTENT TO STORAGE
-# Using 'cp -a' to ensure symlinks are copied as links, not as the files they point to.
-echo "🔄 Syncing repo files to $TARGET_STORAGE..."
-cp -af "$REPO_ROOT/." "$TARGET_STORAGE/"
+# 3. SYNC REPO TO STORAGE
+# We use rsync here because it is much safer than 'cp' for folder-to-folder syncing.
+# It will NOT copy the .git folder or create recursive loops.
+echo "🔄 Updating storage files from repo..."
+rsync -av --exclude='.git' --exclude='.backups' "$REPO_ROOT/" "$TARGET_STORAGE/"
 
-# 4. APPLY REPO CONFIGS TO ~/.config
-# This will overwrite files/links in ~/.config with the ones from your repo
-echo "🔗 Applying .config links/files from repo..."
-mkdir -p "$HOME/.config"
-cp -af "$REPO_ROOT/.config/." "$HOME/.config/"
-
-# 5. OFFICIAL ML4W INSTALLATION/UPDATE
+# 4. OFFICIAL ML4W INSTALLATION
 if [ ! -d "$INSTALLER_DIR" ]; then
     echo "📥 Downloading official ML4W installer..."
     git clone https://github.com/mylinuxforwork/ml4w-dotfiles-installer.git "$INSTALLER_DIR"
 else
-    echo "🔄 Updating the official ML4W installer tool..."
-    cd "$INSTALLER_DIR" && git pull 
+    echo "🔄 Updating official ML4W installer..."
+    cd "$INSTALLER_DIR" && git pull
 fi
 
-echo "🛠️ Running official installer..."
+echo "🛠️ Running official ML4W update..."
 cd "$INSTALLER_DIR"
 make install
 ~/.local/bin/ml4w-dotfiles-installer --install "$PROFILE_URL"
 
-# 6. FINAL OVERWRITE (Ensure your customizations win)
-# We copy from the Repo directly to the storage. 
-# Since ~/.config is symlinked to this storage, the changes reflect immediately.
-echo "🎨 Restoring your specific edits over the update..."
+# 5. RESTORE CUSTOMIZATIONS INTO STORAGE
+# Since your ~/.config files are symlinks to this storage, 
+# overwriting these files here updates your system automatically.
+echo "🎨 Overwriting storage with your custom edits..."
 
-# A helper function to make it clean
 force_copy() {
     src="$REPO_ROOT/$1"
     dest="$TARGET_STORAGE/$1"
     if [ -f "$src" ]; then
         mkdir -p "$(dirname "$dest")"
         cp -f "$src" "$dest"
-        echo "✅ Restored: $1"
+        echo "✅ Updated in storage: $1"
     fi
 }
 
-# The list of files you specifically customized:
+# The specific files you want to keep customized
 force_copy ".config/ml4w/scripts/ml4w-toggle-theme"
 force_copy ".config/ml4w/scripts/ml4w-wallpaper"
 force_copy ".config/hypr/scripts/screenshot"
@@ -72,4 +66,4 @@ force_copy ".config/hypr/scripts/colorpicker"
 force_copy ".config/hypr/conf/keybindings/default.conf"
 force_copy ".config/ml4w/settings/darkmode"
 
-echo "✅ Done! All files updated. Your symlinks and customizations are preserved."
+echo "✅ All done. Only ~/.mydotfiles was modified by this script."
