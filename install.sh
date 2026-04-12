@@ -38,7 +38,11 @@ cp -af "$REPO_ROOT/.config/." "$HOME/.config/"
 if [ ! -d "$INSTALLER_DIR" ]; then
     echo "📥 Downloading official ML4W installer..."
     git clone https://github.com/mylinuxforwork/ml4w-dotfiles-installer.git "$INSTALLER_DIR"
+else
+    echo "🔄 Updating the official ML4W installer tool..."
+    cd "$INSTALLER_DIR" && git pull 
 fi
+
 echo "🛠️ Running official installer..."
 cd "$INSTALLER_DIR"
 make install
