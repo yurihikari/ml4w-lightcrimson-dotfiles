@@ -23,7 +23,6 @@ Used on a CachyOS system. Should work with Arch based systems as well.
 
 ## Additional Dependencies ⚠️
 - Using pear-desktop as the music app for META+M keybind
-- 
 
 ## Installation 🔧
 
