@@ -4,7 +4,7 @@
 REPO_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 
 # --- CONFIGURATION ---
-PROFILE_URL="https://raw.githubusercontent.com/mylinuxforwork/repo/main/profile.dotinst"
+PROFILE_URL="https://raw.githubusercontent.com/mylinuxforwork/dotfiles/main/hyprland-dotfiles.dotinst"
 MY_DOTFILES_ROOT="$HOME/.mydotfiles"
 TARGET_STORAGE="$MY_DOTFILES_ROOT/com.ml4w.dotfiles"
 INSTALLER_DIR="$HOME/ml4w-dotfiles-installer"
