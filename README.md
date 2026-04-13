@@ -1,4 +1,5 @@
 <img width="2560" height="1440" alt="image" src="https://github.com/user-attachments/assets/4d9c7e27-fbc4-49ef-9779-02090d0ab355" />
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/680fcb60-ca4d-4f42-85ae-6aee2c9bf29a" />
 
 
 <h1 align="center"> ML4W LightCrimson Dotfiles </h1>
