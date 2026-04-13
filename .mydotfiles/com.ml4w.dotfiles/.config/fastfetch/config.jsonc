@@ -69,6 +69,12 @@
             "showPeCoreCount": true
         },
         {
+            "key": "│ {#33}󰯦 gpu     {#keys}│",
+            "type": "gpu",
+            "format": "{name} {index}",
+            "detectionMethod": "auto"
+        },
+        {
             "key": "│ {#34}󰉉 disk    {#keys}│",
             "type": "disk",
             "folders": "/"

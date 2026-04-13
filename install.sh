@@ -41,9 +41,13 @@ echo "🎨 Restoring custom edits..."
 # It uses the Repo as the source.
 cp -f "$REPO_ROOT/.config/ml4w/scripts/ml4w-toggle-theme" "$TARGET_STORAGE/.config/ml4w/scripts/ml4w-toggle-theme"
 cp -f "$REPO_ROOT/.config/ml4w/scripts/ml4w-wallpaper" "$TARGET_STORAGE/.config/ml4w/scripts/ml4w-wallpaper"
-cp -f "$REPO_ROOT/.config/hypr/scripts/screenshot.sh" "$TARGET_STORAGE/.config/hypr/scripts/screenshot"
-cp -f "$REPO_ROOT/.config/hypr/scripts/colorpicker.sh" "$TARGET_STORAGE/.config/hypr/scripts/colorpicker"
-cp -f "$REPO_ROOT/.config/hypr/conf/keybindings/default.conf" "$TARGET_STORAGE/.config/hypr/conf/keybindings/default.conf"
 cp -f "$REPO_ROOT/.config/ml4w/settings/darkmode" "$TARGET_STORAGE/.config/ml4w/settings/darkmode"
+# Edited screenshot and colorpicker scripts
+cp -f "$REPO_ROOT/.config/hypr/scripts/screenshot.sh" "$TARGET_STORAGE/.config/hypr/scripts/screenshot.sh"
+cp -f "$REPO_ROOT/.config/hypr/scripts/colorpicker.sh" "$TARGET_STORAGE/.config/hypr/scripts/colorpicker.sh"
+# Added custom keybindings
+cp -f "$REPO_ROOT/.config/hypr/conf/keybindings/default.conf" "$TARGET_STORAGE/.config/hypr/conf/keybindings/default.conf"
+# Fastfetch
+cp -f "$REPO_ROOT/.config/fastfetch/config.jsonc" "$TARGET_STORAGE/.config/fastfetch/config.jsonc"
 
 echo "✅ Done. ~/.mydotfiles updated."
