@@ -35,6 +35,9 @@ cd "$INSTALLER_DIR"
 make install
 ~/.local/bin/ml4w-dotfiles-installer --install "$PROFILE_URL"
 
+echo "Installing ML4W Hyprland Settings App..."
+bash -c "$(curl -s https://raw.githubusercontent.com/mylinuxforwork/hyprland-settings/master/setup.sh)"
+
 # 5. RESTORE YOUR CUSTOMIZATIONS INTO STORAGE
 echo "🎨 Restoring custom edits..."
 # This specifically puts your edited files into the storage folder
