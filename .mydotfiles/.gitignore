@@ -2,5 +2,6 @@
 backups/
 
 # --- Files ---
-config/.gtkrc-2.0
+.gtkrc-2.0
 .Xresources
+bookmarks
