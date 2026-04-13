@@ -15,6 +15,8 @@
 This repo basically uses the dotfiles made from ML4W and uses my own tweaks.
 Used on a CachyOS system. Should work with Arch based systems as well.
 
+This dotfiles only install the default profile of ML4W, and then apply some of my own tweaks on top of it. So you can expect the same experience as ML4W with some added features and optimizations.
+
 ## Features 👍
 
 - Basically everything from ML4W
