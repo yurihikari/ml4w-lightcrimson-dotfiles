@@ -60,6 +60,7 @@ cp -f "$REPO_ROOT/.config/hypr/conf/keybindings/default.conf" "$TARGET_STORAGE/.
 # Fastfetch
 cp -f "$REPO_ROOT/.config/fastfetch/config.jsonc" "$TARGET_STORAGE/.config/fastfetch/config.jsonc"
 # Fix for zsh plugins, having a different path because arch package installs them in a different location when using the AUR version vs the git clone version. This is needed to avoid breaking zsh plugins for users who installed them using the AUR package.
+cp -f "$REPO_ROOT/.config/zshrc/00-init" "$TARGET_STORAGE/.config/zshrc/00-init"
 cp -f "$REPO_ROOT/.config/zshrc/20-customization" "$TARGET_STORAGE/.config/zshrc/20-customization"
 echo "✅ Custom edits installed."
 
