@@ -89,4 +89,42 @@ cp -f "$REPO_ROOT/.config/bashrc/10-aliases" "$TARGET_STORAGE/.config/bashrc/10-
 cp -f "$REPO_ROOT/.config/zshrc/25-aliases" "$TARGET_STORAGE/.config/zshrc/25-aliases"
 echo "✅ zoxide init and aliases set up in shell configs."
 
-echo "✅ Done. ~/.mydotfiles updated."
+echo "
+============================================================
+        ✅ CUSTOM DOTFILES CHANGES SUMMARY
+============================================================
+
+🎨 ML4W Theme & Wallpaper Customizations
+   • ml4w-toggle-theme: Added 'Save' theme mode variable
+     → Theme stays consistent after waybar/matugen changes
+   • darkmode: Custom darkmode state file preserved
+   • ml4w-wallpaper: Added darkmode variable
+     → Matugen won't override darkmode unless desired
+
+📸 Screenshot & Colorpicker Enhancements
+   • screenshot.sh: Screenshots now copied to clipboard
+     + saved to file (dual functionality)
+   • colorpicker.sh: Added hyprpicker integration
+     → Press META+P to pick colors
+
+⌨️ Custom Keybindings Added
+   • META+X → Powermenu
+   • META+P → Colorpicker (hyprpicker)
+   • META+D → Application launcher
+   • Plus other custom overrides in default.conf
+
+🖥️ Fastfetch Customization
+   • Custom logo image added (you can replace it with your own)
+   • GPU information display enabled
+
+🐚 Shell Configuration Fixes
+   • zsh plugins: Fixed path issue for AUR vs git clone
+     → 00-init & 20-customization updated
+   • zoxide: Installed and initialized for bash/fish/zsh
+     → 'cd' alias with directory jumping available
+   • Aliases: Added for bash, fish, and zsh
+
+============================================================
+        All changes saved to ~/.mydotfiles
+============================================================
+"
