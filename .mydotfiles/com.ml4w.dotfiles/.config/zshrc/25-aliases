@@ -6,6 +6,7 @@
 # General
 # -----------------------------------------------------
 alias ..='cd ..'
+alias cd='z'
 alias c='clear'
 alias nf='fastfetch'
 alias pf='fastfetch'
