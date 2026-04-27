@@ -63,7 +63,34 @@ cp -f "$REPO_ROOT/.config/fastfetch/config.jsonc" "$TARGET_STORAGE/.config/fastf
 cp -f "$REPO_ROOT/.config/zshrc/00-init" "$TARGET_STORAGE/.config/zshrc/00-init"
 cp -f "$REPO_ROOT/.config/zshrc/20-customization" "$TARGET_STORAGE/.config/zshrc/20-customization"
 echo "✅ Custom edits installed."
+# Quickshell settings
+cp -f "$REPO_ROOT/.config/quickshell/shell.qml" "$TARGET_STORAGE/.config/quickshell/shell.qml"
 
+# Install cava
+echo "📂 Setting up cava..."
+if ! command -v cava &> /dev/null; then
+    echo "📦 cava not found. Installing..."
+    sudo pacman -Sy cava
+    ## If installation fails, continue but print a warning for user to manually install cava, otherwise the music visualizer won't work.
+    if ! command -v cava &> /dev/null; then
+        echo "⚠️ Warning: cava installation failed. Please install cava manually for the music visualizer to work."
+    else
+        echo "✅ cava installed successfully."
+    fi
+fi
+
+# Install zoxide
+echo "📂 Setting up zoxide..."
+if ! command -v zoxide &> /dev/null; then
+    echo "📦 zoxide not found. Installing..."
+    sudo pacman -Sy zoxide
+    ## If installation fails, continue but print a warning for user to manually install zoxide, otherwise the cd alias won't work.
+    if ! command -v zoxide &> /dev/null; then
+        echo "⚠️ Warning: zoxide installation failed. Please install zoxide manually for the 'cd' alias to work."
+    else
+        echo "✅ zoxide installed successfully."
+    fi
+fi
 # Install zoxide init in bash, fish and zsh
 echo "📂 Setting up zoxide init in shell configs..."
 ## Check if zoxide is installed, if not install it using pacman (auto-confirm)
