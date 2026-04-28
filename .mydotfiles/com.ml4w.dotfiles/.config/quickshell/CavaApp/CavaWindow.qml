@@ -7,65 +7,71 @@ import qs.CustomTheme
 PanelWindow {
     id: root
 
-    // Layering
     WlrLayershell.layer: WlrLayer.Bottom
     exclusionMode: WlrLayershell.Ignore
     
-    // Position
     anchors {
         left: true
         right: true
         bottom: true
     }
     height: 300
-    
-    // DEBUG: Keeping the red background as requested
     color: "transparent"
 
-    // This is the data array
-    property var barValues: []
+    // Use a simple array to store heights
+    property var rawData: []
 
-    // --- CAVA PROCESS ---
     Process {
         id: cava
         running: true
-        // Simplest possible command string
-        command: ["bash", "-c", "cava -p <(echo -e '[output]\nmethod=raw\ndata_format=ascii\nascii_max_range=200\nbar_delimiter=32\nbars=200')"]
+        command: ["bash", "-c", "cava -p <(echo -e '[output]\nmethod=raw\ndata_format=ascii\nascii_max_range=200\nbar_delimiter=32\nbars=100')"]
         
         stdout: SplitParser {
-            // onRead is the standard signal. data is the string received.
             onRead: {
                 var clean = data.trim();
-                if (clean !== "") {
+                if (clean.length > 0) {
                     var parts = clean.split(/\s+/);
-                    if (parts.length > 5) {
-                        root.barValues = parts;
+                    if (parts.length >= 100) {
+                        root.rawData = parts;
+                        canvas.requestPaint(); // Trigger a redraw
                     }
                 }
             }
         }
     }
 
-    // --- THE BARS ---
-    Row {
+    Canvas {
+        id: canvas
         anchors.fill: parent
-        spacing: 2
+        // Smoothing makes it look better, but 'fast' is better for performance
+        renderTarget: Canvas.FramebufferObject
+        renderStrategy: Canvas.Cooperative
 
-        Repeater {
-            model: root.barValues
-            Rectangle {
-                // Ensure bars have a minimum width
-                width: (root.width / 200) - 2
-                // Ensure bars have a minimum height of 10px so you can see them
-                height: Math.max(1, (parseInt(modelData) / 100) * root.height)
-                anchors.bottom: parent.bottom
+        onPaint: {
+            var ctx = getContext("2d");
+            ctx.clearRect(0, 0, width, height);
+            
+            var barCount = 100;
+            var spacing = 2;
+            var barWidth = (width / barCount) - spacing;
+            
+            // Use the primary theme color
+            ctx.fillStyle = Theme.primary;
+            ctx.globalAlpha = 0.6;
+
+            for (var i = 0; i < barCount; i++) {
+                var val = parseInt(root.rawData[i]) || 0;
+                // Calculate height: (val / max_range) * total_height
+                var barHeight = (val / 200) * height;
                 
-                // Using BLUE for high contrast against the RED box
-                color: Theme.primary
-                opacity: 0.6
-                // Removed animation to prevent any performance hanging
+                // Draw from bottom up
+                ctx.fillRect(
+                    i * (barWidth + spacing), 
+                    height - barHeight, 
+                    barWidth, 
+                    barHeight
+                );
             }
         }
     }
-
 }
