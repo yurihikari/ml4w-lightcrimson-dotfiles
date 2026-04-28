@@ -24,14 +24,14 @@ PanelWindow {
     Process {
         id: cava
         running: true
-        command: ["bash", "-c", "cava -p <(echo -e '[output]\nmethod=raw\ndata_format=ascii\nascii_max_range=200\nbar_delimiter=32\nbars=100')"]
+        command: ["bash", "-c", "cava -p <(echo -e '[output]\nmethod=raw\ndata_format=ascii\nascii_max_range=200\nbar_delimiter=32\nbars=200')"]
         
         stdout: SplitParser {
             onRead: {
                 var clean = data.trim();
                 if (clean.length > 0) {
                     var parts = clean.split(/\s+/);
-                    if (parts.length >= 100) {
+                    if (parts.length >= 200) {
                         root.rawData = parts;
                         canvas.requestPaint(); // Trigger a redraw
                     }
@@ -51,7 +51,7 @@ PanelWindow {
             var ctx = getContext("2d");
             ctx.clearRect(0, 0, width, height);
             
-            var barCount = 100;
+            var barCount = 200;
             var spacing = 2;
             var barWidth = (width / barCount) - spacing;
             
