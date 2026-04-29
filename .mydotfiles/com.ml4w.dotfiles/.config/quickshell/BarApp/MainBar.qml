@@ -1,0 +1,334 @@
+import Quickshell
+import Quickshell.Wayland
+import Quickshell.Hyprland
+import Quickshell.Io 
+import QtQuick
+import QtQuick.Layouts
+import "../CustomTheme"
+
+PanelWindow {
+    id: bar
+    anchors { top: true; left: true; right: true }
+    height: 60 
+    WlrLayershell.layer: WlrLayer.Top
+    exclusionMode: WlrLayershell.Exclusive
+    exclusiveZone: height - 30 
+    
+    WlrLayershell.keyboardFocus: WlrLayershell.None
+    color: "transparent"
+
+    // --- SYSTEM DATA ENGINE ---
+    QtObject {
+        id: sysInfo
+        property real volValue: 0.0
+        property bool isDragging: false 
+        property string bat: "0%"
+        property string wifi: "Offline"
+        property bool bluetooth: false
+        property bool hasBattery: true 
+
+        property real cpuUsage: 0.0
+        property real ramUsage: 0.0
+        property real diskUsage: 0.0
+    }
+
+    Process {
+        id: volGetter
+        running: true
+        command: ["bash", "-c", "wpctl get-volume @DEFAULT_AUDIO_SINK@ | sed 's/[^0-9.]*//g'"]
+        stdout: SplitParser {
+            onRead: {
+                if (!sysInfo.isDragging) {
+                    let v = parseFloat(data.trim())
+                    if (!isNaN(v)) {
+                        sysInfo.volValue = v
+                    }
+                }
+            }
+        }
+    }
+
+    Process {
+        id: batGetter
+        running: true
+        command: ["bash", "-c", "cat /sys/class/power_supply/BAT0/capacity 2>/dev/null || echo 'none'"]
+        stdout: SplitParser {
+            onRead: {
+                if (data.trim() === "none") {
+                    sysInfo.hasBattery = false
+                } else {
+                    sysInfo.bat = data.trim() + "%"
+                }
+            }
+        }
+    }
+
+    Process {
+        id: wifiGetter
+        running: true
+        command: ["bash", "-c", "nmcli -t -f active,ssid dev wifi | grep '^yes' | cut -d: -f2"]
+        stdout: SplitParser {
+            onRead: {
+                sysInfo.wifi = data.trim() || "Offline"
+            }
+        }
+    }
+
+    Process {
+        id: btGetter
+        running: true
+        command: ["bash", "-c", "bluetoothctl show | grep -q 'Powered: yes' && echo 'on' || echo 'off'"]
+        stdout: SplitParser {
+            onRead: {
+                sysInfo.bluetooth = (data.trim() === "on")
+            }
+        }
+    }
+
+    Process {
+        id: perfGetter
+        running: true
+        command: ["bash", "-c", "cpu=$(top -bn1 | grep 'Cpu(s)' | awk '{print 100 - $8}'); mem=$(free | grep Mem | awk '{print $3/$2 * 100.0}'); disk=$(df / --output=pcent | tail -1 | tr -dc '0-9'); echo \"$cpu|$mem|$disk\""]
+        stdout: SplitParser {
+            onRead: {
+                let parts = data.trim().split("|")
+                if (parts.length >= 3) {
+                    sysInfo.cpuUsage = (parseFloat(parts[0]) || 0) / 100
+                    sysInfo.ramUsage = (parseFloat(parts[1]) || 0) / 100
+                    sysInfo.diskUsage = (parseFloat(parts[2]) || 0) / 100
+                }
+            }
+        }
+    }
+
+    Timer {
+        interval: 3000
+        running: true
+        repeat: true
+        onTriggered: { 
+            volGetter.running = true
+            batGetter.running = true
+            wifiGetter.running = true
+            btGetter.running = true
+            perfGetter.running = true
+        }
+    }
+
+    // --- MEDIA ---
+    QtObject {
+        id: mediaData
+        property string title: "No Media"
+        property string artist: ""
+        property string status: "Stopped"
+        property string artUrl: ""
+    }
+
+    Process {
+        id: mediaWatcher
+        running: true
+        command: ["bash", "-c", "playerctl -F metadata --format '{{title}}||{{artist}}||{{mpris:artUrl}}||{{status}}'"]
+        stdout: SplitParser {
+            onRead: {
+                var parts = data.split("||")
+                if (parts.length >= 4) {
+                    mediaData.title = parts[0] || "Unknown"
+                    mediaData.artist = parts[1] || "Unknown"
+                    mediaData.artUrl = parts[2] || ""
+                    mediaData.status = parts[3].trim()
+                }
+            }
+        }
+    }
+
+    Process { 
+        id: executor
+        function run(args) {
+            command = args
+            running = true
+        } 
+    }
+
+    property string swayncState: "none"
+    Process {
+        id: swayncWatcher
+        running: true
+        command: ["swaync-client", "-swb"]
+        stdout: SplitParser {
+            onRead: {
+                try {
+                    let json = JSON.parse(data.trim())
+                    bar.swayncState = json.alt
+                } catch (e) {}
+            }
+        }
+    }
+
+    function getNotificationIcon(state) {
+        if (state.includes("notification")) return "󰂠"
+        return state.includes("dnd") ? "󰂛" : "󰂚"
+    }
+
+    // --- UI LAYOUT ---
+    Rectangle { anchors.top: parent.top; width: parent.width; height: 40; color: Theme.background }
+
+    Rectangle {
+        id: centerPill
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        anchors.topMargin: 5
+        height: 30
+        width: Math.min(centerRow.implicitWidth + 30, 450)
+        radius: 15
+        color: Theme.surface_container_high
+        z: 5
+        Row {
+            id: centerRow
+            anchors.centerIn: parent
+            spacing: 8
+            Text { text: "󰎆"; color: Theme.primary; font.pixelSize: 14; verticalAlignment: Text.AlignVCenter }
+            Text { 
+                text: mediaData.title + (mediaData.artist ? " - " + mediaData.artist : "")
+                color: Theme.primary; font.pixelSize: 14; font.weight: Font.Medium; verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight; width: Math.min(implicitWidth, 350)
+            }
+        }
+        MouseArea { 
+            anchors.fill: parent
+            onClicked: mediaPopup.active = !mediaPopup.active 
+        }
+    }
+
+    RowLayout {
+        anchors.top: parent.top; width: parent.width; height: 40
+        anchors.leftMargin: 10; anchors.rightMargin: 10; spacing: 0
+
+        Row {
+            Layout.alignment: Qt.AlignLeft; spacing: 8
+            Text { 
+                text: "   󰣇"; color: Theme.primary; font.pixelSize: 24; anchors.verticalCenter: parent.verticalCenter 
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    onClicked: (mouse) => {
+                        if (mouse.button === Qt.LeftButton) executor.run(["bash", "-c", "~/.config/hypr/scripts/launcher.sh"])
+                        else executor.run(["bash", "-c", "~/.config/hypr/scripts/keybindings.sh"])
+                    }
+                }
+            }
+            Rectangle {
+                height: 30; width: wsRow.width + 20; radius: 15; color: Theme.surface_container_high; anchors.verticalCenter: parent.verticalCenter
+                Row { id: wsRow; anchors.centerIn: parent; spacing: 12
+                    Repeater { model: Hyprland.workspaces
+                        Item { width: 16; height: 16; Text { anchors.centerIn: parent; text: modelData.active ? "󰮯" : "󰊠"; color: modelData.active ? Theme.on_primary_container : Theme.primary; font.pixelSize: 16; verticalAlignment: Text.AlignVCenter } }
+                    }
+                }
+            }
+        }
+
+        Item { Layout.fillWidth: true }
+
+        Row {
+            Layout.alignment: Qt.AlignRight; spacing: 15
+
+            // VOLUME
+            Row {
+                spacing: 8; anchors.verticalCenter: parent.verticalCenter
+                Text { text: sysInfo.volValue > 0 ? "󰕾" : "󰝟"; color: Theme.primary; font.pixelSize: 18; verticalAlignment: Text.AlignVCenter }
+                Rectangle {
+                    width: 80; height: 6; radius: 3; color: Theme.surface_container_high; anchors.verticalCenter: parent.verticalCenter
+                    Rectangle { width: parent.width * sysInfo.volValue; height: parent.height; radius: 3; color: Theme.primary }
+                    MouseArea {
+                        anchors.fill: parent
+                        function update(mouse) {
+                            sysInfo.isDragging = true
+                            let p = Math.max(0, Math.min(1, mouse.x / width))
+                            sysInfo.volValue = p
+                            executor.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", p.toFixed(2)])
+                        }
+                        onPressed: update(mouse)
+                        onPositionChanged: update(mouse)
+                        onReleased: { 
+                            sysInfo.isDragging = false
+                            volGetter.running = true 
+                        }
+                    }
+                }
+            }
+
+            // CLIPBOARD
+            Text {
+                text: "󰅌"
+                color: Theme.primary
+                font.pixelSize: 18
+                anchors.verticalCenter: parent.verticalCenter
+                verticalAlignment: Text.AlignVCenter
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: executor.run(["bash", "-c", "sleep 0.1 && ~/.config/ml4w/scripts/ml4w-cliphist"])
+                }
+            }
+
+            // NOTIFICATIONS
+            Text {
+                text: getNotificationIcon(bar.swayncState); color: Theme.primary; font.pixelSize: 20; anchors.verticalCenter: parent.verticalCenter; verticalAlignment: Text.AlignVCenter
+                MouseArea { anchors.fill: parent; acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    onClicked: (mouse) => { if (mouse.button === Qt.LeftButton) executor.run(["swaync-client", "-t", "-sw"]); else executor.run(["swaync-client", "-d", "-sw"]); }
+                }
+            }
+
+            // CLOCK
+            Item {
+                width: clockCol.implicitWidth
+                height: 32
+                anchors.verticalCenter: parent.verticalCenter
+                Column {
+                    id: clockCol
+                    anchors.centerIn: parent
+                    spacing: -2
+                    Text { text: Qt.formatDateTime(new Date(), "HH:mm"); color: Theme.primary; font.pixelSize: 12; font.weight: Font.Black; horizontalAlignment: Text.AlignHCenter }
+                    Text { text: Qt.formatDateTime(new Date(), "AP"); color: Theme.primary; font.pixelSize: 10; font.weight: Font.Bold; horizontalAlignment: Text.AlignHCenter }
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: calendarPopup.active = !calendarPopup.active
+                }
+            }
+
+            Rectangle {
+                height: 30; width: sysRow.implicitWidth + 24; radius: 15; color: Theme.surface_container_high; anchors.verticalCenter: parent.verticalCenter
+                RowLayout {
+                    id: sysRow; anchors.centerIn: parent; spacing: 10
+                    Row { spacing: 4; Layout.alignment: Qt.AlignVCenter
+                        Text { text: "󰤨"; color: Theme.primary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
+                        Text { text: sysInfo.wifi; color: Theme.primary; font.pixelSize: 13; font.weight: Font.Bold; visible: sysInfo.wifi !== "Offline"; verticalAlignment: Text.AlignVCenter }
+                    }
+                    Text { text: "󰂯"; color: Theme.primary; font.pixelSize: 14; visible: sysInfo.bluetooth; Layout.alignment: Qt.AlignVCenter; verticalAlignment: Text.AlignVCenter }
+                    Row { spacing: 4; visible: sysInfo.hasBattery; Layout.alignment: Qt.AlignVCenter
+                        Text { text: "󰂄"; color: Theme.primary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
+                        Text { text: sysInfo.bat; color: Theme.primary; font.pixelSize: 13; font.weight: Font.Bold; verticalAlignment: Text.AlignVCenter }
+                    }
+                }
+                MouseArea { 
+                    anchors.fill: parent
+                    onClicked: systemPopup.active = !systemPopup.active 
+                }
+            }
+            
+            Text { 
+                text: "󰐥    "; color: Theme.primary; font.pixelSize: 18; anchors.verticalCenter: parent.verticalCenter; verticalAlignment: Text.AlignVCenter
+                MouseArea { anchors.fill: parent; onClicked: executor.run(["qs", "ipc", "call", "power", "toggle"]); }
+            }
+        }
+    }
+
+    MediaPopup { id: mediaPopup }
+    SystemPopup { id: systemPopup }
+    CalendarPopup { id: calendarPopup }
+
+    Canvas { id: leftCorner; x: 10; y: 40; width: 20; height: 20; property color syncColor: Theme.background; onSyncColorChanged: requestPaint()
+        onPaint: { var ctx = getContext("2d"); ctx.reset(); ctx.fillStyle = Theme.background; ctx.moveTo(0, 0); ctx.lineTo(20, 0); ctx.arcTo(0, 0, 0, 20, 20); ctx.fill(); }
+    }
+    Canvas { id: rightCorner; x: parent.width - 30; y: 40; width: 20; height: 20; property color syncColor: Theme.background; onSyncColorChanged: requestPaint()
+        onPaint: { var ctx = getContext("2d"); ctx.reset(); ctx.fillStyle = Theme.background; ctx.moveTo(20, 0); ctx.lineTo(0, 0); ctx.arcTo(20, 0, 20, 20, 20); ctx.fill(); }
+    }
+}

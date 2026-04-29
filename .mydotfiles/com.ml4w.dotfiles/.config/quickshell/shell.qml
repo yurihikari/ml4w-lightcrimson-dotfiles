@@ -6,7 +6,8 @@ import "SidebarApp"
 import "CalendarApp"
 import "WallpaperApp"
 import "CustomTheme"
-// import "CavaApp"
+import "CavaApp"
+import "BarApp"
 
 ShellRoot {
     // Test IPC tools: qs ipc show
@@ -18,10 +19,12 @@ ShellRoot {
         }
     }
 
+    MainBar {}
+    ScreenFrame {}
     WelcomeWindow {}
     PowerWindow {}
     SidebarWindow {}
     CalendarWindow {}
     WallpaperWindow {}
-    // CavaWindow {}
+    CavaWindow {}
 }

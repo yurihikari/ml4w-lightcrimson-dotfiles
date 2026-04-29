@@ -128,6 +128,9 @@ echo "
    • ml4w-wallpaper: Added darkmode variable
      → Matugen won't override darkmode unless desired
 
+📱 Quickshell
+   • Made a custom bar, replacing waybar. 
+
 📸 Screenshot & Colorpicker Enhancements
    • screenshot.sh: Screenshots now copied to clipboard
      + saved to file (dual functionality)
