@@ -9,6 +9,7 @@ import "../CustomTheme"
 PanelWindow {
     id: root
     property bool active: false
+    property string searchText: ""
     visible: active
     
     anchors { 
@@ -18,7 +19,10 @@ PanelWindow {
     
     WlrLayershell.layer: WlrLayer.Overlay
     exclusionMode: WlrLayershell.Ignore
-    WlrLayershell.keyboardFocus: WlrLayershell.None
+    
+    // THE FIX: Changed to OnDemand so the Search Bar can take focus
+    WlrLayershell.keyboardFocus: active ? WlrLayershell.OnDemand : WlrLayershell.None
+    
     color: "transparent"
 
     MouseArea {
@@ -33,15 +37,16 @@ PanelWindow {
 
     Process {
         id: clipLoader
-        command: ["cliphist", "list"]
+        // If search is empty, list all. If not, pipe through grep.
+        command: root.searchText === "" 
+                 ? ["cliphist", "list"] 
+                 : ["bash", "-c", "cliphist list | grep -i '" + root.searchText + "'"]
+        
         stdout: SplitParser {
-            // We removed the 'split' property to avoid the error. 
-            // Most versions default to newline splitting.
             onRead: {
                 let line = data.trim()
                 if (line.length === 0) return
                 
-                // cliphist output is "ID[tab]Content"
                 let splitIdx = line.indexOf("\t")
                 if (splitIdx !== -1) {
                     let id = line.substring(0, splitIdx)
@@ -52,8 +57,21 @@ PanelWindow {
         }
     }
 
+    // Debounce Timer: Waits 200ms after you stop typing to search
+    // This prevents lag with 600+ items
+    Timer {
+        id: searchDelay
+        interval: 200
+        onTriggered: {
+            clipModel.clear()
+            clipLoader.running = true
+        }
+    }
+
     onActiveChanged: {
         if (active) {
+            root.searchText = ""
+            searchField.forceActiveFocus()
             clipModel.clear()
             clipLoader.running = true
         }
@@ -62,7 +80,7 @@ PanelWindow {
     Rectangle {
         id: container
         width: 400
-        height: 550
+        height: 600 // Increased height for search bar room
         anchors.top: parent.top
         anchors.topMargin: 45
         anchors.right: parent.right
@@ -80,16 +98,16 @@ PanelWindow {
             anchors.margins: 25
             spacing: 15
 
+            // --- HEADER ---
             RowLayout {
                 Layout.fillWidth: true
                 Text { 
-                    text: "󰅌  Clipboard History"
+                    text: "󰅌  Clipboard"
                     color: Theme.primary
                     font.pixelSize: 16
                     font.bold: true 
                 }
                 Item { Layout.fillWidth: true }
-                
                 Text { 
                     text: "󰃢"
                     color: Theme.primary
@@ -106,6 +124,58 @@ PanelWindow {
                 }
             }
 
+            // --- SEARCH BAR ---
+            Rectangle {
+                Layout.fillWidth: true
+                height: 40
+                radius: 12
+                color: Theme.surface_container_high
+                border.color: searchField.activeFocus ? Theme.primary : "transparent"
+                border.width: 1
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 12
+                    anchors.rightMargin: 12
+                    
+                    Text { 
+                        text: "󰍉"
+                        color: Theme.primary
+                        opacity: 0.5
+                        font.pixelSize: 14 
+                    }
+
+                    TextField {
+                        id: searchField
+                        Layout.fillWidth: true
+                        placeholderText: "Search history..."
+                        color: Theme.primary
+                        font.pixelSize: 13
+                        background: Item {} // Remove default styling
+                        
+                        onTextChanged: {
+                            root.searchText = text
+                            searchDelay.restart()
+                        }
+
+                        // Close on Enter if an item is selected, or just for convenience
+                        onAccepted: root.active = false 
+                    }
+
+                    Text {
+                        text: "󰅖"
+                        color: Theme.primary
+                        visible: searchField.text !== ""
+                        opacity: 0.5
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: searchField.text = ""
+                        }
+                    }
+                }
+            }
+
+            // --- LIST ---
             Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -121,6 +191,15 @@ PanelWindow {
                     spacing: 4
                     boundsBehavior: Flickable.StopAtBounds
                     cacheBuffer: 100 
+
+                    // Empty State logic
+                    Text {
+                        anchors.centerIn: parent
+                        visible: listView.count === 0 && !clipLoader.running
+                        text: "No matches found"
+                        color: Theme.primary
+                        opacity: 0.3
+                    }
 
                     delegate: Rectangle {
                         width: listView.width
