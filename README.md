@@ -1,5 +1,6 @@
-<img width="2560" height="1440" alt="image" src="https://github.com/user-attachments/assets/4d9c7e27-fbc4-49ef-9779-02090d0ab355" />
-<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/680fcb60-ca4d-4f42-85ae-6aee2c9bf29a" />
+<img width="2880" height="1800" alt="image" src="https://github.com/user-attachments/assets/0463d895-ab99-43fd-8b1f-a811be461c22" />
+<img width="2880" height="1800" alt="image" src="https://github.com/user-attachments/assets/c625c348-5348-49a7-b730-e04b0781656e" />
+
 
 
 <h1 align="center"> ML4W LightCrimson Dotfiles </h1>
@@ -41,6 +42,9 @@ This dotfiles only install the default profile of ML4W, and then apply some of m
 ### 🖥️ Fastfetch Customization
    - Custom logo image added (you can replace it with your own)
    - GPU information display enabled
+
+### 🐚 QUICKSHELL 
+   - A brand new bar, to use instead of waybar :)
 
 ### 🐚 Shell Configuration Fixes
    - zsh plugins: Fixed path issue for AUR vs git clone
