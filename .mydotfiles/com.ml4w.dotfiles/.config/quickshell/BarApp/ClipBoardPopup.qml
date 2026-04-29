@@ -19,16 +19,23 @@ PanelWindow {
     
     WlrLayershell.layer: WlrLayer.Overlay
     exclusionMode: WlrLayershell.Ignore
-    
-    // THE FIX: Changed to OnDemand so the Search Bar can take focus
     WlrLayershell.keyboardFocus: active ? WlrLayershell.OnDemand : WlrLayershell.None
-    
     color: "transparent"
 
+    // Click outside to close
     MouseArea {
         anchors.fill: parent
         onClicked: {
             root.active = false
+        }
+    }
+
+    // Local Executor for clipboard actions
+    Process {
+        id: clipExec
+        function run(args) {
+            command = args
+            running = true
         }
     }
 
@@ -37,7 +44,6 @@ PanelWindow {
 
     Process {
         id: clipLoader
-        // If search is empty, list all. If not, pipe through grep.
         command: root.searchText === "" 
                  ? ["cliphist", "list"] 
                  : ["bash", "-c", "cliphist list | grep -i '" + root.searchText + "'"]
@@ -57,8 +63,6 @@ PanelWindow {
         }
     }
 
-    // Debounce Timer: Waits 200ms after you stop typing to search
-    // This prevents lag with 600+ items
     Timer {
         id: searchDelay
         interval: 200
@@ -80,7 +84,7 @@ PanelWindow {
     Rectangle {
         id: container
         width: 400
-        height: 600 // Increased height for search bar room
+        height: 600
         anchors.top: parent.top
         anchors.topMargin: 45
         anchors.right: parent.right
@@ -91,7 +95,7 @@ PanelWindow {
         border.color: Theme.primary
         border.width: 1
 
-        MouseArea { anchors.fill: parent }
+        MouseArea { anchors.fill: parent } // Block click-through
 
         ColumnLayout {
             anchors.fill: parent
@@ -101,22 +105,15 @@ PanelWindow {
             // --- HEADER ---
             RowLayout {
                 Layout.fillWidth: true
-                Text { 
-                    text: "󰅌  Clipboard"
-                    color: Theme.primary
-                    font.pixelSize: 16
-                    font.bold: true 
-                }
+                Text { text: "󰅌  Clipboard History"; color: Theme.primary; font.pixelSize: 16; font.bold: true }
                 Item { Layout.fillWidth: true }
                 Text { 
                     text: "󰃢"
-                    color: Theme.primary
-                    font.pixelSize: 18
-                    opacity: 0.6
+                    color: Theme.primary; font.pixelSize: 18; opacity: 0.6
                     MouseArea {
                         anchors.fill: parent
                         onClicked: {
-                            executor.run(["bash", "-c", "cliphist wipe"])
+                            clipExec.run(["bash", "-c", "cliphist wipe"])
                             clipModel.clear()
                             root.active = false
                         }
@@ -126,50 +123,24 @@ PanelWindow {
 
             // --- SEARCH BAR ---
             Rectangle {
-                Layout.fillWidth: true
-                height: 40
-                radius: 12
+                Layout.fillWidth: true; height: 40; radius: 12
                 color: Theme.surface_container_high
                 border.color: searchField.activeFocus ? Theme.primary : "transparent"
                 border.width: 1
 
                 RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: 12
-                    anchors.rightMargin: 12
-                    
-                    Text { 
-                        text: "󰍉"
-                        color: Theme.primary
-                        opacity: 0.5
-                        font.pixelSize: 14 
-                    }
-
+                    anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12
+                    Text { text: "󰍉"; color: Theme.primary; opacity: 0.5; font.pixelSize: 14 }
                     TextField {
                         id: searchField
                         Layout.fillWidth: true
                         placeholderText: "Search history..."
                         color: Theme.primary
                         font.pixelSize: 13
-                        background: Item {} // Remove default styling
-                        
+                        background: Item {} 
                         onTextChanged: {
                             root.searchText = text
                             searchDelay.restart()
-                        }
-
-                        // Close on Enter if an item is selected, or just for convenience
-                        onAccepted: root.active = false 
-                    }
-
-                    Text {
-                        text: "󰅖"
-                        color: Theme.primary
-                        visible: searchField.text !== ""
-                        opacity: 0.5
-                        MouseArea {
-                            anchors.fill: parent
-                            onClicked: searchField.text = ""
                         }
                     }
                 }
@@ -177,84 +148,89 @@ PanelWindow {
 
             // --- LIST ---
             Rectangle {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                color: Theme.surface_container_high
-                radius: 20
-                clip: true
+                Layout.fillWidth: true; Layout.fillHeight: true
+                color: Theme.surface_container_high; radius: 20; clip: true
 
                 ListView {
                     id: listView
-                    anchors.fill: parent
-                    anchors.margins: 8
+                    anchors.fill: parent; anchors.margins: 8
                     model: clipModel
                     spacing: 4
                     boundsBehavior: Flickable.StopAtBounds
                     cacheBuffer: 100 
 
-                    // Empty State logic
-                    Text {
-                        anchors.centerIn: parent
-                        visible: listView.count === 0 && !clipLoader.running
-                        text: "No matches found"
-                        color: Theme.primary
-                        opacity: 0.3
-                    }
-
                     delegate: Rectangle {
-                        width: listView.width
-                        height: 45
-                        radius: 12
-                        color: itemMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : "transparent"
+                        width: listView.width; height: 45; radius: 12
+                        color: "transparent"
 
+                        // Row structure to separate Copy and Delete areas
                         RowLayout {
                             anchors.fill: parent
-                            anchors.leftMargin: 15
-                            anchors.rightMargin: 10
-                            spacing: 10
-                            
-                            Text { 
-                                text: model.preview
-                                color: Theme.primary
-                                font.pixelSize: 12
-                                elide: Text.ElideRight
-                                Layout.fillWidth: true 
-                            }
-                            
-                            Text { 
-                                text: "󰆴"
-                                color: Theme.primary
-                                opacity: 0.4
-                                font.pixelSize: 14 
+                            anchors.leftMargin: 5
+                            anchors.rightMargin: 5
+                            spacing: 0
+
+                            // 1. CLICK TO COPY AREA (Text)
+                            Item {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+
+                                Rectangle {
+                                    anchors.fill: parent; radius: 10; 
+                                    color: Theme.primary; opacity: copyMouse.containsMouse ? 0.1 : 0
+                                }
+
+                                Text { 
+                                    anchors.fill: parent; anchors.leftMargin: 10
+                                    text: model.preview; color: Theme.primary; font.pixelSize: 12
+                                    elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter
+                                }
+
                                 MouseArea {
+                                    id: copyMouse
                                     anchors.fill: parent
+                                    hoverEnabled: true
                                     onClicked: {
-                                        executor.run(["bash", "-c", "echo '" + model.clipId + "\t" + model.preview + "' | cliphist delete"])
-                                        clipModel.remove(index)
+                                        clipExec.run(["bash", "-c", "echo '" + model.clipId + "\t" + model.preview + "' | cliphist decode | wl-copy"])
+                                        root.active = false
                                     }
                                 }
                             }
-                        }
 
-                        MouseArea {
-                            id: itemMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            onClicked: {
-                                executor.run(["bash", "-c", "echo '" + model.clipId + "\t" + model.preview + "' | cliphist decode | wl-copy"])
-                                root.active = false
+                            // 2. DELETE BUTTON AREA
+                            Rectangle {
+                                Layout.preferredWidth: 40
+                                Layout.fillHeight: true
+                                color: "transparent"
+                                radius: 10
+
+                                Rectangle {
+                                    anchors.fill: parent; radius: 10; 
+                                    color: "#ff5555"; opacity: delMouse.containsMouse ? 0.2 : 0
+                                }
+
+                                Text { 
+                                    anchors.centerIn: parent
+                                    text: "󰆴"; color: delMouse.containsMouse ? "#ff5555" : Theme.primary
+                                    opacity: delMouse.containsMouse ? 1.0 : 0.4; font.pixelSize: 14 
+                                }
+
+                                MouseArea {
+                                    id: delMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    onClicked: {
+                                        clipExec.run(["bash", "-c", "echo '" + model.clipId + "\t" + model.preview + "' | cliphist delete"])
+                                        clipModel.remove(index)
+                                    }
+                                }
                             }
                         }
                     }
                     
                     ScrollBar.vertical: ScrollBar {
                         policy: ScrollBar.AsNeeded
-                        contentItem: Rectangle {
-                            implicitWidth: 4
-                            radius: 2
-                            color: Theme.primary
-                            opacity: 0.3
-                        }
+                        contentItem: Rectangle { implicitWidth: 4; radius: 2; color: Theme.primary; opacity: 0.2 }
                     }
                 }
             }
