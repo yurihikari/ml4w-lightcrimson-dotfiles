@@ -9,6 +9,8 @@ import "../CustomTheme"
 PanelWindow {
     id: bar
     anchors { top: true; left: true; right: true }
+    property var modelData
+    screen: modelData
     height: 60 
     WlrLayershell.layer: WlrLayer.Top
     exclusionMode: WlrLayershell.Exclusive

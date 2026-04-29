@@ -1,5 +1,6 @@
 import Quickshell
 import Quickshell.Io
+import QtQuick
 import "WelcomeApp"
 import "PowerApp"
 import "SidebarApp"
@@ -19,8 +20,18 @@ ShellRoot {
         }
     }
 
-    MainBar {}
-    ScreenFrame {}
+    Variants {
+        model: Quickshell.screens
+        delegate: Component {
+            MainBar {}
+        }
+    }
+    Variants {
+        model: Quickshell.screens
+        delegate: Component {
+            ScreenFrame {}
+        }
+    }
     WelcomeWindow {}
     PowerWindow {}
     SidebarWindow {}
