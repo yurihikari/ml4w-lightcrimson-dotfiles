@@ -218,10 +218,44 @@ PanelWindow {
                 }
             }
             Rectangle {
-                height: 30; width: wsRow.width + 20; radius: 15; color: Theme.surface_container_high; anchors.verticalCenter: parent.verticalCenter
-                Row { id: wsRow; anchors.centerIn: parent; spacing: 12
-                    Repeater { model: Hyprland.workspaces
-                        Item { width: 16; height: 16; Text { anchors.centerIn: parent; text: modelData.active ? "󰮯" : "󰊠"; color: modelData.active ? Theme.on_primary_container : Theme.primary; font.pixelSize: 16; verticalAlignment: Text.AlignVCenter } }
+                height: 30
+                width: wsRow.width + 20
+                radius: 15
+                color: Theme.surface_container_high
+                anchors.verticalCenter: parent.verticalCenter
+
+                Row {
+                    id: wsRow
+                    anchors.centerIn: parent
+                    spacing: 12
+
+                    Repeater {
+                        model: Hyprland.workspaces
+                        Item {
+                            width: 16
+                            height: 16
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: modelData.active ? "󰮯" : "󰊠"
+                                color: modelData.active ? Theme.on_primary_container : Theme.primary
+                                font.pixelSize: 16
+                                verticalAlignment: Text.AlignVCenter
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: {
+                                    // Force Hyprland to switch using the command line dispatcher
+                                    executor.run([
+                                        "hyprctl", 
+                                        "dispatch", 
+                                        "workspace", 
+                                        modelData.name
+                                    ])
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -234,24 +268,60 @@ PanelWindow {
 
             // VOLUME
             Row {
-                spacing: 8; anchors.verticalCenter: parent.verticalCenter
-                Text { text: sysInfo.volValue > 0 ? "󰕾" : "󰝟"; color: Theme.primary; font.pixelSize: 18; verticalAlignment: Text.AlignVCenter }
+                spacing: 8
+                anchors.verticalCenter: parent.verticalCenter
+                
+                Text { 
+                    text: sysInfo.volValue > 0 ? "󰕾" : "󰝟"
+                    color: Theme.primary
+                    font.pixelSize: 18
+                    verticalAlignment: Text.AlignVCenter 
+                }
+
                 Rectangle {
-                    width: 80; height: 6; radius: 3; color: Theme.surface_container_high; anchors.verticalCenter: parent.verticalCenter
-                    Rectangle { width: parent.width * sysInfo.volValue; height: parent.height; radius: 3; color: Theme.primary }
+                    width: 80
+                    height: 6
+                    radius: 3
+                    color: Theme.surface_container_high
+                    anchors.verticalCenter: parent.verticalCenter
+
+                    Rectangle { 
+                        width: parent.width * sysInfo.volValue
+                        height: parent.height
+                        radius: 3
+                        color: Theme.primary 
+                    }
+
                     MouseArea {
                         anchors.fill: parent
+                        
                         function update(mouse) {
                             sysInfo.isDragging = true
                             let p = Math.max(0, Math.min(1, mouse.x / width))
                             sysInfo.volValue = p
                             executor.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", p.toFixed(2)])
                         }
-                        onPressed: update(mouse)
-                        onPositionChanged: update(mouse)
+
+                        onPressed: {
+                            update(mouse)
+                        }
+
+                        onPositionChanged: {
+                            update(mouse)
+                        }
+
                         onReleased: { 
                             sysInfo.isDragging = false
                             volGetter.running = true 
+                        }
+
+                        // --- ADDED SCROLL SUPPORT ---
+                        onWheel: (wheel) => {
+                            let delta = wheel.angleDelta.y > 0 ? 0.05 : -0.05
+                            let newValue = Math.max(0, Math.min(1, sysInfo.volValue + delta))
+                            sysInfo.volValue = newValue
+                            executor.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", newValue.toFixed(2)])
+                            volGetter.running = true
                         }
                     }
                 }
