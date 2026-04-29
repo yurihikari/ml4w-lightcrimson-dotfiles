@@ -334,9 +334,12 @@ PanelWindow {
                 font.pixelSize: 18
                 anchors.verticalCenter: parent.verticalCenter
                 verticalAlignment: Text.AlignVCenter
+                
                 MouseArea {
                     anchors.fill: parent
-                    onClicked: executor.run(["bash", "-c", "sleep 0.1 && ~/.config/ml4w/scripts/ml4w-cliphist"])
+                    onClicked: {
+                        clipboardPopup.active = !clipboardPopup.active
+                    }
                 }
             }
 
@@ -396,6 +399,11 @@ PanelWindow {
     MediaPopup { id: mediaPopup }
     SystemPopup { id: systemPopup }
     CalendarPopup { id: calendarPopup }
+    // Clipboard Popup Instance
+    ClipboardPopup { 
+        id: clipboardPopup
+        screen: bar.screen // Ensures it opens on the correct monitor
+    }
 
     Canvas { id: leftCorner; x: 10; y: 40; width: 20; height: 20; property color syncColor: Theme.background; onSyncColorChanged: requestPaint()
         onPaint: { var ctx = getContext("2d"); ctx.reset(); ctx.fillStyle = Theme.background; ctx.moveTo(0, 0); ctx.lineTo(20, 0); ctx.arcTo(0, 0, 0, 20, 20); ctx.fill(); }
