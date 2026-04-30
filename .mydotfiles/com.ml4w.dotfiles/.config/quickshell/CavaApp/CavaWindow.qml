@@ -6,7 +6,8 @@ import qs.CustomTheme
 
 PanelWindow {
     id: root
-
+    property var modelData
+    screen: modelData
     WlrLayershell.layer: WlrLayer.Bottom
     exclusionMode: WlrLayershell.Ignore
     
