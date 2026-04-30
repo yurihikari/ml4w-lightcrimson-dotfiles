@@ -23,6 +23,7 @@ PanelWindow {
     QtObject {
         id: sysInfo
         property real volValue: 0.0
+        property bool isMuted: false
         property bool isDragging: false 
         property string bat: "0%"
         property string wifi: "Offline"
@@ -37,13 +38,15 @@ PanelWindow {
     Process {
         id: volGetter
         running: true
-        command: ["bash", "-c", "wpctl get-volume @DEFAULT_AUDIO_SINK@ | sed 's/[^0-9.]*//g'"]
+        command: ["bash", "-c", "wpctl get-volume @DEFAULT_AUDIO_SINK@"]
         stdout: SplitParser {
             onRead: {
                 if (!sysInfo.isDragging) {
-                    let v = parseFloat(data.trim())
-                    if (!isNaN(v)) {
-                        sysInfo.volValue = v
+                    let output = data.trim()
+                    sysInfo.isMuted = output.includes("[MUTED]")
+                    let match = output.match(/[0-9.]+/)
+                    if (match) {
+                        sysInfo.volValue = parseFloat(match[0])
                     }
                 }
             }
@@ -65,6 +68,7 @@ PanelWindow {
         }
     }
 
+    // Wifi
     Process {
         id: wifiGetter
         running: true
@@ -104,7 +108,7 @@ PanelWindow {
     }
 
     Timer {
-        interval: 3000
+        interval: 100
         running: true
         repeat: true
         onTriggered: { 
@@ -126,13 +130,13 @@ PanelWindow {
         property string artUrl: ""
         property real length: 0
         property real position: 0
-        property bool transitionLock: false // BRUTEFORCE LOCK
+        property bool transitionLock: false 
 
         function formatTime(s) {
-            if (isNaN(s) || s < 0) return "0:00";
-            let mins = Math.floor(s / 60);
-            let secs = Math.floor(s % 60);
-            return mins + ":" + (secs < 10 ? "0" : "") + secs;
+            if (isNaN(s) || s < 0) return "0:00"
+            let mins = Math.floor(s / 60)
+            let secs = Math.floor(s % 60)
+            return mins + ":" + (secs < 10 ? "0" : "") + secs
         }
     }
 
@@ -141,22 +145,21 @@ PanelWindow {
         command: ["bash", "-c", "playerctl -F metadata --format '{{playerName}}||{{title}}||{{artist}}||{{mpris:artUrl}}||{{mpris:length}}||{{status}}'"]
         stdout: SplitParser {
             onRead: {
-                let clean = data.trim();
-                if (clean.length === 0) return;
-                let parts = clean.split("||");
+                let clean = data.trim()
+                if (clean.length === 0) return
+                let parts = clean.split("||")
                 if (parts.length >= 6) {
-                    // IF NEW TRACK DETECTED: Unlock and update
                     if (mediaData.title !== parts[1]) {
-                        mediaData.transitionLock = false; 
-                        mediaData.position = 0;
+                        mediaData.transitionLock = false 
+                        mediaData.position = 0
                     }
-                    mediaData.playerName = parts[0];
-                    mediaData.title = parts[1] || "Unknown";
-                    mediaData.artist = parts[2] || "Unknown";
-                    mediaData.artUrl = parts[3] || "";
-                    let rawLen = parseFloat(parts[4]);
-                    mediaData.length = !isNaN(rawLen) ? rawLen / 1000000 : 0;
-                    mediaData.status = parts[5].trim();
+                    mediaData.playerName = parts[0]
+                    mediaData.title = parts[1] || "Unknown"
+                    mediaData.artist = parts[2] || "Unknown"
+                    mediaData.artUrl = parts[3] || ""
+                    let rawLen = parseFloat(parts[4])
+                    mediaData.length = !isNaN(rawLen) ? rawLen / 1000000 : 0
+                    mediaData.status = parts[5].trim()
                 }
             }
         }
@@ -167,10 +170,9 @@ PanelWindow {
         command: ["playerctl", "-p", mediaData.playerName, "position"]
         stdout: SplitParser {
             onRead: {
-                // BRUTEFORCE: If we are in transition, IGNORE the system output
                 if (!mediaData.transitionLock) {
-                    let p = parseFloat(data.trim());
-                    if (!isNaN(p)) mediaData.position = p;
+                    let p = parseFloat(data.trim())
+                    if (!isNaN(p)) mediaData.position = p
                 }
             }
         }
@@ -184,7 +186,10 @@ PanelWindow {
 
     Process { 
         id: executor
-        function run(args) { command = args; running = true; } 
+        function run(args) {
+            command = args
+            running = true
+        } 
     }
     
     property string swayncState: "none"
@@ -283,7 +288,6 @@ PanelWindow {
                             MouseArea {
                                 anchors.fill: parent
                                 onClicked: {
-                                    // Force Hyprland to switch using the command line dispatcher
                                     executor.run([
                                         "hyprctl", 
                                         "dispatch", 
@@ -309,10 +313,19 @@ PanelWindow {
                 anchors.verticalCenter: parent.verticalCenter
                 
                 Text { 
-                    text: sysInfo.volValue > 0 ? "󰕾" : "󰝟"
-                    color: Theme.primary
+                    text: sysInfo.isMuted ? "󰝟" : (sysInfo.volValue > 0.6 ? "󰕾" : (sysInfo.volValue > 0.2 ? "󰖀" : "󰕿"))
+                    color: sysInfo.isMuted ? Theme.accent : Theme.primary
                     font.pixelSize: 18
                     verticalAlignment: Text.AlignVCenter 
+
+                    // --- MUTE TOGGLE ---
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {
+                            executor.run(["bash", "-c", "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"])
+                            volGetter.running = true
+                        }
+                    }
                 }
 
                 Rectangle {
@@ -326,33 +339,23 @@ PanelWindow {
                         width: parent.width * sysInfo.volValue
                         height: parent.height
                         radius: 3
-                        color: Theme.primary 
+                        color: sysInfo.isMuted ? Theme.accent : Theme.primary 
                     }
 
                     MouseArea {
                         anchors.fill: parent
-                        
                         function update(mouse) {
                             sysInfo.isDragging = true
                             let p = Math.max(0, Math.min(1, mouse.x / width))
                             sysInfo.volValue = p
                             executor.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", p.toFixed(2)])
                         }
-
-                        onPressed: {
-                            update(mouse)
-                        }
-
-                        onPositionChanged: {
-                            update(mouse)
-                        }
-
+                        onPressed: update(mouse)
+                        onPositionChanged: update(mouse)
                         onReleased: { 
                             sysInfo.isDragging = false
                             volGetter.running = true 
                         }
-
-                        // --- ADDED SCROLL SUPPORT ---
                         onWheel: (wheel) => {
                             let delta = wheel.angleDelta.y > 0 ? 0.05 : -0.05
                             let newValue = Math.max(0, Math.min(1, sysInfo.volValue + delta))
@@ -371,7 +374,6 @@ PanelWindow {
                 font.pixelSize: 18
                 anchors.verticalCenter: parent.verticalCenter
                 verticalAlignment: Text.AlignVCenter
-                
                 MouseArea {
                     anchors.fill: parent
                     onClicked: {
@@ -382,9 +384,14 @@ PanelWindow {
 
             // NOTIFICATIONS
             Text {
-                text: getNotificationIcon(bar.swayncState); color: Theme.primary; font.pixelSize: 20; anchors.verticalCenter: parent.verticalCenter; verticalAlignment: Text.AlignVCenter
-                MouseArea { anchors.fill: parent; acceptedButtons: Qt.LeftButton | Qt.RightButton
-                    onClicked: (mouse) => { if (mouse.button === Qt.LeftButton) executor.run(["swaync-client", "-t", "-sw"]); else executor.run(["swaync-client", "-d", "-sw"]); }
+                text: getNotificationIcon(bar.swayncState)
+                color: Theme.primary; font.pixelSize: 20; anchors.verticalCenter: parent.verticalCenter; verticalAlignment: Text.AlignVCenter
+                MouseArea {
+                    anchors.fill: parent; acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    onClicked: (mouse) => {
+                        if (mouse.button === Qt.LeftButton) executor.run(["swaync-client", "-t", "-sw"])
+                        else executor.run(["swaync-client", "-d", "-sw"])
+                    }
                 }
             }
 
@@ -393,31 +400,24 @@ PanelWindow {
                 width: clockCol.implicitWidth
                 height: 32
                 anchors.verticalCenter: parent.verticalCenter
-                
                 Column {
                     id: clockCol
                     anchors.centerIn: parent
                     spacing: -2
-                    
-                    // This property creates a "hook". When it updates, the text updates.
                     property var time: new Date()
-
                     Timer {
-                        interval: 1000 // Update every second to ensure accuracy
+                        interval: 1000 
                         running: true
                         repeat: true
                         onTriggered: clockCol.time = new Date()
                     }
-
                     Text { 
-                        // Bind to clockCol.time instead of new Date()
                         text: Qt.formatDateTime(clockCol.time, "HH:mm")
                         color: Theme.primary
                         font.pixelSize: 12
                         font.weight: Font.Black
                         horizontalAlignment: Text.AlignHCenter 
                     }
-                    
                     Text { 
                         text: Qt.formatDateTime(clockCol.time, "AP")
                         color: Theme.primary
@@ -426,7 +426,6 @@ PanelWindow {
                         horizontalAlignment: Text.AlignHCenter 
                     }
                 }
-                
                 MouseArea {
                     anchors.fill: parent
                     onClicked: calendarPopup.active = !calendarPopup.active
@@ -455,7 +454,7 @@ PanelWindow {
             
             Text { 
                 text: "󰐥    "; color: Theme.primary; font.pixelSize: 18; anchors.verticalCenter: parent.verticalCenter; verticalAlignment: Text.AlignVCenter
-                MouseArea { anchors.fill: parent; onClicked: executor.run(["qs", "ipc", "call", "power", "toggle"]); }
+                MouseArea { anchors.fill: parent; onClicked: powerPopup.active = !powerPopup.active }
             }
         }
     }
@@ -463,16 +462,29 @@ PanelWindow {
     MediaPopup { id: mediaPopup }
     SystemPopup { id: systemPopup }
     CalendarPopup { id: calendarPopup }
-    // Clipboard Popup Instance
-    ClipboardPopup { 
-        id: clipboardPopup
-        screen: bar.screen // Ensures it opens on the correct monitor
-    }
+    ClipboardPopup { id: clipboardPopup; screen: bar.screen }
+    PowerPopup { id: powerPopup; screen: bar.screen }
 
     Canvas { opacity: 0.8; id: leftCorner; x: 10; y: 40; width: 20; height: 20; property color syncColor: Theme.background; onSyncColorChanged: requestPaint()
-        onPaint: { var ctx = getContext("2d"); ctx.reset(); ctx.fillStyle = Theme.background; ctx.moveTo(0, 0); ctx.lineTo(20, 0); ctx.arcTo(0, 0, 0, 20, 20); ctx.fill(); }
+        onPaint: { 
+            var ctx = getContext("2d")
+            ctx.reset()
+            ctx.fillStyle = Theme.background
+            ctx.moveTo(0, 0)
+            ctx.lineTo(20, 0)
+            ctx.arcTo(0, 0, 0, 20, 20)
+            ctx.fill()
+        }
     }
     Canvas { opacity: 0.8; id: rightCorner; x: parent.width - 30; y: 40; width: 20; height: 20; property color syncColor: Theme.background; onSyncColorChanged: requestPaint()
-        onPaint: { var ctx = getContext("2d"); ctx.reset(); ctx.fillStyle = Theme.background; ctx.moveTo(20, 0); ctx.lineTo(0, 0); ctx.arcTo(20, 0, 20, 20, 20); ctx.fill(); }
+        onPaint: { 
+            var ctx = getContext("2d")
+            ctx.reset()
+            ctx.fillStyle = Theme.background
+            ctx.moveTo(20, 0)
+            ctx.lineTo(0, 0)
+            ctx.arcTo(20, 0, 20, 20, 20)
+            ctx.fill()
+        }
     }
 }
