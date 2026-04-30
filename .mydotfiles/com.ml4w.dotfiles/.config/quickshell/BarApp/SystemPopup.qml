@@ -24,7 +24,15 @@ PanelWindow {
         width: 320; height: 420
         anchors.top: parent.top; anchors.topMargin: 45
         anchors.right: parent.right; anchors.rightMargin: 15
-        radius: 24; color: Theme.background; border.color: Theme.primary; border.width: 1
+        radius: 24; color: "transparent"; border.color: "transparent"; border.width: 1
+        Rectangle {
+            anchors.fill: parent
+            color: Theme.background
+            border.color: Theme.primary
+            border.width: 2
+            radius: 30
+            opacity: 0.8 // Only the background is transparent
+        }
 
         MouseArea { anchors.fill: parent }
 
@@ -33,7 +41,7 @@ PanelWindow {
 
             // TAB SWITCHER
             Rectangle {
-                Layout.fillWidth: true; height: 40; radius: 12; color: Theme.surface_container_high
+                Layout.fillWidth: true; height: 40; radius: 12; color: Theme.background
                 Row {
                     anchors.fill: parent; anchors.margins: 4; spacing: 4
                     Repeater {
@@ -63,12 +71,12 @@ PanelWindow {
                         Text { text: "󰤨  Wi-Fi"; color: Theme.primary; font.bold: true }
                         Item { Layout.fillWidth: true }
                         Rectangle {
-                            width: 36; height: 20; radius: 10; color: sysInfo.wifi !== "Offline" ? Theme.primary : Theme.surface_container_high
+                            width: 36; height: 20; radius: 10; color: sysInfo.wifi !== "Offline" ? Theme.primary : Theme.background
                             Rectangle { x: sysInfo.wifi !== "Offline" ? 18 : 2; y: 2; width: 16; height: 16; radius: 8; color: Theme.background; Behavior on x { NumberAnimation { duration: 200 } } }
                             MouseArea { anchors.fill: parent; onClicked: executor.run(["bash", "-c", sysInfo.wifi !== "Offline" ? "nmcli radio wifi off" : "nmcli radio wifi on"]) }
                         }
                     }
-                    Rectangle { Layout.fillWidth: true; height: 45; radius: 12; color: Theme.surface_container_high
+                    Rectangle { Layout.fillWidth: true; height: 45; radius: 12; color: Theme.background
                         Text { anchors.centerIn: parent; text: sysInfo.wifi; color: Theme.primary; font.bold: true; font.pixelSize: 12; elide: Text.ElideRight; width: 250 }
                     }
                     Rectangle { Layout.fillWidth: true; height: 35; radius: 10; border.color: Theme.primary; border.width: 1; color: "transparent"
@@ -85,7 +93,7 @@ PanelWindow {
                         Text { text: "󰂯  Bluetooth"; color: Theme.primary; font.bold: true }
                         Item { Layout.fillWidth: true }
                         Rectangle {
-                            width: 36; height: 20; radius: 10; color: sysInfo.bluetooth ? Theme.primary : Theme.surface_container_high
+                            width: 36; height: 20; radius: 10; color: sysInfo.bluetooth ? Theme.primary : Theme.background
                             Rectangle { x: sysInfo.bluetooth ? 18 : 2; y: 2; width: 16; height: 16; radius: 8; color: Theme.background; Behavior on x { NumberAnimation { duration: 200 } } }
                             MouseArea { anchors.fill: parent; onClicked: executor.run(["bash", "-c", sysInfo.bluetooth ? "bluetoothctl power off" : "bluetoothctl power on"]) }
                         }
@@ -109,7 +117,7 @@ PanelWindow {
                         property string label: ""; property real value: 0.0; property string icon: ""
                         spacing: 8
                         Rectangle {
-                            width: 24; height: 180; radius: 12; color: Theme.surface_container_high
+                            width: 24; height: 180; radius: 12; color: Theme.background
                             Rectangle {
                                 anchors.bottom: parent.bottom; width: 24; radius: 12
                                 height: parent.height * Math.max(0.05, value); color: Theme.primary

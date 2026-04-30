@@ -70,7 +70,15 @@ PanelWindow {
     Rectangle {
         width: 400; height: 520; anchors.top: parent.top; anchors.topMargin: 45
         anchors.right: parent.right; anchors.rightMargin: 155
-        radius: 30; color: Theme.background; border.color: Theme.primary; border.width: 1
+        radius: 30; color: "transparent"; border.color: "transparent"; border.width: 1
+        Rectangle {
+            anchors.fill: parent
+            color: Theme.background
+            border.color: Theme.primary
+            border.width: 2
+            radius: 30
+            opacity: 0.8 // Only the background is transparent
+        }
         MouseArea { anchors.fill: parent }
 
         ColumnLayout {

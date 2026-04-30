@@ -208,7 +208,7 @@ PanelWindow {
     }
 
     // --- UI LAYOUT ---
-    Rectangle { anchors.top: parent.top; width: parent.width; height: 40; color: Theme.background }
+    Rectangle { anchors.top: parent.top; width: parent.width; height: 40; color: Theme.background; opacity: 0.8 }
 
     Rectangle {
         id: centerPill
@@ -218,7 +218,7 @@ PanelWindow {
         height: 30
         width: Math.min(centerRow.implicitWidth + 30, 450)
         radius: 15
-        color: Theme.surface_container_high
+        color: Theme.background
         z: 5
         Row {
             id: centerRow
@@ -258,7 +258,7 @@ PanelWindow {
                 height: 30
                 width: wsRow.width + 20
                 radius: 15
-                color: Theme.surface_container_high
+                color: Theme.background
                 anchors.verticalCenter: parent.verticalCenter
 
                 Row {
@@ -319,7 +319,7 @@ PanelWindow {
                     width: 80
                     height: 6
                     radius: 3
-                    color: Theme.surface_container_high
+                    color: Theme.background
                     anchors.verticalCenter: parent.verticalCenter
 
                     Rectangle { 
@@ -434,7 +434,7 @@ PanelWindow {
             }
 
             Rectangle {
-                height: 30; width: sysRow.implicitWidth + 24; radius: 15; color: Theme.surface_container_high; anchors.verticalCenter: parent.verticalCenter
+                height: 30; width: sysRow.implicitWidth + 24; radius: 15; color: Theme.background; anchors.verticalCenter: parent.verticalCenter
                 RowLayout {
                     id: sysRow; anchors.centerIn: parent; spacing: 10
                     Row { spacing: 4; Layout.alignment: Qt.AlignVCenter
@@ -469,10 +469,10 @@ PanelWindow {
         screen: bar.screen // Ensures it opens on the correct monitor
     }
 
-    Canvas { id: leftCorner; x: 10; y: 40; width: 20; height: 20; property color syncColor: Theme.background; onSyncColorChanged: requestPaint()
+    Canvas { opacity: 0.8; id: leftCorner; x: 10; y: 40; width: 20; height: 20; property color syncColor: Theme.background; onSyncColorChanged: requestPaint()
         onPaint: { var ctx = getContext("2d"); ctx.reset(); ctx.fillStyle = Theme.background; ctx.moveTo(0, 0); ctx.lineTo(20, 0); ctx.arcTo(0, 0, 0, 20, 20); ctx.fill(); }
     }
-    Canvas { id: rightCorner; x: parent.width - 30; y: 40; width: 20; height: 20; property color syncColor: Theme.background; onSyncColorChanged: requestPaint()
+    Canvas { opacity: 0.8; id: rightCorner; x: parent.width - 30; y: 40; width: 20; height: 20; property color syncColor: Theme.background; onSyncColorChanged: requestPaint()
         onPaint: { var ctx = getContext("2d"); ctx.reset(); ctx.fillStyle = Theme.background; ctx.moveTo(20, 0); ctx.lineTo(0, 0); ctx.arcTo(20, 0, 20, 20, 20); ctx.fill(); }
     }
 }

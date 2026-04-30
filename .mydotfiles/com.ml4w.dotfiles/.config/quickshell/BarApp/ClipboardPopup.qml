@@ -12,6 +12,9 @@ PanelWindow {
     property string searchText: ""
     visible: active
     
+    // Multi-monitor support passed from MainBar
+    screen: modelData 
+
     anchors { 
         top: true; bottom: true
         left: true; right: true 
@@ -30,7 +33,7 @@ PanelWindow {
         }
     }
 
-    // Local Executor for clipboard actions
+    // --- LOGIC (UNTOUCHED) ---
     Process {
         id: clipExec
         function run(args) {
@@ -39,7 +42,6 @@ PanelWindow {
         }
     }
 
-    // --- CLIPBOARD ENGINE ---
     ListModel { id: clipModel }
 
     Process {
@@ -52,7 +54,6 @@ PanelWindow {
             onRead: {
                 let line = data.trim()
                 if (line.length === 0) return
-                
                 let splitIdx = line.indexOf("\t")
                 if (splitIdx !== -1) {
                     let id = line.substring(0, splitIdx)
@@ -81,9 +82,10 @@ PanelWindow {
         }
     }
 
+    // --- UI CONTAINER ---
     Rectangle {
         id: container
-        width: 400
+        width: 450
         height: 600
         anchors.top: parent.top
         anchors.topMargin: 45
@@ -91,25 +93,46 @@ PanelWindow {
         anchors.rightMargin: 155
         
         radius: 30
-        color: Theme.background
-        border.color: Theme.primary
-        border.width: 1
+        color: "transparent"
+        border.color: "transparent"
+        border.width: 2
 
-        MouseArea { anchors.fill: parent } // Block click-through
+        // Background rectangle with reduced opacity for blur effect
+        // Matching your MediaPopup reference
+        Rectangle {
+            anchors.fill: parent
+            color: Theme.background
+            border.color: Theme.primary
+            border.width: 2
+            radius: 30
+            opacity: 0.8 
+        }
+
+        MouseArea { 
+            anchors.fill: parent 
+        }
 
         ColumnLayout {
             anchors.fill: parent
             anchors.margins: 25
-            spacing: 15
+            spacing: 20
 
-            // --- HEADER ---
+            // HEADER
             RowLayout {
                 Layout.fillWidth: true
-                Text { text: "󰅌  Clipboard History"; color: Theme.primary; font.pixelSize: 16; font.bold: true }
-                Item { Layout.fillWidth: true }
                 Text { 
-                    text: "󰃢"
-                    color: Theme.primary; font.pixelSize: 18; opacity: 0.6
+                    text: "󰅌  Clipboard History"
+                    color: Theme.primary
+                    font.pixelSize: 18
+                    font.bold: true 
+                }
+                Item { Layout.fillWidth: true }
+                
+                // Clear All Button
+                Rectangle {
+                    width: 38; height: 38; radius: 19
+                    color: Theme.background
+                    Text { anchors.centerIn: parent; text: "󰃢"; color: Theme.primary; font.pixelSize: 16 }
                     MouseArea {
                         anchors.fill: parent
                         onClicked: {
@@ -121,22 +144,24 @@ PanelWindow {
                 }
             }
 
-            // --- SEARCH BAR ---
+            // SEARCH BAR
             Rectangle {
-                Layout.fillWidth: true; height: 40; radius: 12
-                color: Theme.surface_container_high
-                border.color: searchField.activeFocus ? Theme.primary : "transparent"
-                border.width: 1
-
+                Layout.fillWidth: true
+                height: 44
+                radius: 15
+                color: Theme.background
+                
                 RowLayout {
-                    anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12
-                    Text { text: "󰍉"; color: Theme.primary; opacity: 0.5; font.pixelSize: 14 }
+                    anchors.fill: parent
+                    anchors.leftMargin: 15
+                    anchors.rightMargin: 15
+                    Text { text: "󰍉"; color: Theme.primary; opacity: 0.5; font.pixelSize: 16 }
                     TextField {
                         id: searchField
                         Layout.fillWidth: true
-                        placeholderText: "Search history..."
+                        placeholderText: "Search..."
                         color: Theme.primary
-                        font.pixelSize: 13
+                        font.pixelSize: 14
                         background: Item {} 
                         onTextChanged: {
                             root.searchText = text
@@ -146,46 +171,45 @@ PanelWindow {
                 }
             }
 
-            // --- LIST ---
+            // LIST
             Rectangle {
-                Layout.fillWidth: true; Layout.fillHeight: true
-                color: Theme.surface_container_high; radius: 20; clip: true
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                color: "transparent"
+                clip: true
 
                 ListView {
                     id: listView
-                    anchors.fill: parent; anchors.margins: 8
+                    anchors.fill: parent
                     model: clipModel
-                    spacing: 4
+                    spacing: 8
                     boundsBehavior: Flickable.StopAtBounds
                     cacheBuffer: 100 
 
                     delegate: Rectangle {
-                        width: listView.width; height: 45; radius: 12
-                        color: "transparent"
+                        width: listView.width
+                        height: 50
+                        radius: 12
+                        color: Theme.background
+                        opacity: copyMouse.containsMouse ? 1.0 : 0.8
 
-                        // Row structure to separate Copy and Delete areas
                         RowLayout {
                             anchors.fill: parent
-                            anchors.leftMargin: 5
-                            anchors.rightMargin: 5
+                            anchors.leftMargin: 15
+                            anchors.rightMargin: 8
                             spacing: 0
 
-                            // 1. CLICK TO COPY AREA (Text)
                             Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
-
-                                Rectangle {
-                                    anchors.fill: parent; radius: 10; 
-                                    color: Theme.primary; opacity: copyMouse.containsMouse ? 0.1 : 0
-                                }
-
                                 Text { 
-                                    anchors.fill: parent; anchors.leftMargin: 10
-                                    text: model.preview; color: Theme.primary; font.pixelSize: 12
-                                    elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter
+                                    anchors.fill: parent
+                                    text: model.preview
+                                    color: Theme.primary
+                                    font.pixelSize: 13
+                                    elide: Text.ElideRight
+                                    verticalAlignment: Text.AlignVCenter
                                 }
-
                                 MouseArea {
                                     id: copyMouse
                                     anchors.fill: parent
@@ -197,22 +221,17 @@ PanelWindow {
                                 }
                             }
 
-                            // 2. DELETE BUTTON AREA
+                            // Individual Delete Button
                             Rectangle {
-                                Layout.preferredWidth: 40
-                                Layout.fillHeight: true
-                                color: "transparent"
-                                radius: 10
-
-                                Rectangle {
-                                    anchors.fill: parent; radius: 10; 
-                                    color: "#ff5555"; opacity: delMouse.containsMouse ? 0.2 : 0
-                                }
-
+                                width: 34; height: 34; radius: 10
+                                color: "red"
+                                opacity: delMouse.containsMouse ? 1.0 : 0.5
+                                
                                 Text { 
                                     anchors.centerIn: parent
-                                    text: "󰆴"; color: delMouse.containsMouse ? "#ff5555" : Theme.primary
-                                    opacity: delMouse.containsMouse ? 1.0 : 0.4; font.pixelSize: 14 
+                                    text: "󰆴"
+                                    color: "white"
+                                    font.pixelSize: 14 
                                 }
 
                                 MouseArea {
@@ -230,7 +249,10 @@ PanelWindow {
                     
                     ScrollBar.vertical: ScrollBar {
                         policy: ScrollBar.AsNeeded
-                        contentItem: Rectangle { implicitWidth: 4; radius: 2; color: Theme.primary; opacity: 0.2 }
+                        contentItem: Rectangle { 
+                            implicitWidth: 4; radius: 2; 
+                            color: Theme.primary; opacity: 0.2
+                        }
                     }
                 }
             }

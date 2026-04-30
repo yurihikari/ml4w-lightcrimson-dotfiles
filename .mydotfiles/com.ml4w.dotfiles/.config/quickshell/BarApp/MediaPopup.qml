@@ -31,7 +31,7 @@ PanelWindow {
         width: 44
         height: 44
         radius: 12
-        color: Theme.surface_container_high
+        color: Theme.background
         visible: false 
         Layout.alignment: Qt.AlignHCenter
         
@@ -122,10 +122,19 @@ PanelWindow {
         anchors.topMargin: 45
         anchors.horizontalCenter: parent.horizontalCenter
         radius: 30
-        color: Theme.background
-        border.color: Theme.primary
-        border.width: 1
-        
+        color: "transparent"
+        border.color: "transparent"
+        border.width: 2
+        // Background rectangle with reduced opacity for blur effect
+        Rectangle {
+            anchors.fill: parent
+            color: Theme.background
+            border.color: Theme.primary
+            border.width: 2
+            radius: 30
+            opacity: 0.8 // Only the background is transparent
+        }
+
         MouseArea { 
             anchors.fill: parent 
         }
@@ -252,7 +261,7 @@ PanelWindow {
                         Layout.preferredWidth: 150
                         height: 8
                         radius: 4
-                        color: Theme.surface_container_high
+                        color: Theme.background
                         Rectangle {
                             width: parent.width * sysInfo.volValue
                             height: parent.height
@@ -283,7 +292,7 @@ PanelWindow {
                     Layout.preferredWidth: 200
                     height: 44
                     radius: 15
-                    color: Theme.surface_container_high
+                    color: Theme.background
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: 15

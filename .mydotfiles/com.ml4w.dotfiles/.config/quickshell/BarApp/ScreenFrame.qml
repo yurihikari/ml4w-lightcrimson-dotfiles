@@ -25,9 +25,11 @@ Item {
             width: parent.width
             height: 10
             color: Theme.background
+            opacity: 0.8
         }
 
         Canvas {
+            opacity: 0.8
             x: 10
             y: 0
             width: 20
@@ -47,6 +49,7 @@ Item {
         }
 
         Canvas {
+            opacity: 0.8
             x: parent.width - 30
             y: 0
             width: 20
@@ -78,6 +81,7 @@ Item {
         Rectangle {
             anchors.fill: parent
             color: Theme.background
+            opacity: 0.8
         }
     }
 
@@ -93,6 +97,7 @@ Item {
         Rectangle {
             anchors.fill: parent
             color: Theme.background
+            opacity: 0.8
         }
     }
 }
