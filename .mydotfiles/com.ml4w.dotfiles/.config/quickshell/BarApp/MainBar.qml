@@ -119,37 +119,74 @@ PanelWindow {
     // --- MEDIA ---
     QtObject {
         id: mediaData
+        property string playerName: ""
         property string title: "No Media"
         property string artist: ""
         property string status: "Stopped"
         property string artUrl: ""
+        property real length: 0
+        property real position: 0
+        property bool transitionLock: false // BRUTEFORCE LOCK
+
+        function formatTime(s) {
+            if (isNaN(s) || s < 0) return "0:00";
+            let mins = Math.floor(s / 60);
+            let secs = Math.floor(s % 60);
+            return mins + ":" + (secs < 10 ? "0" : "") + secs;
+        }
     }
 
     Process {
-        id: mediaWatcher
-        running: true
-        command: ["bash", "-c", "playerctl -F metadata --format '{{title}}||{{artist}}||{{mpris:artUrl}}||{{status}}'"]
+        id: mediaWatcher; running: true
+        command: ["bash", "-c", "playerctl -F metadata --format '{{playerName}}||{{title}}||{{artist}}||{{mpris:artUrl}}||{{mpris:length}}||{{status}}'"]
         stdout: SplitParser {
             onRead: {
-                var parts = data.split("||")
-                if (parts.length >= 4) {
-                    mediaData.title = parts[0] || "Unknown"
-                    mediaData.artist = parts[1] || "Unknown"
-                    mediaData.artUrl = parts[2] || ""
-                    mediaData.status = parts[3].trim()
+                let clean = data.trim();
+                if (clean.length === 0) return;
+                let parts = clean.split("||");
+                if (parts.length >= 6) {
+                    // IF NEW TRACK DETECTED: Unlock and update
+                    if (mediaData.title !== parts[1]) {
+                        mediaData.transitionLock = false; 
+                        mediaData.position = 0;
+                    }
+                    mediaData.playerName = parts[0];
+                    mediaData.title = parts[1] || "Unknown";
+                    mediaData.artist = parts[2] || "Unknown";
+                    mediaData.artUrl = parts[3] || "";
+                    let rawLen = parseFloat(parts[4]);
+                    mediaData.length = !isNaN(rawLen) ? rawLen / 1000000 : 0;
+                    mediaData.status = parts[5].trim();
                 }
             }
         }
     }
 
-    Process { 
-        id: executor
-        function run(args) {
-            command = args
-            running = true
-        } 
+    Process {
+        id: posPoller
+        command: ["playerctl", "-p", mediaData.playerName, "position"]
+        stdout: SplitParser {
+            onRead: {
+                // BRUTEFORCE: If we are in transition, IGNORE the system output
+                if (!mediaData.transitionLock) {
+                    let p = parseFloat(data.trim());
+                    if (!isNaN(p)) mediaData.position = p;
+                }
+            }
+        }
     }
 
+    Timer {
+        interval: 1000; repeat: true
+        running: mediaData.status === "Playing"
+        onTriggered: posPoller.running = true
+    }
+
+    Process { 
+        id: executor
+        function run(args) { command = args; running = true; } 
+    }
+    
     property string swayncState: "none"
     Process {
         id: swayncWatcher
