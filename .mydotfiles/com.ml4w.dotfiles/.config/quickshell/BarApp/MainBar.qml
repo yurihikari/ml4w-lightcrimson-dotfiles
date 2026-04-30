@@ -356,13 +356,40 @@ PanelWindow {
                 width: clockCol.implicitWidth
                 height: 32
                 anchors.verticalCenter: parent.verticalCenter
+                
                 Column {
                     id: clockCol
                     anchors.centerIn: parent
                     spacing: -2
-                    Text { text: Qt.formatDateTime(new Date(), "HH:mm"); color: Theme.primary; font.pixelSize: 12; font.weight: Font.Black; horizontalAlignment: Text.AlignHCenter }
-                    Text { text: Qt.formatDateTime(new Date(), "AP"); color: Theme.primary; font.pixelSize: 10; font.weight: Font.Bold; horizontalAlignment: Text.AlignHCenter }
+                    
+                    // This property creates a "hook". When it updates, the text updates.
+                    property var time: new Date()
+
+                    Timer {
+                        interval: 1000 // Update every second to ensure accuracy
+                        running: true
+                        repeat: true
+                        onTriggered: clockCol.time = new Date()
+                    }
+
+                    Text { 
+                        // Bind to clockCol.time instead of new Date()
+                        text: Qt.formatDateTime(clockCol.time, "HH:mm")
+                        color: Theme.primary
+                        font.pixelSize: 12
+                        font.weight: Font.Black
+                        horizontalAlignment: Text.AlignHCenter 
+                    }
+                    
+                    Text { 
+                        text: Qt.formatDateTime(clockCol.time, "AP")
+                        color: Theme.primary
+                        font.pixelSize: 10
+                        font.weight: Font.Bold
+                        horizontalAlignment: Text.AlignHCenter 
+                    }
                 }
+                
                 MouseArea {
                     anchors.fill: parent
                     onClicked: calendarPopup.active = !calendarPopup.active
