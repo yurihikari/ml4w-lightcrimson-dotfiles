@@ -169,35 +169,9 @@ PanelWindow {
     }
 
     ListModel { id: playerModel }
-
     property string selectedPlayer: ""
 
-    // Watches the list of active players
-    Process {
-        id: playerListWatcher
-        running: true
-        command: ["bash", "-c", "playerctl -l 2>/dev/null || echo ''"]
-        stdout: SplitParser {
-            onRead: {
-                let line = data.trim()
-                if (line === "" || line === "No players found") return
-
-                // Check if already in model
-                let found = false
-                for (let i = 0; i < playerModel.count; i++) {
-                    if (playerModel.get(i).name === line) { found = true; break }
-                }
-                if (!found) playerModel.append({ "name": line })
-            }
-        }
-        onExited: {
-            // Auto-select first player if none selected
-            if (bar.selectedPlayer === "" && playerModel.count > 0)
-                bar.selectedPlayer = playerModel.get(0).name
-        }
-    }
-
-    // Cleans up dead players every cycle
+    // Single process that both lists and cleans up players
     Process {
         id: playerListFull
         property var freshList: []
@@ -210,8 +184,18 @@ PanelWindow {
             }
         }
         onExited: {
-            // Remove stale players
             let fresh = playerListFull.freshList
+
+            // Add new players
+            for (let j = 0; j < fresh.length; j++) {
+                let found = false
+                for (let i = 0; i < playerModel.count; i++) {
+                    if (playerModel.get(i).name === fresh[j]) { found = true; break }
+                }
+                if (!found) playerModel.append({ "name": fresh[j] })
+            }
+
+            // Remove dead players
             for (let i = playerModel.count - 1; i >= 0; i--) {
                 let found = false
                 for (let j = 0; j < fresh.length; j++) {
@@ -219,7 +203,8 @@ PanelWindow {
                 }
                 if (!found) playerModel.remove(i)
             }
-            // Fix selection if selected player disappeared
+
+            // Auto-select or fix selection
             if (fresh.length > 0) {
                 let selFound = false
                 for (let k = 0; k < fresh.length; k++) {
@@ -229,17 +214,34 @@ PanelWindow {
             } else {
                 bar.selectedPlayer = ""
             }
+
             playerListFull.freshList = []
         }
     }
 
-    // Watches metadata for the selected player only
+    // Poll player list immediately on load, then every 2s
+    Timer {
+        interval: 500; running: true; repeat: false
+        onTriggered: {
+            playerListFull.freshList = []
+            playerListFull.running = true
+        }
+    }
+
+    Timer {
+        interval: 2000; running: true; repeat: true
+        onTriggered: {
+            playerListFull.freshList = []
+            playerListFull.running = true
+        }
+    }
+
+    // Watches metadata — uses array form to avoid string escaping issues
     Process {
         id: mediaWatcher
         running: bar.selectedPlayer !== ""
-        command: ["bash", "-c", 
-            "playerctl -p " + bar.selectedPlayer + 
-            " -F metadata --format '{{playerName}}||{{title}}||{{artist}}||{{mpris:artUrl}}||{{mpris:length}}||{{status}}'"]
+        command: ["playerctl", "-p", bar.selectedPlayer, "-F", "metadata",
+                "--format", "{{playerName}}||{{title}}||{{artist}}||{{mpris:artUrl}}||{{mpris:length}}||{{status}}"]
         stdout: SplitParser {
             onRead: {
                 let clean = data.trim()
@@ -278,7 +280,10 @@ PanelWindow {
     Timer {
         interval: 1000; repeat: true
         running: mediaData.status === "Playing"
-        onTriggered: posPoller.running = true
+        onTriggered: {
+            posPoller.running = false
+            posPoller.running = true
+        }
     }
 
     // Refresh player list every 3s
