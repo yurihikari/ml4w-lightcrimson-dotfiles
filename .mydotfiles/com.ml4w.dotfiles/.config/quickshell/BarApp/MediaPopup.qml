@@ -11,7 +11,7 @@ PanelWindow {
     id: popup
     property bool active: false
     visible: active
-
+    
     // Multi-monitor support
     property var modelData
     screen: modelData
@@ -39,13 +39,24 @@ PanelWindow {
         color: Theme.background
         visible: false 
         Layout.alignment: Qt.AlignHCenter
-        Text { anchors.centerIn: parent; text: icon; color: Theme.primary; font.pixelSize: 22 }
+        
+        Text { 
+            anchors.centerIn: parent
+            text: icon
+            color: Theme.primary
+            font.pixelSize: 22 
+        }
+
         MouseArea { 
-            anchors.fill: parent; hoverEnabled: true
+            anchors.fill: parent
+            hoverEnabled: true
             onEntered: { appBtn.opacity = 0.7 }
             onExited: { appBtn.opacity = 1.0 }
-            onClicked: { executor.run(["bash", "-c", cmd]) }
+            onClicked: {
+                executor.run(["hyprctl", "dispatch", "exec", cmd])
+            }
         }
+
         Process {
             running: true
             command: ["bash", "-c", "command -v " + (check !== "" ? check : cmd.split(" ")[0])]
@@ -138,7 +149,8 @@ PanelWindow {
                 anchors.fill: parent; anchors.margins: 25; spacing: 15
                 Text { text: "Select Audio Output"; color: Theme.primary; font.bold: true; font.pixelSize: 18; Layout.alignment: Qt.AlignHCenter }
                 Rectangle {
-                    Layout.fillWidth: true; Layout.fillHeight: true; color: "transparent"; radius: 15; clip: true
+                    Layout.fillWidth: true; Layout.fillHeight: true
+                    color: "transparent"; radius: 15; clip: true
                     ListView {
                         id: sinkListView; anchors.fill: parent; anchors.margins: 10; model: sinkModel; spacing: 8
                         delegate: Rectangle {
@@ -228,7 +240,7 @@ PanelWindow {
                 Layout.fillWidth: true; spacing: 20
                 RowLayout {
                     spacing: 12
-                    
+
                     // --- MUTEABLE VOLUME ICON ---
                     Text { 
                         text: sysInfo.isMuted ? "󰝟" : (sysInfo.volValue > 0.6 ? "󰕾" : (sysInfo.volValue > 0.2 ? "󰖀" : "󰕿"))
