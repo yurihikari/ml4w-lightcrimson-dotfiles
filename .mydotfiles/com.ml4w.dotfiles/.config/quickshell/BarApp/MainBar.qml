@@ -27,9 +27,10 @@ PanelWindow {
         property bool isDragging: false 
         property string bat: "0%"
         property string wifi: "Offline"
+        property bool wifiRadio: false
+        property string connType: "none"
         property bool bluetooth: false
         property bool hasBattery: true 
-
         property real cpuUsage: 0.0
         property real ramUsage: 0.0
         property real diskUsage: 0.0
@@ -68,14 +69,32 @@ PanelWindow {
         }
     }
 
-    // Wifi
+    // Network (wifi + ethernet)
     Process {
         id: wifiGetter
         running: true
-        command: ["bash", "-c", "nmcli -t -f active,ssid dev wifi | grep '^yes' | cut -d: -f2"]
+        command: ["bash", "-c", 
+            "eth=$(nmcli -t -f type,state dev 2>/dev/null | grep '^ethernet:connected' | head -1); " +
+            "wifi=$(nmcli -t -f active,ssid dev wifi 2>/dev/null | grep '^yes' | cut -d: -f2); " +
+            "if [ -n \"$eth\" ]; then connType=\"ethernet\"; elif [ -n \"$wifi\" ]; then connType=\"wifi\"; else connType=\"none\"; fi; " +
+            "echo \"$connType:$wifi\""
+        ]
         stdout: SplitParser {
             onRead: {
-                sysInfo.wifi = data.trim() || "Offline"
+                let parts = data.trim().split(":")
+                sysInfo.connType = parts[0]
+                sysInfo.wifi = parts[1] || ""  // always set wifi SSID regardless of connType
+            }
+        }
+    }
+
+    Process {
+        id: wifiRadioGetter
+        running: true
+        command: ["bash", "-c", "nmcli radio wifi"]
+        stdout: SplitParser {
+            onRead: {
+                sysInfo.wifiRadio = data.trim() === "enabled"
             }
         }
     }
@@ -108,15 +127,24 @@ PanelWindow {
     }
 
     Timer {
+        interval: 3000
+        running: true
+        repeat: true
+        onTriggered: { 
+            batGetter.running = true
+            wifiGetter.running = true
+            btGetter.running = true
+            perfGetter.running = true
+        }
+    }
+
+    Timer {
         interval: 100
         running: true
         repeat: true
         onTriggered: { 
             volGetter.running = true
-            batGetter.running = true
-            wifiGetter.running = true
-            btGetter.running = true
-            perfGetter.running = true
+            wifiRadioGetter.running = true
         }
     }
 
@@ -436,9 +464,17 @@ PanelWindow {
                 height: 30; width: sysRow.implicitWidth + 24; radius: 15; color: Theme.background; anchors.verticalCenter: parent.verticalCenter
                 RowLayout {
                     id: sysRow; anchors.centerIn: parent; spacing: 10
-                    Row { spacing: 4; Layout.alignment: Qt.AlignVCenter
-                        Text { text: "󰤨"; color: Theme.primary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
-                        Text { text: sysInfo.wifi; color: Theme.primary; font.pixelSize: 13; font.weight: Font.Bold; visible: sysInfo.wifi !== "Offline"; verticalAlignment: Text.AlignVCenter }
+                    Row { spacing: 4; Layout.alignment: Qt.AlignVCenter; visible: sysInfo.connType !== "none"
+                        Text {
+                            text: sysInfo.connType === "ethernet" ? "󰈀" : "󰤨"
+                            color: Theme.primary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter
+                        }
+                        Text {
+                            text: sysInfo.wifi
+                            color: Theme.primary; font.pixelSize: 13; font.weight: Font.Bold
+                            visible: sysInfo.connType === "wifi" && sysInfo.wifi !== ""
+                            verticalAlignment: Text.AlignVCenter
+                        }
                     }
                     Text { text: "󰂯"; color: Theme.primary; font.pixelSize: 14; visible: sysInfo.bluetooth; Layout.alignment: Qt.AlignVCenter; verticalAlignment: Text.AlignVCenter }
                     Row { spacing: 4; visible: sysInfo.hasBattery; Layout.alignment: Qt.AlignVCenter
