@@ -4,6 +4,7 @@ import Quickshell.Io
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
+import Qt5Compat.GraphicalEffects 
 import "../CustomTheme"
 
 PanelWindow {
@@ -12,7 +13,7 @@ PanelWindow {
     property string searchText: ""
     visible: active
     
-    // Multi-monitor support passed from MainBar
+    // Multi-monitor support
     screen: modelData 
 
     anchors { 
@@ -28,18 +29,13 @@ PanelWindow {
     // Click outside to close
     MouseArea {
         anchors.fill: parent
-        onClicked: {
-            root.active = false
-        }
+        onClicked: { root.active = false }
     }
 
     // --- LOGIC (UNTOUCHED) ---
     Process {
         id: clipExec
-        function run(args) {
-            command = args
-            running = true
-        }
+        function run(args) { command = args; running = true }
     }
 
     ListModel { id: clipModel }
@@ -86,7 +82,7 @@ PanelWindow {
     Rectangle {
         id: container
         width: 450
-        height: 600
+        height: 650
         anchors.top: parent.top
         anchors.topMargin: 45
         anchors.right: parent.right
@@ -94,36 +90,31 @@ PanelWindow {
         
         radius: 30
         color: "transparent"
-        border.color: "transparent"
-        border.width: 2
 
         // Background rectangle with reduced opacity for blur effect
-        // Matching your MediaPopup reference
         Rectangle {
             anchors.fill: parent
             color: Theme.background
             border.color: Theme.primary
-            border.width: 2
+            border.width: 1
             radius: 30
             opacity: 0.8 
         }
 
-        MouseArea { 
-            anchors.fill: parent 
-        }
+        MouseArea { anchors.fill: parent } 
 
         ColumnLayout {
             anchors.fill: parent
             anchors.margins: 25
             spacing: 20
 
-            // HEADER
+            // --- HEADER ---
             RowLayout {
                 Layout.fillWidth: true
                 Text { 
                     text: "󰅌  Clipboard History"
                     color: Theme.primary
-                    font.pixelSize: 18
+                    font.pixelSize: 20
                     font.bold: true 
                 }
                 Item { Layout.fillWidth: true }
@@ -131,7 +122,8 @@ PanelWindow {
                 // Clear All Button
                 Rectangle {
                     width: 38; height: 38; radius: 19
-                    color: Theme.background
+                    color: Theme.background; opacity: 0.8
+                    border.color: Theme.primary; border.width: 1
                     Text { anchors.centerIn: parent; text: "󰃢"; color: Theme.primary; font.pixelSize: 16 }
                     MouseArea {
                         anchors.fill: parent
@@ -144,22 +136,24 @@ PanelWindow {
                 }
             }
 
-            // SEARCH BAR
+            // --- SEARCH BAR (MODERN PILL) ---
             Rectangle {
                 Layout.fillWidth: true
-                height: 44
+                height: 46
                 radius: 15
-                color: Theme.background
+                color: Theme.background; opacity: 1
+                border.color: searchField.activeFocus ? Theme.primary : "transparent"
+                border.width: 1
                 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: 15
-                    anchors.rightMargin: 15
-                    Text { text: "󰍉"; color: Theme.primary; opacity: 0.5; font.pixelSize: 16 }
+                    anchors.leftMargin: 15; anchors.rightMargin: 15
+                    Text { text: "󰍉"; color: Theme.primary; opacity: 0.6; font.pixelSize: 18 }
                     TextField {
                         id: searchField
                         Layout.fillWidth: true
                         placeholderText: "Search..."
+                        placeholderTextColor: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.4)
                         color: Theme.primary
                         font.pixelSize: 14
                         background: Item {} 
@@ -171,7 +165,7 @@ PanelWindow {
                 }
             }
 
-            // LIST
+            // --- LIST ---
             Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -182,22 +176,24 @@ PanelWindow {
                     id: listView
                     anchors.fill: parent
                     model: clipModel
-                    spacing: 8
+                    spacing: 10
                     boundsBehavior: Flickable.StopAtBounds
                     cacheBuffer: 100 
 
                     delegate: Rectangle {
+                        id: itemCard
                         width: listView.width
-                        height: 50
-                        radius: 12
+                        height: 55
+                        radius: 15
                         color: Theme.background
-                        opacity: copyMouse.containsMouse ? 1.0 : 0.8
+                        opacity: copyMouse.containsMouse ? 0.8 : 1
+                        border.color: Theme.primary
+                        border.width: copyMouse.containsMouse ? 1 : 0
 
                         RowLayout {
                             anchors.fill: parent
-                            anchors.leftMargin: 15
-                            anchors.rightMargin: 8
-                            spacing: 0
+                            anchors.leftMargin: 15; anchors.rightMargin: 10
+                            spacing: 12
 
                             Item {
                                 Layout.fillWidth: true
@@ -223,15 +219,15 @@ PanelWindow {
 
                             // Individual Delete Button
                             Rectangle {
-                                width: 34; height: 34; radius: 10
-                                color: "red"
-                                opacity: delMouse.containsMouse ? 1.0 : 0.5
+                                width: 36; height: 36; radius: 10
+                                color: delMouse.containsMouse ? "#ff5555" : "transparent"
                                 
                                 Text { 
                                     anchors.centerIn: parent
                                     text: "󰆴"
-                                    color: "white"
-                                    font.pixelSize: 14 
+                                    color: delMouse.containsMouse ? "#ffffff" : Theme.primary
+                                    opacity: delMouse.containsMouse ? 1.0 : 0.6
+                                    font.pixelSize: 16 
                                 }
 
                                 MouseArea {
