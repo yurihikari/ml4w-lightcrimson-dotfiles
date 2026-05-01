@@ -131,7 +131,7 @@ PanelWindow {
 
     Rectangle {
         id: container
-        width: 550; height: 320 
+        width: 550; height: 400 
         anchors.top: parent.top; anchors.topMargin: 45
         anchors.horizontalCenter: parent.horizontalCenter
         radius: 30; color: "transparent"
@@ -178,7 +178,72 @@ PanelWindow {
         ColumnLayout {
             anchors.fill: parent; anchors.margins: 25; spacing: 20
             opacity: popup.selectingSink ? 0.0 : 1.0; enabled: !popup.selectingSink
+            // --- PLAYER SWITCHER ---
+            Row {
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignHCenter
+                spacing: 8
+                visible: playerModel.count > 1
+                
 
+                Repeater {
+                    model: playerModel
+                    Rectangle {
+                        property bool isSelected: name === bar.selectedPlayer
+                        height: 30
+                        width: nameLabel.implicitWidth + 36
+                        radius: 14
+                        color: isSelected ? Theme.primary : Theme.background
+                        border.color: Theme.primary
+                        border.width: 1
+
+                        Row {
+                            anchors.centerIn: parent
+                            spacing: 8
+                            height: parent.height
+                            Text {
+                                text: {
+                                    let n = name.toLowerCase()
+                                    if (n.includes("spotify")) return "󰓇"
+                                    if (n.includes("firefox") || n.includes("chrome") || n.includes("chromium")) return "󰖟"
+                                    if (n.includes("vlc")) return "󰕼"
+                                    if (n.includes("mpv")) return "󰎁"
+                                    if (n.includes("ncmpcpp") || n.includes("mpd")) return "󱍙"
+                                    return "󰎆"
+                                }
+                                color: isSelected ? Theme.background : Theme.primary
+                                font.pixelSize: 13
+                                height: parent.height
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            Text {
+                                id: nameLabel
+                                text: {
+                                    let n = name
+                                    // Strip instance suffix like .instance123
+                                    n = n.replace(/\.[a-zA-Z0-9]+$/, "")
+                                    return n.charAt(0).toUpperCase() + n.slice(1)
+                                }
+                                color: isSelected ? Theme.background : Theme.primary
+                                font.pixelSize: 12
+                                font.bold: isSelected
+                                height: parent.height
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: {
+                                bar.selectedPlayer = name
+                                // Restart watcher for new player
+                                mediaWatcher.running = false
+                                mediaWatcher.running = true
+                            }
+                        }
+                    }
+                }
+            }
             RowLayout {
                 Layout.fillWidth: true; spacing: 25
                 Item {
@@ -230,6 +295,81 @@ PanelWindow {
                     AppButton { icon: "󰓇"; cmd: "spotify" }
                     AppButton { icon: "󰎆"; cmd: "pear-desktop" }
                     AppButton { icon: "󱍙"; cmd: "kitty ncmpcpp"; check: "ncmpcpp" }
+                }
+            }
+
+            // --- PROGRESS SLIDER ---
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 4
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    height: 6
+                    radius: 3
+                    color: Theme.background
+
+                    // Filled portion
+                    Rectangle {
+                        width: mediaData.length > 0
+                            ? parent.width * Math.min(1, mediaData.position / mediaData.length)
+                            : 0
+                        height: parent.height
+                        radius: 3
+                        color: Theme.primary
+                        Behavior on width { NumberAnimation { duration: 800; easing.type: Easing.Linear } }
+                    }
+
+                    // Draggable knob
+                    Rectangle {
+                        id: sliderKnob
+                        property bool dragging: false
+                        x: mediaData.length > 0
+                            ? (parent.width * Math.min(1, mediaData.position / mediaData.length)) - width / 2
+                            : -width / 2
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 14; height: 14; radius: 7
+                        color: Theme.primary
+                        Behavior on x { enabled: !sliderKnob.dragging; NumberAnimation { duration: 800; easing.type: Easing.Linear } }
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        anchors.margins: -8  // bigger hit area
+                        preventStealing: true
+
+                        function seek(mouse) {
+                            let p = Math.max(0, Math.min(1, mouse.x / width))
+                            let target = p * mediaData.length
+                            mediaData.position = target
+                            executor.run(["playerctl", "-p", bar.selectedPlayer, "position", target.toFixed(1)])
+                        }
+
+                        onPressed: {
+                            sliderKnob.dragging = true
+                            seek(mouse)
+                        }
+                        onPositionChanged: {
+                            if (pressed) seek(mouse)
+                        }
+                        onReleased: {
+                            sliderKnob.dragging = false
+                        }
+                    }
+                }
+
+                // Timestamps
+                RowLayout {
+                    Layout.fillWidth: true
+                    Text {
+                        text: mediaData.formatTime(mediaData.position)
+                        color: Theme.primary; font.pixelSize: 10; opacity: 0.6
+                    }
+                    Item { Layout.fillWidth: true }
+                    Text {
+                        text: mediaData.formatTime(mediaData.length)
+                        color: Theme.primary; font.pixelSize: 10; opacity: 0.6
+                    }
                 }
             }
 
