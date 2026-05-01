@@ -69,7 +69,7 @@ PanelWindow {
     Process {
         id: cava
         running: popup.active
-        command: ["bash", "-c", "cava -p <(echo -e '[output]\nmethod=raw\ndata_format=ascii\nascii_max_range=200\nbar_delimiter=32\nbars=100')"]
+        command: ["bash", "-c", "cava -p <(echo -e '[output]\nmethod=raw\ndata_format=ascii\nascii_max_range=400\nbar_delimiter=32\nbars=100')"]
         stdout: SplitParser {
             onRead: {
                 var clean = data.trim()
