@@ -2,6 +2,7 @@ import Quickshell
 import Quickshell.Wayland
 import Quickshell.Hyprland
 import Quickshell.Io 
+import Quickshell.Services.Mpris
 import QtQuick
 import QtQuick.Layouts
 import "../CustomTheme"
@@ -15,7 +16,6 @@ PanelWindow {
     WlrLayershell.layer: WlrLayer.Top
     exclusionMode: WlrLayershell.Exclusive
     exclusiveZone: height - 30 
-    
     WlrLayershell.keyboardFocus: WlrLayershell.None
     color: "transparent"
 
@@ -26,7 +26,7 @@ PanelWindow {
         property bool isMuted: false
         property bool isDragging: false 
         property string bat: "0%"
-        property string wifi: "Offline"
+        property string wifi: ""
         property bool wifiRadio: false
         property string connType: "none"
         property bool bluetooth: false
@@ -46,9 +46,7 @@ PanelWindow {
                     let output = data.trim()
                     sysInfo.isMuted = output.includes("[MUTED]")
                     let match = output.match(/[0-9.]+/)
-                    if (match) {
-                        sysInfo.volValue = parseFloat(match[0])
-                    }
+                    if (match) sysInfo.volValue = parseFloat(match[0])
                 }
             }
         }
@@ -60,16 +58,12 @@ PanelWindow {
         command: ["bash", "-c", "cat /sys/class/power_supply/BAT0/capacity 2>/dev/null || echo 'none'"]
         stdout: SplitParser {
             onRead: {
-                if (data.trim() === "none") {
-                    sysInfo.hasBattery = false
-                } else {
-                    sysInfo.bat = data.trim() + "%"
-                }
+                if (data.trim() === "none") sysInfo.hasBattery = false
+                else sysInfo.bat = data.trim() + "%"
             }
         }
     }
 
-    // Network (wifi + ethernet)
     Process {
         id: wifiGetter
         running: true
@@ -83,7 +77,7 @@ PanelWindow {
             onRead: {
                 let parts = data.trim().split(":")
                 sysInfo.connType = parts[0]
-                sysInfo.wifi = parts[1] || ""  // always set wifi SSID regardless of connType
+                sysInfo.wifi = parts[1] || ""
             }
         }
     }
@@ -93,9 +87,7 @@ PanelWindow {
         running: true
         command: ["bash", "-c", "nmcli radio wifi"]
         stdout: SplitParser {
-            onRead: {
-                sysInfo.wifiRadio = data.trim() === "enabled"
-            }
+            onRead: { sysInfo.wifiRadio = data.trim() === "enabled" }
         }
     }
 
@@ -104,9 +96,7 @@ PanelWindow {
         running: true
         command: ["bash", "-c", "bluetoothctl show | grep -q 'Powered: yes' && echo 'on' || echo 'off'"]
         stdout: SplitParser {
-            onRead: {
-                sysInfo.bluetooth = (data.trim() === "on")
-            }
+            onRead: { sysInfo.bluetooth = (data.trim() === "on") }
         }
     }
 
@@ -127,9 +117,7 @@ PanelWindow {
     }
 
     Timer {
-        interval: 3000
-        running: true
-        repeat: true
+        interval: 3000; running: true; repeat: true
         onTriggered: { 
             batGetter.running = true
             wifiGetter.running = true
@@ -139,171 +127,42 @@ PanelWindow {
     }
 
     Timer {
-        interval: 100
-        running: true
-        repeat: true
+        interval: 100; running: true; repeat: true
         onTriggered: { 
             volGetter.running = true
             wifiRadioGetter.running = true
         }
     }
 
-    // --- MEDIA ---
-    QtObject {
-        id: mediaData
-        property string playerName: ""
-        property string title: "No Media"
-        property string artist: ""
-        property string status: "Stopped"
-        property string artUrl: ""
-        property real length: 0
-        property real position: 0
-        property bool transitionLock: false
+    // --- MEDIA (native MPRIS) ---
+    property var activePlayer: Mpris.players.values.length > 0 ? Mpris.players.values[0] : null
 
-        function formatTime(s) {
-            if (isNaN(s) || s < 0) return "0:00"
-            let mins = Math.floor(s / 60)
-            let secs = Math.floor(s % 60)
-            return mins + ":" + (secs < 10 ? "0" : "") + secs
-        }
-    }
-
-    ListModel { id: playerModel }
-    property string selectedPlayer: ""
-
-    // Single process that both lists and cleans up players
-    Process {
-        id: playerListFull
-        property var freshList: []
-        command: ["bash", "-c", "playerctl -l 2>/dev/null || echo 'NONE'"]
-        stdout: SplitParser {
-            onRead: {
-                let line = data.trim()
-                if (line !== "NONE" && line !== "No players found" && line !== "")
-                    playerListFull.freshList.push(line)
-            }
-        }
-        onExited: {
-            let fresh = playerListFull.freshList
-
-            // Add new players
-            for (let j = 0; j < fresh.length; j++) {
-                let found = false
-                for (let i = 0; i < playerModel.count; i++) {
-                    if (playerModel.get(i).name === fresh[j]) { found = true; break }
-                }
-                if (!found) playerModel.append({ "name": fresh[j] })
-            }
-
-            // Remove dead players
-            for (let i = playerModel.count - 1; i >= 0; i--) {
-                let found = false
-                for (let j = 0; j < fresh.length; j++) {
-                    if (playerModel.get(i).name === fresh[j]) { found = true; break }
-                }
-                if (!found) playerModel.remove(i)
-            }
-
-            // Auto-select or fix selection
-            if (fresh.length > 0) {
-                let selFound = false
-                for (let k = 0; k < fresh.length; k++) {
-                    if (fresh[k] === bar.selectedPlayer) { selFound = true; break }
-                }
-                if (!selFound) bar.selectedPlayer = fresh[0]
+    Connections {
+        target: Mpris.players
+        function onValuesChanged() {
+            if (Mpris.players.values.length > 0) {
+                let found = Mpris.players.values.some(p => p === bar.activePlayer)
+                if (!found) bar.activePlayer = Mpris.players.values[0]
             } else {
-                bar.selectedPlayer = ""
-            }
-
-            playerListFull.freshList = []
-        }
-    }
-
-    // Poll player list immediately on load, then every 2s
-    Timer {
-        interval: 500; running: true; repeat: false
-        onTriggered: {
-            playerListFull.freshList = []
-            playerListFull.running = true
-        }
-    }
-
-    Timer {
-        interval: 2000; running: true; repeat: true
-        onTriggered: {
-            playerListFull.freshList = []
-            playerListFull.running = true
-        }
-    }
-
-    // Watches metadata — uses array form to avoid string escaping issues
-    Process {
-        id: mediaWatcher
-        running: bar.selectedPlayer !== ""
-        command: ["playerctl", "-p", bar.selectedPlayer, "-F", "metadata",
-                "--format", "{{playerName}}||{{title}}||{{artist}}||{{mpris:artUrl}}||{{mpris:length}}||{{status}}"]
-        stdout: SplitParser {
-            onRead: {
-                let clean = data.trim()
-                if (clean.length === 0) return
-                let parts = clean.split("||")
-                if (parts.length >= 6) {
-                    if (mediaData.title !== parts[1]) {
-                        mediaData.transitionLock = false
-                        mediaData.position = 0
-                    }
-                    mediaData.playerName = parts[0]
-                    mediaData.title = parts[1] || "Unknown"
-                    mediaData.artist = parts[2] || "Unknown"
-                    mediaData.artUrl = parts[3] || ""
-                    let rawLen = parseFloat(parts[4])
-                    mediaData.length = !isNaN(rawLen) ? rawLen / 1000000 : 0
-                    mediaData.status = parts[5].trim()
-                }
+                bar.activePlayer = null
             }
         }
     }
 
-    Process {
-        id: posPoller
-        command: ["playerctl", "-p", bar.selectedPlayer, "position"]
-        stdout: SplitParser {
-            onRead: {
-                if (!mediaData.transitionLock) {
-                    let p = parseFloat(data.trim())
-                    if (!isNaN(p)) mediaData.position = p
-                }
-            }
-        }
-    }
-
+    // Position ticker — keeps p.position reactive while playing
     Timer {
         interval: 1000; repeat: true
-        running: mediaData.status === "Playing"
-        onTriggered: {
-            posPoller.running = false
-            posPoller.running = true
-        }
+        running: bar.activePlayer !== null && bar.activePlayer.playbackState === MprisPlaybackState.Playing
+        onTriggered: { if (bar.activePlayer) bar.activePlayer.positionChanged() }
     }
 
-    // Refresh player list every 3s
-    Timer {
-        interval: 3000; running: true; repeat: true
-        onTriggered: {
-            playerListFull.freshList = []
-            playerListFull.running = true
-            playerListWatcher.running = true
-        }
-    }
-
+    // --- EXECUTOR ---
     Process { 
         id: executor
-        function run(args) {
-            command = args
-            running = true
-        } 
+        function run(args) { command = args; running = true } 
     }
-    
+
+    // --- SWAYNC ---
     property string swayncState: "none"
     Process {
         id: swayncWatcher
@@ -327,6 +186,7 @@ PanelWindow {
     // --- UI LAYOUT ---
     Rectangle { anchors.top: parent.top; width: parent.width; height: 40; color: Theme.background; opacity: 0.8 }
 
+    // Center pill — media info
     Rectangle {
         id: centerPill
         anchors.horizontalCenter: parent.horizontalCenter
@@ -343,8 +203,13 @@ PanelWindow {
             spacing: 8
             Text { text: "󰎆"; color: Theme.primary; font.pixelSize: 14; verticalAlignment: Text.AlignVCenter }
             Text { 
-                text: mediaData.title + (mediaData.artist ? " - " + mediaData.artist : "")
-                color: Theme.primary; font.pixelSize: 14; font.weight: Font.Medium; verticalAlignment: Text.AlignVCenter
+                text: {
+                    let title = bar.activePlayer ? (bar.activePlayer.trackTitle || "No Media") : "No Media"
+                    let artist = bar.activePlayer ? (bar.activePlayer.trackArtist || "") : ""
+                    return title + (artist ? " - " + artist : "")
+                }
+                color: Theme.primary; font.pixelSize: 14; font.weight: Font.Medium
+                verticalAlignment: Text.AlignVCenter
                 elide: Text.ElideRight; width: Math.min(implicitWidth, 350)
             }
         }
@@ -358,10 +223,12 @@ PanelWindow {
         anchors.top: parent.top; width: parent.width; height: 40
         anchors.leftMargin: 10; anchors.rightMargin: 10; spacing: 0
 
+        // Left: logo + workspaces
         Row {
             Layout.alignment: Qt.AlignLeft; spacing: 8
             Text { 
-                text: "   󰣇"; color: Theme.primary; font.pixelSize: 24; anchors.verticalCenter: parent.verticalCenter 
+                text: "   󰣇"; color: Theme.primary; font.pixelSize: 24
+                anchors.verticalCenter: parent.verticalCenter 
                 MouseArea {
                     anchors.fill: parent
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
@@ -372,41 +239,25 @@ PanelWindow {
                 }
             }
             Rectangle {
-                height: 30
-                width: wsRow.width + 20
-                radius: 15
-                color: Theme.background
-                anchors.verticalCenter: parent.verticalCenter
-
+                height: 30; width: wsRow.width + 20; radius: 15
+                color: Theme.background; anchors.verticalCenter: parent.verticalCenter
                 Row {
                     id: wsRow
                     anchors.centerIn: parent
                     spacing: 12
-
                     Repeater {
                         model: Hyprland.workspaces
                         Item {
-                            width: 16
-                            height: 16
-
+                            width: 16; height: 16
                             Text {
                                 anchors.centerIn: parent
                                 text: modelData.active ? "󰮯" : "󰊠"
                                 color: modelData.active ? Theme.on_primary_container : Theme.primary
-                                font.pixelSize: 16
-                                verticalAlignment: Text.AlignVCenter
+                                font.pixelSize: 16; verticalAlignment: Text.AlignVCenter
                             }
-
                             MouseArea {
                                 anchors.fill: parent
-                                onClicked: {
-                                    executor.run([
-                                        "hyprctl", 
-                                        "dispatch", 
-                                        "workspace", 
-                                        modelData.name
-                                    ])
-                                }
+                                onClicked: executor.run(["hyprctl", "dispatch", "workspace", modelData.name])
                             }
                         }
                     }
@@ -416,21 +267,17 @@ PanelWindow {
 
         Item { Layout.fillWidth: true }
 
+        // Right: volume, clipboard, notifications, clock, system pill, power
         Row {
             Layout.alignment: Qt.AlignRight; spacing: 15
 
             // VOLUME
             Row {
-                spacing: 8
-                anchors.verticalCenter: parent.verticalCenter
-                
+                spacing: 8; anchors.verticalCenter: parent.verticalCenter
                 Text { 
                     text: sysInfo.isMuted ? "󰝟" : (sysInfo.volValue > 0.6 ? "󰕾" : (sysInfo.volValue > 0.2 ? "󰖀" : "󰕿"))
                     color: sysInfo.isMuted ? Theme.accent : Theme.primary
-                    font.pixelSize: 18
-                    verticalAlignment: Text.AlignVCenter 
-
-                    // --- MUTE TOGGLE ---
+                    font.pixelSize: 18; verticalAlignment: Text.AlignVCenter 
                     MouseArea {
                         anchors.fill: parent
                         onClicked: {
@@ -439,21 +286,13 @@ PanelWindow {
                         }
                     }
                 }
-
                 Rectangle {
-                    width: 80
-                    height: 6
-                    radius: 3
-                    color: Theme.background
-                    anchors.verticalCenter: parent.verticalCenter
-
+                    width: 80; height: 6; radius: 3
+                    color: Theme.background; anchors.verticalCenter: parent.verticalCenter
                     Rectangle { 
-                        width: parent.width * sysInfo.volValue
-                        height: parent.height
-                        radius: 3
+                        width: parent.width * sysInfo.volValue; height: parent.height; radius: 3
                         color: sysInfo.isMuted ? Theme.accent : Theme.primary 
                     }
-
                     MouseArea {
                         anchors.fill: parent
                         function update(mouse) {
@@ -464,10 +303,7 @@ PanelWindow {
                         }
                         onPressed: update(mouse)
                         onPositionChanged: update(mouse)
-                        onReleased: { 
-                            sysInfo.isDragging = false
-                            volGetter.running = true 
-                        }
+                        onReleased: { sysInfo.isDragging = false; volGetter.running = true }
                         onWheel: (wheel) => {
                             let delta = wheel.angleDelta.y > 0 ? 0.05 : -0.05
                             let newValue = Math.max(0, Math.min(1, sysInfo.volValue + delta))
@@ -481,23 +317,16 @@ PanelWindow {
 
             // CLIPBOARD
             Text {
-                text: "󰅌"
-                color: Theme.primary
-                font.pixelSize: 18
-                anchors.verticalCenter: parent.verticalCenter
-                verticalAlignment: Text.AlignVCenter
-                MouseArea {
-                    anchors.fill: parent
-                    onClicked: {
-                        clipboardPopup.active = !clipboardPopup.active
-                    }
-                }
+                text: "󰅌"; color: Theme.primary; font.pixelSize: 18
+                anchors.verticalCenter: parent.verticalCenter; verticalAlignment: Text.AlignVCenter
+                MouseArea { anchors.fill: parent; onClicked: clipboardPopup.active = !clipboardPopup.active }
             }
 
             // NOTIFICATIONS
             Text {
                 text: getNotificationIcon(bar.swayncState)
-                color: Theme.primary; font.pixelSize: 20; anchors.verticalCenter: parent.verticalCenter; verticalAlignment: Text.AlignVCenter
+                color: Theme.primary; font.pixelSize: 20
+                anchors.verticalCenter: parent.verticalCenter; verticalAlignment: Text.AlignVCenter
                 MouseArea {
                     anchors.fill: parent; acceptedButtons: Qt.LeftButton | Qt.RightButton
                     onClicked: (mouse) => {
@@ -509,46 +338,36 @@ PanelWindow {
 
             // CLOCK
             Item {
-                width: clockCol.implicitWidth
-                height: 32
+                width: clockCol.implicitWidth; height: 32
                 anchors.verticalCenter: parent.verticalCenter
                 Column {
                     id: clockCol
-                    anchors.centerIn: parent
-                    spacing: -2
+                    anchors.centerIn: parent; spacing: -2
                     property var time: new Date()
-                    Timer {
-                        interval: 1000 
-                        running: true
-                        repeat: true
-                        onTriggered: clockCol.time = new Date()
-                    }
+                    Timer { interval: 1000; running: true; repeat: true; onTriggered: clockCol.time = new Date() }
                     Text { 
                         text: Qt.formatDateTime(clockCol.time, "HH:mm")
-                        color: Theme.primary
-                        font.pixelSize: 12
-                        font.weight: Font.Black
+                        color: Theme.primary; font.pixelSize: 12; font.weight: Font.Black
                         horizontalAlignment: Text.AlignHCenter 
                     }
                     Text { 
                         text: Qt.formatDateTime(clockCol.time, "AP")
-                        color: Theme.primary
-                        font.pixelSize: 10
-                        font.weight: Font.Bold
+                        color: Theme.primary; font.pixelSize: 10; font.weight: Font.Bold
                         horizontalAlignment: Text.AlignHCenter 
                     }
                 }
-                MouseArea {
-                    anchors.fill: parent
-                    onClicked: calendarPopup.active = !calendarPopup.active
-                }
+                MouseArea { anchors.fill: parent; onClicked: calendarPopup.active = !calendarPopup.active }
             }
 
+            // SYSTEM PILL (network, bt, battery)
             Rectangle {
-                height: 30; width: sysRow.implicitWidth + 24; radius: 15; color: Theme.background; anchors.verticalCenter: parent.verticalCenter
+                height: 30; width: sysRow.implicitWidth + 24; radius: 15
+                color: Theme.background; anchors.verticalCenter: parent.verticalCenter
                 RowLayout {
                     id: sysRow; anchors.centerIn: parent; spacing: 10
-                    Row { spacing: 4; Layout.alignment: Qt.AlignVCenter; visible: sysInfo.connType !== "none"
+                    Row { 
+                        spacing: 4; Layout.alignment: Qt.AlignVCenter
+                        visible: sysInfo.connType !== "none"
                         Text {
                             text: sysInfo.connType === "ethernet" ? "󰈀" : "󰤨"
                             color: Theme.primary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter
@@ -560,51 +379,53 @@ PanelWindow {
                             verticalAlignment: Text.AlignVCenter
                         }
                     }
-                    Text { text: "󰂯"; color: Theme.primary; font.pixelSize: 14; visible: sysInfo.bluetooth; Layout.alignment: Qt.AlignVCenter; verticalAlignment: Text.AlignVCenter }
-                    Row { spacing: 4; visible: sysInfo.hasBattery; Layout.alignment: Qt.AlignVCenter
+                    Text { 
+                        text: "󰂯"; color: Theme.primary; font.pixelSize: 14
+                        visible: sysInfo.bluetooth
+                        Layout.alignment: Qt.AlignVCenter; verticalAlignment: Text.AlignVCenter
+                    }
+                    Row { 
+                        spacing: 4; visible: sysInfo.hasBattery; Layout.alignment: Qt.AlignVCenter
                         Text { text: "󰂄"; color: Theme.primary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
                         Text { text: sysInfo.bat; color: Theme.primary; font.pixelSize: 13; font.weight: Font.Bold; verticalAlignment: Text.AlignVCenter }
                     }
                 }
-                MouseArea { 
-                    anchors.fill: parent
-                    onClicked: systemPopup.active = !systemPopup.active 
-                }
+                MouseArea { anchors.fill: parent; onClicked: systemPopup.active = !systemPopup.active }
             }
-            
+
+            // POWER
             Text { 
-                text: "󰐥    "; color: Theme.primary; font.pixelSize: 18; anchors.verticalCenter: parent.verticalCenter; verticalAlignment: Text.AlignVCenter
+                text: "󰐥    "; color: Theme.primary; font.pixelSize: 18
+                anchors.verticalCenter: parent.verticalCenter; verticalAlignment: Text.AlignVCenter
                 MouseArea { anchors.fill: parent; onClicked: powerPopup.active = !powerPopup.active }
             }
         }
     }
 
-    MediaPopup { id: mediaPopup }
+    MediaPopup { id: mediaPopup; screen: bar.screen }
     SystemPopup { id: systemPopup }
     CalendarPopup { id: calendarPopup }
     ClipboardPopup { id: clipboardPopup; screen: bar.screen }
     PowerPopup { id: powerPopup; screen: bar.screen }
 
-    Canvas { opacity: 0.8; id: leftCorner; x: 10; y: 40; width: 20; height: 20; property color syncColor: Theme.background; onSyncColorChanged: requestPaint()
+    Canvas { 
+        opacity: 0.8; id: leftCorner; x: 10; y: 40; width: 20; height: 20
+        property color syncColor: Theme.background; onSyncColorChanged: requestPaint()
         onPaint: { 
-            var ctx = getContext("2d")
-            ctx.reset()
+            var ctx = getContext("2d"); ctx.reset()
             ctx.fillStyle = Theme.background
-            ctx.moveTo(0, 0)
-            ctx.lineTo(20, 0)
-            ctx.arcTo(0, 0, 0, 20, 20)
-            ctx.fill()
+            ctx.moveTo(0, 0); ctx.lineTo(20, 0)
+            ctx.arcTo(0, 0, 0, 20, 20); ctx.fill()
         }
     }
-    Canvas { opacity: 0.8; id: rightCorner; x: parent.width - 30; y: 40; width: 20; height: 20; property color syncColor: Theme.background; onSyncColorChanged: requestPaint()
+    Canvas { 
+        opacity: 0.8; id: rightCorner; x: parent.width - 30; y: 40; width: 20; height: 20
+        property color syncColor: Theme.background; onSyncColorChanged: requestPaint()
         onPaint: { 
-            var ctx = getContext("2d")
-            ctx.reset()
+            var ctx = getContext("2d"); ctx.reset()
             ctx.fillStyle = Theme.background
-            ctx.moveTo(20, 0)
-            ctx.lineTo(0, 0)
-            ctx.arcTo(20, 0, 20, 20, 20)
-            ctx.fill()
+            ctx.moveTo(20, 0); ctx.lineTo(0, 0)
+            ctx.arcTo(20, 0, 20, 20, 20); ctx.fill()
         }
     }
 }
