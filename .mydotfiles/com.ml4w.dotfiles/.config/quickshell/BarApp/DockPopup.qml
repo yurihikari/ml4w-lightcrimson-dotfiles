@@ -14,15 +14,35 @@ PanelWindow {
     id: popup
 
     property bool active: false
-    visible: active
     property var screen
     screen: popup.screen
 
-    anchors { top: true; bottom: true; left: true; right: true }
+    // Window is only as tall as the popup + its resting margin.
+    // It anchors bottom+left+right so margins.bottom slides it up/down.
+    anchors { bottom: true; left: true; right: true }
     WlrLayershell.layer: WlrLayer.Overlay
     exclusionMode: WlrLayershell.Ignore
-    WlrLayershell.keyboardFocus: WlrLayershell.OnDemand
+    WlrLayershell.keyboardFocus: active ? WlrLayershell.OnDemand : WlrLayershell.None
     color: "transparent"
+
+    implicitHeight: 580   // 520 container + 40 bottom gap + 20 spare
+    width: screen ? screen.width : 800
+
+    // Slide via bottom margin exactly like ML4W sidebar slides via right margin.
+    // Closed = -580 (fully below screen). Open = 0 (window flush with bottom edge,
+    // container sits 40px above via its own anchors.bottomMargin).
+    margins { bottom: popup.currentBottomMargin }
+    property real currentBottomMargin: active ? 0 : -580
+
+    Behavior on currentBottomMargin {
+        NumberAnimation {
+            id: slideAnim
+            duration: 300
+            easing.type: Easing.OutCubic
+        }
+    }
+
+    visible: active || slideAnim.running
 
     // ── EXECUTOR ─────────────────────────────────────────────────────────────
     Process {
@@ -246,15 +266,16 @@ PanelWindow {
         todosWriteProc.write(lines.join("\n"))
     }
 
-    // ── BACKDROP ─────────────────────────────────────────────────────────────
-    MouseArea { anchors.fill: parent; onClicked: popup.active = false }
-
     // ── CONTAINER ────────────────────────────────────────────────────────────
     Rectangle {
         id: container
-        width: Math.min(parent.width - 80, 960); height: 520
-        anchors.bottom: parent.bottom; anchors.bottomMargin: 40
-        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 40
+        anchors.left: parent.left
+        anchors.leftMargin: parent.width > 700 ? parent.width / 2 - 350 : 40
+        anchors.right: parent.right
+        anchors.rightMargin: parent.width > 700 ? parent.width / 2 - 350 : 40
+        height: 520
         radius: 28; color: "transparent"; clip: false
 
         Rectangle {
