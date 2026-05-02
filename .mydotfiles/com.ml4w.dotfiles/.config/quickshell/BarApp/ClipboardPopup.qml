@@ -39,14 +39,32 @@ PanelWindow {
         id: imageDecoder
         property string targetId: ""
         property string targetPreview: ""
+
+        // FIX: each clip ID gets its own temp file so Qt's image cache never
+        // serves a stale image when revisiting a previously-seen entry.
+        // The ?t= timestamp on the source URL is a second line of defence —
+        // it makes Qt treat each decode result as a distinct URL.
+        property string targetFile: {
+            let safe = targetId.replace(/[^a-zA-Z0-9]/g, "_")
+            return "/tmp/qs_clip_" + safe + ".png"
+        }
+
+        // Pass everything as positional args ($1 $2 $3) — avoids any quoting
+        // issues with clip IDs or preview text that contain special characters.
         command: ["bash", "-c",
-            "echo '" + imageDecoder.targetId + "\t" + imageDecoder.targetPreview + "' | cliphist decode > /tmp/qs_clip_preview.png 2>/dev/null && echo 'ok'"
+            "printf '%s\\t%s' \"$1\" \"$2\" | cliphist decode > \"$3\" 2>/dev/null && echo ok",
+            "_",
+            imageDecoder.targetId,
+            imageDecoder.targetPreview,
+            imageDecoder.targetFile
         ]
+
         stdout: SplitParser {
             onRead: {
                 if (data.trim() === "ok") {
-                    root.decodedImagePath = ""
-                    root.decodedImagePath = "file:///tmp/qs_clip_preview.png"
+                    // ?t= cache-busts Qt's URL-keyed image cache
+                    root.decodedImagePath = "file://" + imageDecoder.targetFile
+                                           + "?t=" + Date.now()
                 }
             }
         }
@@ -113,7 +131,7 @@ PanelWindow {
         }
     }
 
-    // --- PREVIEW PANEL — pure anchors, no ColumnLayout ---
+    // --- PREVIEW PANEL ---
     Rectangle {
         id: previewPanel
         width: 280
@@ -133,7 +151,6 @@ PanelWindow {
             onExited: hidePreviewTimer.restart()
         }
 
-        // Background
         Rectangle {
             anchors.fill: parent
             color: Theme.background
@@ -141,7 +158,6 @@ PanelWindow {
             radius: 24; opacity: 0.9
         }
 
-        // Header — fixed at top
         Text {
             id: previewHeader
             anchors.top: parent.top; anchors.topMargin: 16
@@ -151,7 +167,6 @@ PanelWindow {
             font.pixelSize: 11; font.bold: true
         }
 
-        // Divider
         Rectangle {
             id: previewDivider
             anchors.top: previewHeader.bottom; anchors.topMargin: 10
@@ -160,7 +175,6 @@ PanelWindow {
             height: 1; color: Theme.primary; opacity: 0.08
         }
 
-        // Content area — fills everything below divider
         Rectangle {
             id: previewContent
             anchors.top: previewDivider.bottom; anchors.topMargin: 10
@@ -169,11 +183,11 @@ PanelWindow {
             anchors.leftMargin: 16; anchors.rightMargin: 16
             color: Theme.background; radius: 14; clip: true
 
-            // IMAGE
             Image {
                 anchors.fill: parent; anchors.margins: 8
                 visible: root.hoveredIsImage
                 source: root.decodedImagePath
+                cache: false   // belt-and-suspenders: never serve stale data
                 fillMode: Image.PreserveAspectFit
                 smooth: true; asynchronous: true
 
@@ -193,7 +207,6 @@ PanelWindow {
                 }
             }
 
-            // TEXT — Flickable fills the content rectangle completely
             Flickable {
                 anchors.fill: parent; anchors.margins: 10
                 visible: !root.hoveredIsImage
@@ -204,7 +217,6 @@ PanelWindow {
 
                 Text {
                     id: fullText
-                    // Explicit pixel width — no parent references that could be 0
                     width: 220
                     text: root.hoveredPreview
                     color: Theme.primary
@@ -221,7 +233,6 @@ PanelWindow {
             }
         }
 
-        // Footer — image metadata, pinned to bottom
         Text {
             id: previewFooter
             anchors.bottom: parent.bottom; anchors.bottomMargin: 14
@@ -251,7 +262,6 @@ PanelWindow {
         ColumnLayout {
             anchors.fill: parent; anchors.margins: 20; spacing: 14
 
-            // HEADER
             RowLayout {
                 Layout.fillWidth: true; Layout.topMargin: 4; spacing: 10
                 Rectangle {
@@ -281,7 +291,6 @@ PanelWindow {
 
             Rectangle { Layout.fillWidth: true; height: 1; color: Theme.primary; opacity: 0.1 }
 
-            // SEARCH
             Rectangle {
                 Layout.fillWidth: true; height: 42; radius: 14; color: Theme.background
                 border.color: searchField.activeFocus ? Theme.primary : "transparent"; border.width: 1.5
@@ -303,7 +312,6 @@ PanelWindow {
                 }
             }
 
-            // LIST
             Rectangle {
                 Layout.fillWidth: true; Layout.fillHeight: true; color: "transparent"; clip: true
 
