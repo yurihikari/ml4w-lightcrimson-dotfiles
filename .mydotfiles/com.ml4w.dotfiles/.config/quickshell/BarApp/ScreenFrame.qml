@@ -61,6 +61,11 @@ Item {
                 ctx.closePath(); ctx.fill()
             }
         }
+
+        MouseArea {
+            anchors.fill: parent
+            onClicked: dockPopup.active = !dockPopup.active
+        }
     }
 
     // --- LEFT FRAME (CLICK FOR WALLPAPER) ---
@@ -100,4 +105,6 @@ Item {
             }
         }
     }
+
+    DockPopup { id: dockPopup; screen: root.screen }
 }
