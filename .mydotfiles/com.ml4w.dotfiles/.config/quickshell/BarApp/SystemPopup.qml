@@ -592,7 +592,7 @@ PanelWindow {
                             color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
                             border.color: Theme.primary; border.width: 1
                             Text { id: tuxLbl; anchors.centerIn: parent; text: "Open Tuxedo CC"; color: Theme.primary; font.pixelSize: 10; font.bold: true }
-                            MouseArea { anchors.fill: parent; onClicked: { localExec.run(["tuxedo-control-center"]); popup.active=false } }
+                            MouseArea { anchors.fill: parent; onClicked: { executor.run(["hyprctl", "dispatch", "exec", "tuxedo-control-center"]); popup.active=false } }
                         }
                     }
 
