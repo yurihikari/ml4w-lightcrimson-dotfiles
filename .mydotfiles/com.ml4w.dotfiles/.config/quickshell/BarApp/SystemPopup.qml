@@ -32,15 +32,40 @@ PanelWindow {
     property var btDevices: []
     property bool btScanning: false
 
-    // ─── Gamemode ──────────────────────────────────────────────────────────
-    // No file writes — just hyprctl dispatches at runtime.
+    // ─── Gamemode / Power profile ──────────────────────────────────────────
     property bool gamemodeActive: false
-
-    // ─── Power profile ─────────────────────────────────────────────────────
-    property string powerProfile: "balanced"   // balanced | performance | power-saver
+    property string powerProfile: "balanced"
     property bool tuxedoInstalled: false
 
-    // ─── Accumulators ──────────────────────────────────────────────────────
+    // ─── Extended metrics ──────────────────────────────────────────────────
+    property real cpuTemp: 0
+    property real cpuFreq: 0
+    property real gpuTemp: 0
+    property real gpuUsage: 0
+    property string gpuVendor: ""
+    property real memUsedGB: 0
+    property real memTotalGB: 0
+    property real netRxKBs: 0
+    property real netTxKBs: 0
+    property string uptimeStr: ""
+    property int batteryPct: -1
+    property bool batteryCharging: false
+
+    // ─── Sparkline history (last 30 samples) ───────────────────────────────
+    property var cpuTempHistory: []
+    property var gpuTempHistory: []
+    property var cpuUsageHistory: []
+    property var netRxHistory: []
+    property var netTxHistory: []
+    property real netMaxSeen: 100   // for scaling rx/tx chart, KB/s
+
+    function pushHist(arr, val, max) {
+        let copy = arr.slice()
+        copy.push(val)
+        if (copy.length > max) copy.shift()
+        return copy
+    }
+
     property string _wifiBuf: ""
     property string _btBuf: ""
 
@@ -122,12 +147,9 @@ PanelWindow {
         function run(args) { command = args; running = true }
     }
 
-    // Gamemode: toggle blur and animations via hyprctl keyword (no file writes)
     Process {
         id: gamemodeExec
         function apply(enable) {
-            // enable = true  → GAME MODE ON  → disable blur + animations
-            // enable = false → GAME MODE OFF → restore blur + animations
             let blur     = enable ? "0" : "1"
             let anim     = enable ? "0" : "1"
             let rounding = enable ? "0" : "12"
@@ -141,7 +163,6 @@ PanelWindow {
         }
     }
 
-    // Power profile: read current profile on open
     Process {
         id: powerProfileReader
         command: ["bash", "-c", "powerprofilesctl get 2>/dev/null || cat /sys/firmware/acpi/platform_profile 2>/dev/null || echo balanced"]
@@ -161,7 +182,6 @@ PanelWindow {
         }
     }
 
-    // Detect tuxedo-control-center
     Process {
         id: tuxedoDetector
         running: true
@@ -169,6 +189,120 @@ PanelWindow {
         stdout: SplitParser {
             onRead: { popup.tuxedoInstalled = data.trim() === "yes" }
         }
+    }
+
+    property string _metricsBuf: ""
+    Process {
+        id: metricsCollector
+        command: ["bash", "-c",
+            "set +e\n" +
+            "for f in /sys/class/hwmon/hwmon*/temp1_input; do\n" +
+            "  name=$(cat \"$(dirname \"$f\")/name\" 2>/dev/null)\n" +
+            "  case \"$name\" in\n" +
+            "    coretemp|k10temp|zenpower|cpu_thermal|acpitz)\n" +
+            "      t=$(cat \"$f\" 2>/dev/null); [ -n \"$t\" ] && echo \"cputemp=$((t/1000))\" && break ;;\n" +
+            "  esac\n" +
+            "done\n" +
+            "freq=$(awk '/cpu MHz/ {sum+=$4; n++} END {if (n>0) printf \"%.2f\", sum/n/1000}' /proc/cpuinfo)\n" +
+            "[ -n \"$freq\" ] && echo \"cpufreq=$freq\"\n" +
+            "if command -v nvidia-smi &>/dev/null; then\n" +
+            "  out=$(nvidia-smi --query-gpu=temperature.gpu,utilization.gpu --format=csv,noheader,nounits 2>/dev/null | head -1)\n" +
+            "  if [ -n \"$out\" ]; then\n" +
+            "    echo \"gpuvendor=nvidia\"\n" +
+            "    echo \"gputemp=$(echo $out | cut -d, -f1 | tr -d ' ')\"\n" +
+            "    echo \"gpuusage=$(echo $out | cut -d, -f2 | tr -d ' ')\"\n" +
+            "  fi\n" +
+            "fi\n" +
+            "for d in /sys/class/drm/card*/device; do\n" +
+            "  [ -f \"$d/gpu_busy_percent\" ] && {\n" +
+            "    busy=$(cat \"$d/gpu_busy_percent\" 2>/dev/null)\n" +
+            "    [ -n \"$busy\" ] && echo \"gpuvendor=amd\" && echo \"gpuusage=$busy\"\n" +
+            "    for h in \"$d/hwmon/\"hwmon*; do\n" +
+            "      t=$(cat \"$h/temp1_input\" 2>/dev/null)\n" +
+            "      [ -n \"$t\" ] && echo \"gputemp=$((t/1000))\" && break\n" +
+            "    done\n" +
+            "    break\n" +
+            "  }\n" +
+            "done\n" +
+            "for f in /sys/class/hwmon/hwmon*/temp1_input; do\n" +
+            "  name=$(cat \"$(dirname \"$f\")/name\" 2>/dev/null)\n" +
+            "  if [ \"$name\" = \"i915\" ] || [ \"$name\" = \"xe\" ]; then\n" +
+            "    t=$(cat \"$f\" 2>/dev/null); [ -n \"$t\" ] && echo \"gpuvendor=intel\" && echo \"gputemp=$((t/1000))\" && break\n" +
+            "  fi\n" +
+            "done\n" +
+            "awk '/MemTotal:/ {tot=$2} /MemAvailable:/ {avail=$2} END {\n" +
+            "  used = tot - avail\n" +
+            "  printf \"memused=%.2f\\n\", used/1024/1024\n" +
+            "  printf \"memtotal=%.2f\\n\", tot/1024/1024\n" +
+            "}' /proc/meminfo\n" +
+            "snap1=$(awk '/:/ && !/lo:/ {gsub(\":\",\"\"); rx+=$2; tx+=$10} END {printf \"%d %d\", rx, tx}' /proc/net/dev)\n" +
+            "sleep 1\n" +
+            "snap2=$(awk '/:/ && !/lo:/ {gsub(\":\",\"\"); rx+=$2; tx+=$10} END {printf \"%d %d\", rx, tx}' /proc/net/dev)\n" +
+            "rx1=${snap1% *}; tx1=${snap1#* }\n" +
+            "rx2=${snap2% *}; tx2=${snap2#* }\n" +
+            "echo \"netrx=$(( (rx2 - rx1) / 1024 ))\"\n" +
+            "echo \"nettx=$(( (tx2 - tx1) / 1024 ))\"\n" +
+            "ut=$(awk '{print int($1)}' /proc/uptime)\n" +
+            "d=$((ut/86400)); h=$(( (ut%86400)/3600 )); m=$(( (ut%3600)/60 ))\n" +
+            "if [ $d -gt 0 ]; then echo \"uptime=${d}d ${h}h ${m}m\"\n" +
+            "elif [ $h -gt 0 ]; then echo \"uptime=${h}h ${m}m\"\n" +
+            "else echo \"uptime=${m}m\"; fi\n" +
+            "for b in /sys/class/power_supply/BAT*; do\n" +
+            "  [ -d \"$b\" ] || continue\n" +
+            "  cap=$(cat \"$b/capacity\" 2>/dev/null)\n" +
+            "  st=$(cat \"$b/status\" 2>/dev/null)\n" +
+            "  [ -n \"$cap\" ] && echo \"battery=$cap\" && [ \"$st\" = \"Charging\" ] && echo \"batcharging=1\" || echo \"batcharging=0\"\n" +
+            "  break\n" +
+            "done\n"
+        ]
+        stdout: SplitParser {
+            onRead: { popup._metricsBuf += data + "\n" }
+        }
+        onRunningChanged: {
+            if (!running) {
+                let lines = popup._metricsBuf.trim().split("\n")
+                popup._metricsBuf = ""
+                for (let l of lines) {
+                    let i = l.indexOf("=")
+                    if (i < 1) continue
+                    let k = l.substring(0, i)
+                    let v = l.substring(i + 1).trim()
+                    switch (k) {
+                        case "cputemp":     popup.cpuTemp     = parseFloat(v) || 0; break
+                        case "cpufreq":     popup.cpuFreq     = parseFloat(v) || 0; break
+                        case "gpuvendor":   popup.gpuVendor   = v; break
+                        case "gputemp":     popup.gpuTemp     = parseFloat(v) || 0; break
+                        case "gpuusage":    popup.gpuUsage    = (parseFloat(v) || 0) / 100; break
+                        case "memused":     popup.memUsedGB   = parseFloat(v) || 0; break
+                        case "memtotal":    popup.memTotalGB  = parseFloat(v) || 0; break
+                        case "netrx":       popup.netRxKBs    = parseFloat(v) || 0; break
+                        case "nettx":       popup.netTxKBs    = parseFloat(v) || 0; break
+                        case "uptime":      popup.uptimeStr   = v; break
+                        case "battery":     popup.batteryPct  = parseInt(v) || -1; break
+                        case "batcharging": popup.batteryCharging = (v === "1"); break
+                    }
+                }
+                // Push samples into history rings
+                if (popup.cpuTemp > 0)  popup.cpuTempHistory   = popup.pushHist(popup.cpuTempHistory, popup.cpuTemp, 30)
+                if (popup.gpuTemp > 0)  popup.gpuTempHistory   = popup.pushHist(popup.gpuTempHistory, popup.gpuTemp, 30)
+                popup.cpuUsageHistory = popup.pushHist(popup.cpuUsageHistory, sysInfo.cpuUsage, 30)
+                popup.netRxHistory    = popup.pushHist(popup.netRxHistory, popup.netRxKBs, 30)
+                popup.netTxHistory    = popup.pushHist(popup.netTxHistory, popup.netTxKBs, 30)
+                // Auto-rescale net chart so the peak fills ~80% of the area
+                let peak = 100
+                for (let v of popup.netRxHistory) if (v > peak) peak = v
+                for (let v of popup.netTxHistory) if (v > peak) peak = v
+                popup.netMaxSeen = peak * 1.25
+            }
+        }
+    }
+
+    Timer {
+        id: metricsTimer
+        interval: 2500; repeat: true
+        running: popup.active && popup.currentTab === "Performance"
+        onTriggered: { if (!metricsCollector.running) metricsCollector.running = true }
+        triggeredOnStart: true
     }
 
     Timer { id: repollTimer; interval: 800; repeat: false; onTriggered: { wifiScanner.running=true; btScanner.running=true } }
@@ -194,12 +328,27 @@ PanelWindow {
         return "󰤟"
     }
 
+    function fmtSpeed(kb) {
+        if (kb >= 1024) return (kb / 1024).toFixed(1) + " MB/s"
+        return Math.round(kb) + " KB/s"
+    }
+
+    function tempColor(t) {
+        if (t >= 85) return "#e06c75"
+        if (t >= 70) return "#e5c07b"
+        return Theme.primary
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
-    //  CONTAINER
+    //  CONTAINER — wider on Performance tab
     // ═══════════════════════════════════════════════════════════════════════
     Rectangle {
         id: container
-        width: 420; height: 580
+        width:  popup.currentTab === "Performance" ? 700 : 420
+        height: popup.currentTab === "Performance" ? 720 : 580
+        Behavior on width  { NumberAnimation { duration: 220; easing.type: Easing.OutQuart } }
+        Behavior on height { NumberAnimation { duration: 220; easing.type: Easing.OutQuart } }
+
         anchors.top: parent.top; anchors.topMargin: 45
         anchors.right: parent.right; anchors.rightMargin: 15
         radius: 30; color: "transparent"
@@ -476,15 +625,17 @@ PanelWindow {
             }
 
             // ══════════════════════════════════════════════════════════════
-            //  PERFORMANCE TAB
+            //  PERFORMANCE TAB — masonry layout with charts
             // ══════════════════════════════════════════════════════════════
             ColumnLayout {
                 visible: popup.currentTab === "Performance"
-                Layout.fillWidth: true; spacing: 16
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                spacing: 12
 
-                // ── Circle gauges only (no duplicate bars below) ──────────
+                // ── Header strip with circle gauges (CPU/Mem/Disk) ────────
                 RowLayout {
-                    Layout.fillWidth: true; Layout.alignment: Qt.AlignHCenter; spacing: 16
+                    Layout.fillWidth: true; Layout.alignment: Qt.AlignHCenter; spacing: 12
 
                     component CircleGauge: Item {
                         id: gauge
@@ -493,12 +644,14 @@ PanelWindow {
                         property string icon: ""
                         property color trackColor: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.12)
                         property color fillColor: value > 0.85 ? "#e06c75" : Theme.primary
-                        width: 96; height: 120
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 110
+                        Layout.preferredWidth: 100
 
                         Canvas {
                             id: gaugeCanvas
                             anchors.top: parent.top; anchors.horizontalCenter: parent.horizontalCenter
-                            width: 88; height: 88
+                            width: 80; height: 80
                             property real animValue: 0.0
                             Behavior on animValue { NumberAnimation { duration: 600; easing.type: Easing.OutQuart } }
                             onAnimValueChanged: requestPaint()
@@ -506,19 +659,19 @@ PanelWindow {
                             Connections { target: gauge; function onValueChanged() { gaugeCanvas.animValue = gauge.value } }
                             onPaint: {
                                 var ctx = getContext("2d"); ctx.reset()
-                                var cx=width/2, cy=height/2, r=(width-14)/2
+                                var cx=width/2, cy=height/2, r=(width-12)/2
                                 var s=Math.PI*0.75, sw=Math.PI*1.5
-                                ctx.beginPath(); ctx.arc(cx,cy,r,s,s+sw,false); ctx.strokeStyle=gauge.trackColor; ctx.lineWidth=8; ctx.lineCap="round"; ctx.stroke()
-                                if (animValue>0) { ctx.beginPath(); ctx.arc(cx,cy,r,s,s+sw*animValue,false); ctx.strokeStyle=gauge.fillColor; ctx.lineWidth=8; ctx.lineCap="round"; ctx.stroke() }
-                                if (animValue>0.02) { var ta=s+sw*animValue; ctx.beginPath(); ctx.arc(cx+r*Math.cos(ta),cy+r*Math.sin(ta),4,0,Math.PI*2); ctx.fillStyle=gauge.fillColor; ctx.fill() }
+                                ctx.beginPath(); ctx.arc(cx,cy,r,s,s+sw,false); ctx.strokeStyle=gauge.trackColor; ctx.lineWidth=7; ctx.lineCap="round"; ctx.stroke()
+                                if (animValue>0) { ctx.beginPath(); ctx.arc(cx,cy,r,s,s+sw*animValue,false); ctx.strokeStyle=gauge.fillColor; ctx.lineWidth=7; ctx.lineCap="round"; ctx.stroke() }
+                                if (animValue>0.02) { var ta=s+sw*animValue; ctx.beginPath(); ctx.arc(cx+r*Math.cos(ta),cy+r*Math.sin(ta),3.5,0,Math.PI*2); ctx.fillStyle=gauge.fillColor; ctx.fill() }
                             }
                             Column {
-                                anchors.centerIn: parent; spacing: 1
-                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: gauge.icon; color: Theme.primary; font.pixelSize: 16 }
+                                anchors.centerIn: parent; spacing: 0
+                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: gauge.icon; color: Theme.primary; font.pixelSize: 14; opacity: 0.7 }
                                 Text { anchors.horizontalCenter: parent.horizontalCenter; text: Math.round(gauge.value*100)+"%"; color: gauge.fillColor; font.pixelSize: 13; font.weight: Font.Black }
                             }
                         }
-                        Text { anchors.horizontalCenter: parent.horizontalCenter; anchors.bottom: parent.bottom; text: gauge.label; color: Theme.primary; opacity: 0.55; font.pixelSize: 11; font.weight: Font.Medium }
+                        Text { anchors.horizontalCenter: parent.horizontalCenter; anchors.bottom: parent.bottom; text: gauge.label; color: Theme.primary; opacity: 0.55; font.pixelSize: 10; font.weight: Font.Medium }
                     }
 
                     CircleGauge { label: "CPU";    icon: "󰻠"; value: sysInfo.cpuUsage }
@@ -528,111 +681,472 @@ PanelWindow {
 
                 Rectangle { Layout.fillWidth: true; height: 1; color: Theme.primary; opacity: 0.1 }
 
-                // ── Game Mode toggle ──────────────────────────────────────
-                Rectangle {
-                    Layout.fillWidth: true; height: 48; radius: 14
-                    color: popup.gamemodeActive
-                        ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.12)
-                        : Theme.background
-                    border.color: popup.gamemodeActive ? Theme.primary : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.2)
-                    border.width: popup.gamemodeActive ? 1.5 : 1
+                // ── REUSABLE COMPONENTS ───────────────────────────────────
 
+                // Sparkline chart card (line + area fill)
+                component SparkCard: Rectangle {
+                    property string cardIcon: ""
+                    property string cardLabel: ""
+                    property string cardValue: ""
+                    property string cardSub: ""
+                    property color  cardColor: Theme.primary
+                    property var    history: []
+                    property real   yMin: 0
+                    property real   yMax: 100
+                    property bool   filled: true   // area fill under line
+
+                    width: parent ? parent.width : 0
+                    height: 110
+                    radius: 14
+                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05)
+                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.12)
+                    border.width: 1
+
+                    // Header row
                     RowLayout {
-                        anchors.fill: parent; anchors.leftMargin: 14; anchors.rightMargin: 14; spacing: 12
+                        anchors.left: parent.left; anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.leftMargin: 12; anchors.rightMargin: 12; anchors.topMargin: 10
+                        spacing: 8
 
-                        Text {
-                            text: "󰊴"
-                            color: popup.gamemodeActive ? Theme.primary : Theme.primary
-                            font.pixelSize: 20; opacity: popup.gamemodeActive ? 1.0 : 0.5
-                            Layout.alignment: Qt.AlignVCenter
+                        Rectangle {
+                            width: 28; height: 28; radius: 8
+                            color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.10)
+                            Text { anchors.centerIn: parent; text: cardIcon; color: cardColor; font.pixelSize: 14 }
                         }
                         ColumnLayout {
-                            spacing: 1; Layout.fillWidth: true
-                            Text { text: "Game Mode"; color: Theme.primary; font.pixelSize: 13; font.bold: true }
-                            Text {
-                                text: popup.gamemodeActive ? "Blur, shadows & animations off" : "Blur, shadows & animations on"
-                                color: Theme.primary; opacity: 0.45; font.pixelSize: 10
-                            }
+                            spacing: -1; Layout.fillWidth: true
+                            Text { text: cardLabel; color: Theme.primary; opacity: 0.5; font.pixelSize: 9; font.bold: true }
+                            Text { text: cardValue; color: cardColor; font.pixelSize: 16; font.weight: Font.Black }
                         }
-                        // Toggle switch
-                        Rectangle {
-                            width: 44; height: 24; radius: 12
-                            color: popup.gamemodeActive ? Theme.primary : "transparent"
-                            border.color: Theme.primary; border.width: 2
-                            Layout.alignment: Qt.AlignVCenter
-                            Rectangle {
-                                x: popup.gamemodeActive ? parent.width - width - 3 : 3; y: 3
-                                width: 18; height: 18; radius: 9
-                                color: popup.gamemodeActive ? Theme.background : Theme.primary
-                                Behavior on x { NumberAnimation { duration: 180 } }
+                        Text { text: cardSub; color: Theme.primary; opacity: 0.4; font.pixelSize: 9 }
+                    }
+
+                    // Sparkline canvas
+                    Canvas {
+                        id: spark
+                        anchors.left: parent.left; anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        anchors.leftMargin: 10; anchors.rightMargin: 10; anchors.bottomMargin: 8
+                        height: 42
+                        antialiasing: true
+
+                        Connections {
+                            target: parent
+                            function onHistoryChanged() { spark.requestPaint() }
+                            function onYMaxChanged()    { spark.requestPaint() }
+                        }
+                        onWidthChanged: requestPaint()
+
+                        onPaint: {
+                            var ctx = getContext("2d"); ctx.reset()
+                            var hist = parent.history
+                            if (!hist || hist.length < 2) return
+                            var w = width, h = height
+                            var range = parent.yMax - parent.yMin
+                            if (range <= 0) range = 1
+
+                            var step = w / Math.max(1, hist.length - 1)
+                            // Build path
+                            ctx.beginPath()
+                            for (var i = 0; i < hist.length; i++) {
+                                var x = i * step
+                                var nv = (hist[i] - parent.yMin) / range
+                                if (nv < 0) nv = 0; if (nv > 1) nv = 1
+                                var y = h - nv * (h - 4) - 2
+                                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y)
                             }
-                            MouseArea {
-                                anchors.fill: parent
-                                onClicked: {
-                                    popup.gamemodeActive = !popup.gamemodeActive
-                                    gamemodeExec.apply(popup.gamemodeActive)
-                                }
+
+                            if (parent.filled) {
+                                // Area fill
+                                ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath()
+                                var grad = ctx.createLinearGradient(0, 0, 0, h)
+                                grad.addColorStop(0, Qt.rgba(parent.cardColor.r, parent.cardColor.g, parent.cardColor.b, 0.35))
+                                grad.addColorStop(1, Qt.rgba(parent.cardColor.r, parent.cardColor.g, parent.cardColor.b, 0.02))
+                                ctx.fillStyle = grad
+                                ctx.fill()
+                            }
+
+                            // Stroke line on top
+                            ctx.beginPath()
+                            for (var j = 0; j < hist.length; j++) {
+                                var x2 = j * step
+                                var nv2 = (hist[j] - parent.yMin) / range
+                                if (nv2 < 0) nv2 = 0; if (nv2 > 1) nv2 = 1
+                                var y2 = h - nv2 * (h - 4) - 2
+                                if (j === 0) ctx.moveTo(x2, y2); else ctx.lineTo(x2, y2)
+                            }
+                            ctx.strokeStyle = parent.cardColor
+                            ctx.lineWidth = 1.8
+                            ctx.lineJoin = "round"; ctx.lineCap = "round"
+                            ctx.stroke()
+
+                            // End-point dot
+                            if (hist.length > 0) {
+                                var lx = (hist.length - 1) * step
+                                var lv = (hist[hist.length - 1] - parent.yMin) / range
+                                if (lv < 0) lv = 0; if (lv > 1) lv = 1
+                                var ly = h - lv * (h - 4) - 2
+                                ctx.beginPath(); ctx.arc(lx, ly, 2.5, 0, Math.PI * 2)
+                                ctx.fillStyle = parent.cardColor; ctx.fill()
                             }
                         }
                     }
                 }
 
-                // ── Power profile ─────────────────────────────────────────
-                ColumnLayout {
-                    Layout.fillWidth: true; spacing: 8
+                // Compact value-only card (no chart)
+                component CompactCard: Rectangle {
+                    property string cardIcon: ""
+                    property string cardLabel: ""
+                    property string cardValue: ""
+                    property string cardSub: ""
+                    property color  cardColor: Theme.primary
+
+                    width: parent ? parent.width : 0
+                    height: 56
+                    radius: 14
+                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05)
+                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.12)
+                    border.width: 1
 
                     RowLayout {
-                        Layout.fillWidth: true
-                        Text { text: "󱐋  Power Profile"; color: Theme.primary; font.pixelSize: 13; font.bold: true }
-                        Item { Layout.fillWidth: true }
-                        // Show tuxedo button if installed, else show current profile label
+                        anchors.fill: parent
+                        anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 10
                         Rectangle {
-                            visible: popup.tuxedoInstalled
-                            width: tuxLbl.implicitWidth + 24; height: 26; radius: 8
-                            color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
-                            border.color: Theme.primary; border.width: 1
-                            Text { id: tuxLbl; anchors.centerIn: parent; text: "Open Tuxedo CC"; color: Theme.primary; font.pixelSize: 10; font.bold: true }
-                            MouseArea { anchors.fill: parent; onClicked: { executor.run(["hyprctl", "dispatch", "exec", "tuxedo-control-center"]); popup.active=false } }
+                            width: 32; height: 32; radius: 9
+                            color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.10)
+                            Text { anchors.centerIn: parent; text: cardIcon; color: cardColor; font.pixelSize: 16 }
+                        }
+                        ColumnLayout {
+                            spacing: -1; Layout.fillWidth: true
+                            Text { text: cardLabel; color: Theme.primary; opacity: 0.5; font.pixelSize: 9; font.bold: true }
+                            Text { text: cardValue; color: cardColor; font.pixelSize: 14; font.weight: Font.Black }
+                        }
+                        Text { text: cardSub; color: Theme.primary; opacity: 0.45; font.pixelSize: 9 }
+                    }
+                }
+
+                // Dual-line chart card (rx + tx)
+                component DualSparkCard: Rectangle {
+                    property string cardIcon: ""
+                    property string cardLabel: ""
+                    property var    historyA: []
+                    property var    historyB: []
+                    property string labelA: "RX"
+                    property string labelB: "TX"
+                    property color  colorA: Theme.primary
+                    property color  colorB: Theme.accent
+                    property string valueA: ""
+                    property string valueB: ""
+                    property real   yMax: 100
+
+                    width: parent ? parent.width : 0
+                    height: 130
+                    radius: 14
+                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05)
+                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.12)
+                    border.width: 1
+
+                    ColumnLayout {
+                        anchors.left: parent.left; anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.leftMargin: 12; anchors.rightMargin: 12; anchors.topMargin: 10
+                        spacing: 4
+
+                        // Header
+                        RowLayout {
+                            Layout.fillWidth: true; spacing: 8
+                            Rectangle {
+                                width: 28; height: 28; radius: 8
+                                color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.10)
+                                Text { anchors.centerIn: parent; text: cardIcon; color: Theme.primary; font.pixelSize: 14 }
+                            }
+                            Text { text: cardLabel; color: Theme.primary; opacity: 0.6; font.pixelSize: 10; font.bold: true; Layout.alignment: Qt.AlignVCenter }
+                            Item { Layout.fillWidth: true }
+                        }
+
+                        // Two-row legend with values
+                        RowLayout {
+                            Layout.fillWidth: true; spacing: 12
+                            RowLayout {
+                                spacing: 5
+                                Rectangle { width: 8; height: 8; radius: 4; color: colorA }
+                                Text { text: labelA + " " + valueA; color: Theme.primary; font.pixelSize: 11; font.bold: true }
+                            }
+                            RowLayout {
+                                spacing: 5
+                                Rectangle { width: 8; height: 8; radius: 4; color: colorB }
+                                Text { text: labelB + " " + valueB; color: Theme.primary; font.pixelSize: 11; font.bold: true; opacity: 0.85 }
+                            }
+                            Item { Layout.fillWidth: true }
                         }
                     }
 
-                    // Three profile pills — hidden when tuxedo is installed
-                    // (user manages profiles from tuxedo cc instead)
+                    Canvas {
+                        id: dualSpark
+                        anchors.left: parent.left; anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        anchors.leftMargin: 10; anchors.rightMargin: 10; anchors.bottomMargin: 8
+                        height: 50
+                        antialiasing: true
+
+                        Connections {
+                            target: parent
+                            function onHistoryAChanged() { dualSpark.requestPaint() }
+                            function onHistoryBChanged() { dualSpark.requestPaint() }
+                            function onYMaxChanged()    { dualSpark.requestPaint() }
+                        }
+                        onWidthChanged: requestPaint()
+
+                        function drawSeries(ctx, hist, w, h, color, fill) {
+                            if (!hist || hist.length < 2) return
+                            var range = parent.yMax > 0 ? parent.yMax : 1
+                            var step = w / Math.max(1, hist.length - 1)
+                            ctx.beginPath()
+                            for (var i = 0; i < hist.length; i++) {
+                                var x = i * step
+                                var nv = hist[i] / range
+                                if (nv < 0) nv = 0; if (nv > 1) nv = 1
+                                var y = h - nv * (h - 4) - 2
+                                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y)
+                            }
+                            if (fill) {
+                                ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath()
+                                var grad = ctx.createLinearGradient(0, 0, 0, h)
+                                grad.addColorStop(0, Qt.rgba(color.r, color.g, color.b, 0.30))
+                                grad.addColorStop(1, Qt.rgba(color.r, color.g, color.b, 0.02))
+                                ctx.fillStyle = grad; ctx.fill()
+                            }
+                            ctx.beginPath()
+                            for (var j = 0; j < hist.length; j++) {
+                                var x2 = j * step
+                                var nv2 = hist[j] / range
+                                if (nv2 < 0) nv2 = 0; if (nv2 > 1) nv2 = 1
+                                var y2 = h - nv2 * (h - 4) - 2
+                                if (j === 0) ctx.moveTo(x2, y2); else ctx.lineTo(x2, y2)
+                            }
+                            ctx.strokeStyle = color
+                            ctx.lineWidth = 1.6; ctx.lineJoin = "round"; ctx.lineCap = "round"
+                            ctx.stroke()
+                        }
+
+                        onPaint: {
+                            var ctx = getContext("2d"); ctx.reset()
+                            drawSeries(ctx, parent.historyA, width, height, parent.colorA, true)
+                            drawSeries(ctx, parent.historyB, width, height, parent.colorB, false)
+                        }
+                    }
+                }
+
+                // ── MASONRY (3 columns) ──────────────────────────────────
+                // Manual columns — each is a Column with auto-sizing items.
+                // This gives a true masonry feel because column heights differ
+                // naturally based on which cards land where.
+                Item {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+
                     Row {
-                        Layout.fillWidth: true; spacing: 8
-                        visible: !popup.tuxedoInstalled
+                        anchors.fill: parent
+                        spacing: 10
 
-                        Repeater {
-                            model: [
-                                { id: "power-saver",  icon: "󰁾", label: "Saver"       },
-                                { id: "balanced",     icon: "󰁿", label: "Balanced"    },
-                                { id: "performance",  icon: "󱐋", label: "Performance" }
-                            ]
+                        // ─ Column 1 — CPU stats (chart + compact) ─
+                        Column {
+                            width: (parent.width - 20) / 3
+                            spacing: 10
+
+                            // CPU temp chart
+                            SparkCard {
+                                cardIcon:  "󰈐"
+                                cardLabel: "CPU TEMP"
+                                cardValue: popup.cpuTemp > 0 ? popup.cpuTemp.toFixed(0) + "°C" : "—"
+                                cardColor: popup.tempColor(popup.cpuTemp)
+                                history:   popup.cpuTempHistory
+                                yMin: 30; yMax: 95
+                            }
+                            // CPU clock (compact)
+                            CompactCard {
+                                cardIcon:  "󰓅"
+                                cardLabel: "CPU CLOCK"
+                                cardValue: popup.cpuFreq > 0 ? popup.cpuFreq.toFixed(2) + " GHz" : "—"
+                            }
+                            // CPU usage chart
+                            SparkCard {
+                                cardIcon:  "󰻠"
+                                cardLabel: "CPU LOAD"
+                                cardValue: Math.round(sysInfo.cpuUsage * 100) + "%"
+                                cardColor: sysInfo.cpuUsage > 0.85 ? "#e06c75" : Theme.primary
+                                history:   popup.cpuUsageHistory
+                                yMin: 0; yMax: 1
+                            }
+                        }
+
+                        // ─ Column 2 — GPU stats ─
+                        Column {
+                            width: (parent.width - 20) / 3
+                            spacing: 10
+
+                            SparkCard {
+                                cardIcon:  "󰍹"
+                                cardLabel: popup.gpuVendor !== "" ? "GPU TEMP · " + popup.gpuVendor.toUpperCase() : "GPU TEMP"
+                                cardValue: popup.gpuTemp > 0 ? popup.gpuTemp.toFixed(0) + "°C" : "—"
+                                cardColor: popup.tempColor(popup.gpuTemp)
+                                history:   popup.gpuTempHistory
+                                yMin: 30; yMax: 95
+                            }
+                            CompactCard {
+                                cardIcon:  "󰢮"
+                                cardLabel: "GPU USAGE"
+                                cardValue: popup.gpuVendor === "nvidia" || popup.gpuVendor === "amd"
+                                    ? Math.round(popup.gpuUsage * 100) + "%"
+                                    : (popup.gpuVendor === "intel" ? "n/a" : "—")
+                            }
+                            CompactCard {
+                                cardIcon:  "󰍛"
+                                cardLabel: "MEMORY"
+                                cardValue: popup.memUsedGB > 0 ? popup.memUsedGB.toFixed(1) + " GB" : "—"
+                                cardSub:   popup.memTotalGB > 0 ? "of " + popup.memTotalGB.toFixed(1) : ""
+                            }
+                        }
+
+                        // ─ Column 3 — Network + system ─
+                        Column {
+                            width: (parent.width - 20) / 3
+                            spacing: 10
+
+                            // Network combined chart
+                            DualSparkCard {
+                                cardIcon:  "󰛳"
+                                cardLabel: "NETWORK"
+                                historyA:  popup.netRxHistory
+                                historyB:  popup.netTxHistory
+                                labelA:    "↓"
+                                labelB:    "↑"
+                                colorA:    Theme.primary
+                                colorB:    "#e5c07b"
+                                valueA:    popup.fmtSpeed(popup.netRxKBs)
+                                valueB:    popup.fmtSpeed(popup.netTxKBs)
+                                yMax:      popup.netMaxSeen
+                            }
+                            CompactCard {
+                                cardIcon:  "󱎫"
+                                cardLabel: "UPTIME"
+                                cardValue: popup.uptimeStr || "—"
+                            }
+                            CompactCard {
+                                cardIcon:  popup.batteryCharging ? "󰂄" : "󰁹"
+                                cardLabel: "BATTERY"
+                                cardValue: popup.batteryPct >= 0 ? popup.batteryPct + "%" : "—"
+                                cardSub:   popup.batteryCharging ? "Charging" : ""
+                                cardColor: popup.batteryPct >= 0 && popup.batteryPct <= 20 ? "#e06c75" : Theme.primary
+                                visible:   popup.batteryPct >= 0
+                            }
+                        }
+                    }
+                }
+
+                Rectangle { Layout.fillWidth: true; height: 1; color: Theme.primary; opacity: 0.1 }
+
+                // ── Game Mode + Power profile row ─────────────────────────
+                RowLayout {
+                    Layout.fillWidth: true; spacing: 10
+
+                    // Game Mode
+                    Rectangle {
+                        Layout.fillWidth: true; Layout.preferredWidth: 1
+                        height: 56; radius: 14
+                        color: popup.gamemodeActive
+                            ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.12)
+                            : Theme.background
+                        border.color: popup.gamemodeActive ? Theme.primary : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.2)
+                        border.width: popup.gamemodeActive ? 1.5 : 1
+
+                        RowLayout {
+                            anchors.fill: parent; anchors.leftMargin: 14; anchors.rightMargin: 14; spacing: 12
+                            Text { text: "󰊴"; color: Theme.primary; font.pixelSize: 20; opacity: popup.gamemodeActive ? 1.0 : 0.5; Layout.alignment: Qt.AlignVCenter }
+                            ColumnLayout {
+                                spacing: 1; Layout.fillWidth: true
+                                Text { text: "Game Mode"; color: Theme.primary; font.pixelSize: 13; font.bold: true }
+                                Text {
+                                    text: popup.gamemodeActive ? "Visual effects off" : "Visual effects on"
+                                    color: Theme.primary; opacity: 0.45; font.pixelSize: 10
+                                }
+                            }
                             Rectangle {
-                                property bool sel: popup.powerProfile === modelData.id
-                                width: (parent.width - 16) / 3; height: 52; radius: 14
-                                color: sel ? Theme.primary : Theme.background
-                                border.color: Theme.primary
-                                border.width: sel ? 0 : 1
-
-                                Column {
-                                    anchors.centerIn: parent; spacing: 4
-                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData.icon; color: sel ? Theme.background : Theme.primary; font.pixelSize: 18; opacity: sel ? 1.0 : 0.6 }
-                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData.label; color: sel ? Theme.background : Theme.primary; font.pixelSize: 10; font.bold: sel; opacity: sel ? 1.0 : 0.6 }
+                                width: 44; height: 24; radius: 12
+                                color: popup.gamemodeActive ? Theme.primary : "transparent"
+                                border.color: Theme.primary; border.width: 2
+                                Layout.alignment: Qt.AlignVCenter
+                                Rectangle {
+                                    x: popup.gamemodeActive ? parent.width - width - 3 : 3; y: 3
+                                    width: 18; height: 18; radius: 9
+                                    color: popup.gamemodeActive ? Theme.background : Theme.primary
+                                    Behavior on x { NumberAnimation { duration: 180 } }
                                 }
                                 MouseArea {
                                     anchors.fill: parent
                                     onClicked: {
-                                        popup.powerProfile = modelData.id
-                                        powerProfileSetter.set(modelData.id)
+                                        popup.gamemodeActive = !popup.gamemodeActive
+                                        gamemodeExec.apply(popup.gamemodeActive)
                                     }
                                 }
                             }
                         }
                     }
-                }
 
-                Rectangle { Layout.fillWidth: true; height: 1; color: Theme.primary; opacity: 0.08 }
+                    // Power profile pills (or tuxedo button) — compact inline
+                    Rectangle {
+                        Layout.fillWidth: true; Layout.preferredWidth: 1
+                        height: 56; radius: 14
+                        color: Theme.background
+                        border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.2)
+                        border.width: 1
+
+                        RowLayout {
+                            anchors.fill: parent; anchors.margins: 8; spacing: 6
+                            visible: popup.tuxedoInstalled
+                            Text { text: "󱐋"; color: Theme.primary; font.pixelSize: 18; opacity: 0.7; Layout.alignment: Qt.AlignVCenter; Layout.leftMargin: 6 }
+                            ColumnLayout {
+                                spacing: 0; Layout.fillWidth: true
+                                Text { text: "Power Profile"; color: Theme.primary; font.pixelSize: 13; font.bold: true }
+                                Text { text: "Tuxedo CC"; color: Theme.primary; opacity: 0.5; font.pixelSize: 10 }
+                            }
+                            Rectangle {
+                                width: 74; height: 28; radius: 8
+                                color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+                                border.color: Theme.primary; border.width: 1
+                                Layout.alignment: Qt.AlignVCenter; Layout.rightMargin: 4
+                                Text { anchors.centerIn: parent; text: "Open"; color: Theme.primary; font.pixelSize: 10; font.bold: true }
+                                MouseArea { anchors.fill: parent; onClicked: { localExec.run(["hyprctl","dispatch","exec","tuxedo-control-center"]); popup.active=false } }
+                            }
+                        }
+
+                        Row {
+                            anchors.fill: parent; anchors.margins: 6; spacing: 4
+                            visible: !popup.tuxedoInstalled
+                            Repeater {
+                                model: [
+                                    { id: "power-saver",  icon: "󰁾", label: "Saver" },
+                                    { id: "balanced",     icon: "󰁿", label: "Balanced" },
+                                    { id: "performance",  icon: "󱐋", label: "Perf" }
+                                ]
+                                Rectangle {
+                                    property bool sel: popup.powerProfile === modelData.id
+                                    width: (parent.width - 8) / 3; height: parent.height
+                                    radius: 10
+                                    color: sel ? Theme.primary : "transparent"
+                                    border.color: Theme.primary; border.width: sel ? 0 : 1
+                                    Column {
+                                        anchors.centerIn: parent; spacing: 1
+                                        Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData.icon; color: sel ? Theme.background : Theme.primary; font.pixelSize: 14 }
+                                        Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData.label; color: sel ? Theme.background : Theme.primary; font.pixelSize: 9; font.bold: sel }
+                                    }
+                                    MouseArea { anchors.fill: parent; onClicked: { popup.powerProfile = modelData.id; powerProfileSetter.set(modelData.id) } }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 // ── System monitor button ─────────────────────────────────
                 Rectangle {
