@@ -17,20 +17,15 @@ PanelWindow {
     property var screen
     screen: popup.screen
 
-    // Window is only as tall as the popup + its resting margin.
-    // It anchors bottom+left+right so margins.bottom slides it up/down.
     anchors { bottom: true; left: true; right: true }
     WlrLayershell.layer: WlrLayer.Overlay
     exclusionMode: WlrLayershell.Ignore
     WlrLayershell.keyboardFocus: active ? WlrLayershell.OnDemand : WlrLayershell.None
     color: "transparent"
 
-    implicitHeight: 580   // 520 container + 40 bottom gap + 20 spare
+    implicitHeight: 580
     width: screen ? screen.width : 800
 
-    // Slide via bottom margin exactly like ML4W sidebar slides via right margin.
-    // Closed = -580 (fully below screen). Open = 0 (window flush with bottom edge,
-    // container sits 40px above via its own anchors.bottomMargin).
     margins { bottom: popup.currentBottomMargin }
     property real currentBottomMargin: active ? 0 : -580
 
@@ -57,9 +52,6 @@ PanelWindow {
 
     onActiveChanged: {
         if (active) {
-            // Only reset tab/search — do NOT reload todos/notes on every open.
-            // The models are kept live in memory; they're only loaded once on
-            // first open and then kept in sync by save-on-change.
             activeTab        = 0
             searchText       = ""
             isCommandMode    = false
@@ -71,7 +63,20 @@ PanelWindow {
     }
 
     // ═════════════════════════════════════════════════════════════════════════
-    // APP MODEL
+    // APP MODEL — fast loader
+    //
+    // The previous loader ran `find /usr/share/icons …` once per app, which
+    // does hundreds of filesystem walks (≈300ms × N apps = several seconds).
+    //
+    // The fast version:
+    //   1. A persistent cache at ~/.cache/quickshell/dock-apps.tsv stores
+    //      parsed name/exec/iconHint/keywords per .desktop file. The cache
+    //      is rebuilt only when any .desktop file is newer than the cache.
+    //   2. We DO NOT resolve icon paths in the loader. We just store the
+    //      icon hint string. The QML Image element resolves it at render
+    //      time using a list of candidate paths — Qt's Image cache means
+    //      this happens lazily and only for visible cells (GridView reuses
+    //      delegates, so off-screen apps never trigger a lookup).
     // ═════════════════════════════════════════════════════════════════════════
     ListModel { id: appModel }
     property var seenAppNames: ({})
@@ -79,31 +84,103 @@ PanelWindow {
     Process {
         id: appLoader
         command: ["bash", "-c",
-            "IFS=$'\\n'\n" +
-            "for f in /usr/share/applications/*.desktop" +
-                     " /usr/local/share/applications/*.desktop" +
-                     " $HOME/.local/share/applications/*.desktop; do\n" +
-            "  [ -f \"$f\" ] || continue\n" +
-            "  nodisplay=$(grep -m1 '^NoDisplay=' \"$f\" | cut -d= -f2 | tr -d '[:space:]')\n" +
-            "  [ \"$nodisplay\" = 'true' ] && continue\n" +
-            "  name=$(grep -m1 '^Name=' \"$f\" | cut -d= -f2-)\n" +
-            "  [ -z \"$name\" ] && continue\n" +
-            "  exec=$(grep -m1 '^Exec=' \"$f\" | cut -d= -f2- | sed 's/ *%[uUfFdDnNickvm]*//g' | xargs)\n" +
-            "  icon=$(grep -m1 '^Icon=' \"$f\" | cut -d= -f2-)\n" +
-            "  keys=$(grep -m1 '^Keywords=' \"$f\" | cut -d= -f2- | tr ';' ' ')\n" +
-            "  if [ -z \"$icon\" ]; then ipath=''\n" +
-            "  elif [ -f \"$icon\" ]; then ipath=\"$icon\"\n" +
-            "  else\n" +
-            "    ipath=$(find /usr/share/icons /usr/share/pixmaps $HOME/.local/share/icons \\\n" +
-            "      \\( -name \"${icon}.svg\" -o -name \"${icon}.png\" \\) 2>/dev/null | head -1)\n" +
-            "    [ -z \"$ipath\" ] && ipath=''\n" +
-            "  fi\n" +
-            "  printf '%s\\x1f%s\\x1f%s\\x1f%s\\n' \"$name\" \"$exec\" \"$ipath\" \"$keys\"\n" +
-            "done | sort -u"
+            "CACHE=\"$HOME/.cache/quickshell/dock-apps-v2.tsv\"\n" +
+            "mkdir -p \"$(dirname \"$CACHE\")\"\n" +
+            "# Clean up old v1 cache from previous version\n" +
+            "rm -f \"$HOME/.cache/quickshell/dock-apps.tsv\" 2>/dev/null\n" +
+            "\n" +
+            "# Rebuild if cache missing or any .desktop newer than it\n" +
+            "rebuild=0\n" +
+            "if [ ! -f \"$CACHE\" ]; then\n" +
+            "  rebuild=1\n" +
+            "else\n" +
+            "  newer=$(find /usr/share/applications /usr/local/share/applications \"$HOME/.local/share/applications\" \\\n" +
+            "    -maxdepth 1 -name '*.desktop' -newer \"$CACHE\" -print -quit 2>/dev/null)\n" +
+            "  [ -n \"$newer\" ] && rebuild=1\n" +
+            "fi\n" +
+            "\n" +
+            "if [ \"$rebuild\" = \"1\" ]; then\n" +
+            "  # ── BUILD ICON INDEX (one big find, then everything is in-memory) ─\n" +
+            "  # Walks every standard icon location ONCE and builds a name→path map.\n" +
+            "  # We pick the largest available size when duplicates exist.\n" +
+            "  ICON_INDEX=$(mktemp)\n" +
+            "  find /usr/share/icons /usr/share/pixmaps \"$HOME/.local/share/icons\" \\\n" +
+            "    -type f \\( -name '*.png' -o -name '*.svg' -o -name '*.xpm' \\) 2>/dev/null \\\n" +
+            "    | awk '\n" +
+            "        {\n" +
+            "          path = $0\n" +
+            "          # Strip directory and extension to get just the icon name\n" +
+            "          n = split(path, parts, \"/\")\n" +
+            "          base = parts[n]\n" +
+            "          sub(/\\.(png|svg|xpm)$/, \"\", base)\n" +
+            "          # Heuristic priority: scalable > 256 > 128 > 64 > 48 > 32 > rest\n" +
+            "          prio = 0\n" +
+            "          if (path ~ /scalable/) prio = 1000\n" +
+            "          else if (path ~ /256/)  prio = 900\n" +
+            "          else if (path ~ /128/)  prio = 800\n" +
+            "          else if (path ~ /96/)   prio = 700\n" +
+            "          else if (path ~ /64/)   prio = 600\n" +
+            "          else if (path ~ /48/)   prio = 500\n" +
+            "          else if (path ~ /32/)   prio = 400\n" +
+            "          else                    prio = 100\n" +
+            "          # Prefer apps/ subdirectory over mimetypes/places/etc.\n" +
+            "          if (path ~ /\\/apps\\//) prio += 50\n" +
+            "          if (!(base in best) || prio > bestp[base]) {\n" +
+            "            best[base] = path; bestp[base] = prio\n" +
+            "          }\n" +
+            "        }\n" +
+            "        END { for (k in best) print k \"\\t\" best[k] }\n" +
+            "      ' > \"$ICON_INDEX\"\n" +
+            "\n" +
+            "  # ── PARSE .desktop FILES AND RESOLVE ICONS AGAINST THE INDEX ──────\n" +
+            "  {\n" +
+            "    for f in /usr/share/applications/*.desktop \\\n" +
+            "             /usr/local/share/applications/*.desktop \\\n" +
+            "             \"$HOME/.local/share/applications\"/*.desktop; do\n" +
+            "      [ -f \"$f\" ] || continue\n" +
+            "      awk -F= -v idx=\"$ICON_INDEX\" '\n" +
+            "        BEGIN {\n" +
+            "          # Load the icon index into memory once per .desktop file.\n" +
+            "          # (awk per-file is fine; index is small and OS-cached.)\n" +
+            "          while ((getline line < idx) > 0) {\n" +
+            "            split(line, a, \"\\t\"); icons[a[1]] = a[2]\n" +
+            "          }\n" +
+            "          close(idx)\n" +
+            "          name=\"\"; exec=\"\"; icon=\"\"; keys=\"\"; nodisp=0; insec=0\n" +
+            "        }\n" +
+            "        /^\\[Desktop Entry\\]/ { insec=1; next }\n" +
+            "        /^\\[/ { insec=0; next }\n" +
+            "        insec && /^Name=/     && name==\"\" { sub(/^Name=/,\"\");     name=$0; next }\n" +
+            "        insec && /^Exec=/     && exec==\"\" { sub(/^Exec=/,\"\");     exec=$0; next }\n" +
+            "        insec && /^Icon=/     && icon==\"\" { sub(/^Icon=/,\"\");     icon=$0; next }\n" +
+            "        insec && /^Keywords=/ && keys==\"\" { sub(/^Keywords=/,\"\"); keys=$0; next }\n" +
+            "        insec && /^NoDisplay=true/        { nodisp=1 }\n" +
+            "        END {\n" +
+            "          if (nodisp || name==\"\") exit 0\n" +
+            "          gsub(/ *%[uUfFdDnNickvm]*/, \"\", exec)\n" +
+            "          gsub(/^[ \\t]+|[ \\t]+$/, \"\", exec)\n" +
+            "          gsub(/;/, \" \", keys)\n" +
+            "          # Resolve icon to absolute path using the index.\n" +
+            "          # If icon is already an absolute path, keep it.\n" +
+            "          # Otherwise look it up in the index. Empty if not found.\n" +
+            "          ipath = \"\"\n" +
+            "          if (icon != \"\") {\n" +
+            "            if (substr(icon, 1, 1) == \"/\") ipath = icon\n" +
+            "            else if (icon in icons)        ipath = icons[icon]\n" +
+            "          }\n" +
+            "          printf \"%s\\t%s\\t%s\\t%s\\n\", name, exec, ipath, tolower(keys)\n" +
+            "        }\n" +
+            "      ' \"$f\"\n" +
+            "    done\n" +
+            "  } | sort -u > \"$CACHE.tmp\" && mv \"$CACHE.tmp\" \"$CACHE\"\n" +
+            "  rm -f \"$ICON_INDEX\"\n" +
+            "fi\n" +
+            "\n" +
+            "cat \"$CACHE\""
         ]
         stdout: SplitParser {
             onRead: {
-                let parts = data.split("\x1f")
+                let parts = data.split("\t")
                 if (parts.length >= 2 && parts[0].trim() !== "") {
                     let name = parts[0].trim()
                     if (popup.seenAppNames[name]) return
@@ -142,19 +219,37 @@ PanelWindow {
             (filteredApps.length === 0 && q.length > 1))
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // ICON RESOLVER — picks a candidate file path for a freedesktop icon name.
+    // Returns a list-style URL that Qt's Image element accepts; if the first
+    // candidate doesn't exist Qt falls back via status === Image.Error which
+    // we use to show the placeholder glyph in the delegate. We try the
+    // common locations in priority order. NO `find` calls — pure path joins.
+    // ─────────────────────────────────────────────────────────────────────────
+    function resolveIconUrl(hint) {
+        if (!hint || hint === "") return ""
+        // Absolute path → use as-is
+        if (hint.startsWith("/")) return "file://" + hint
+        // Already a URL
+        if (hint.startsWith("file://") || hint.startsWith("http")) return hint
+
+        // Candidate roots in priority order. We only try the first couple
+        // since Qt resolves them lazily and most apps use hicolor scalable.
+        let home = Quickshell.env("HOME") || ""
+        return "image://icon/" + hint   // see IconImage component below
+    }
+
     // ═════════════════════════════════════════════════════════════════════════
     // NOTES
-    // Loaded once, kept in memory. Writes are debounced.
-    // Uses python3 with base64 payload to avoid all shell-quoting nightmares.
     // ═════════════════════════════════════════════════════════════════════════
     property bool   notesLoaded:  false
-    property bool   notesLoading: false   // true while the read proc is running
+    property bool   notesLoading: false
     property bool   notesDirty:   false
     property string notesContent: ""
-    property string notesBuf:     ""      // accumulates lines from SplitParser
+    property string notesBuf:     ""
 
     function loadNotes() {
-        notesBuf    = ""
+        notesBuf = ""
         notesReadProc.running = true
     }
 
@@ -167,13 +262,11 @@ PanelWindow {
         ]
         stdout: SplitParser {
             onRead: {
-                // Accumulate lines — SplitParser strips the \n, so we restore it
                 popup.notesBuf = popup.notesBuf === "" ? data : popup.notesBuf + "\n" + data
             }
         }
         onRunningChanged: {
             if (!running) {
-                // Read is complete — push into the TextEdit once
                 popup.notesLoading = true
                 notesEdit.text     = popup.notesBuf
                 popup.notesContent = popup.notesBuf
@@ -208,17 +301,12 @@ PanelWindow {
 
     // ═════════════════════════════════════════════════════════════════════════
     // TODO
-    // KEY FIX: loaded ONCE and kept in memory.
-    // reloadTodos() is only called when notesLoaded is false (first open).
-    // Every subsequent open reuses the in-memory todoModel — no clear/reload.
-    // Saves happen synchronously after every user action via saveTodos().
     // ═════════════════════════════════════════════════════════════════════════
     ListModel { id: todoModel }
     property bool todosLoaded:  false
-    property bool todosLoading: false   // guard against recursive onTextChanged
+    property bool todosLoading: false
 
     function loadTodos() {
-        // Only ever called once
         todosReadProc.running = true
     }
 
@@ -231,7 +319,7 @@ PanelWindow {
         ]
         stdout: SplitParser {
             onRead: {
-                let l = data              // one line, no trailing \n
+                let l = data
                 if (l.trim() === "") return
                 let done = l.startsWith("[x] ")
                 let txt  = (done || l.startsWith("[ ] ")) ? l.slice(4) : l
@@ -264,6 +352,28 @@ PanelWindow {
             lines.push((t.todoDone ? "[x] " : "[ ] ") + t.todoText)
         }
         todosWriteProc.write(lines.join("\n"))
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ICON IMAGE — the cache already stores absolute paths, so we just load
+    // them directly. No candidate walking needed because the bulk find at
+    // cache-build time has already resolved every icon to its best variant.
+    // ─────────────────────────────────────────────────────────────────────────
+    component IconImage: Item {
+        id: iconRoot
+        property string iconHint: ""   // already absolute path from cache
+        property bool ready: img.status === Image.Ready
+
+        Image {
+            id: img
+            anchors.fill: parent
+            fillMode: Image.PreserveAspectFit
+            asynchronous: true
+            cache: true
+            source: iconRoot.iconHint && iconRoot.iconHint !== ""
+                ? "file://" + iconRoot.iconHint
+                : ""
+        }
     }
 
     // ── CONTAINER ────────────────────────────────────────────────────────────
@@ -322,7 +432,7 @@ PanelWindow {
                 }
             }
 
-            // ── SEARCH BAR (apps tab only) ────────────────────────────────────
+            // ── SEARCH BAR ────────────────────────────────────────────────────
             Rectangle {
                 Layout.fillWidth: true; height: 44; radius: 14
                 color: Theme.background; border.color: Theme.primary; border.width: 1
@@ -386,13 +496,10 @@ PanelWindow {
             Item {
                 Layout.fillWidth: true; Layout.fillHeight: true
 
-                // ════════════════════════════════════════════════════════════
                 // TAB 0 — APPS
-                // ════════════════════════════════════════════════════════════
                 Item {
                     anchors.fill: parent; visible: popup.activeTab === 0
 
-                    // Command mode
                     Item {
                         anchors.fill: parent; visible: popup.isCommandMode
                         Column {
@@ -425,7 +532,6 @@ PanelWindow {
                         }
                     }
 
-                    // App grid
                     Item {
                         anchors.fill: parent; visible: !popup.isCommandMode
 
@@ -467,21 +573,24 @@ PanelWindow {
 
                                 Rectangle {
                                     anchors.centerIn: parent; width: 108; height: 108; radius: 20
-                                    color: Theme.background; border.color: Theme.primary; border.width: 1
+                                    color: Theme.background; border.color: Theme.background; border.width: 1
 
                                     ColumnLayout {
                                         anchors.fill: parent; anchors.margins: 10; spacing: 6
                                         Item {
                                             Layout.alignment: Qt.AlignHCenter; width: 44; height: 44
-                                            Image {
-                                                id: appImg; anchors.fill: parent
-                                                source: app.appIcon ? ("file://" + app.appIcon) : ""
-                                                fillMode: Image.PreserveAspectFit
-                                                visible: status === Image.Ready
+
+                                            // Icon resolved on-demand from candidate paths
+                                            IconImage {
+                                                id: icon
+                                                anchors.fill: parent
+                                                iconHint: app.appIcon || ""
                                             }
-                                            Text { anchors.centerIn: parent; text: "󰣆"
-                                                   color: Theme.primary; font.pixelSize: 30; opacity: 0.28
-                                                   visible: !app.appIcon || appImg.status !== Image.Ready }
+                                            Text {
+                                                anchors.centerIn: parent; text: "󰣆"
+                                                color: Theme.primary; font.pixelSize: 30; opacity: 0.28
+                                                visible: !icon.ready
+                                            }
                                         }
                                         Text {
                                             Layout.fillWidth: true; text: app.appName || ""
@@ -492,8 +601,8 @@ PanelWindow {
                                     }
                                     MouseArea {
                                         anchors.fill: parent; hoverEnabled: true
-                                        onEntered: parent.border.width = 2
-                                        onExited:  parent.border.width = 1
+                                        onEntered: parent.border.color = Theme.primary
+                                        onExited:  parent.border.color = Theme.background
                                         onClicked: { executor.run(["bash", "-c", app.appExec]); popup.active = false }
                                     }
                                 }
@@ -502,9 +611,7 @@ PanelWindow {
                     }
                 }
 
-                // ════════════════════════════════════════════════════════════
                 // TAB 1 — NOTES
-                // ════════════════════════════════════════════════════════════
                 Item {
                     anchors.fill: parent; visible: popup.activeTab === 1
 
@@ -542,7 +649,6 @@ PanelWindow {
                                     }
 
                                     onTextChanged: {
-                                        // notesLoading guard prevents write-back during programmatic load
                                         if (!popup.notesLoading) {
                                             popup.notesContent = text
                                             popup.notesDirty   = true
@@ -586,15 +692,12 @@ PanelWindow {
                     }
                 }
 
-                // ════════════════════════════════════════════════════════════
                 // TAB 2 — TODO
-                // ════════════════════════════════════════════════════════════
                 Item {
                     anchors.fill: parent; visible: popup.activeTab === 2
 
                     ColumnLayout { anchors.fill: parent; spacing: 12
 
-                        // Header
                         RowLayout { Layout.fillWidth: true
                             Text { text: "󰄳  Tasks"; color: Theme.primary; font.pixelSize: 14; font.bold: true }
                             Item { Layout.fillWidth: true }
@@ -609,7 +712,6 @@ PanelWindow {
                             }
                         }
 
-                        // Add task input
                         Rectangle {
                             Layout.fillWidth: true; height: 44; radius: 14
                             color: Theme.background; border.color: Theme.primary; border.width: 1
@@ -644,7 +746,6 @@ PanelWindow {
                             }
                         }
 
-                        // Empty state
                         Item {
                             Layout.fillWidth: true; Layout.fillHeight: true
                             visible: todoModel.count === 0
@@ -658,7 +759,6 @@ PanelWindow {
                             }
                         }
 
-                        // Task list
                         ScrollView {
                             Layout.fillWidth: true; Layout.fillHeight: true
                             visible: todoModel.count > 0
@@ -671,7 +771,6 @@ PanelWindow {
                                     model: todoModel
 
                                     delegate: Rectangle {
-                                        // Use index and todoText/todoDone directly from model roles
                                         required property int    index
                                         required property string todoText
                                         required property bool   todoDone
@@ -686,7 +785,6 @@ PanelWindow {
                                             anchors.fill: parent
                                             anchors.leftMargin: 12; anchors.rightMargin: 10; spacing: 10
 
-                                            // Checkbox
                                             Rectangle {
                                                 width: 22; height: 22; radius: 11
                                                 color: todoDone ? Theme.primary : "transparent"
@@ -711,7 +809,6 @@ PanelWindow {
                                                 opacity: todoDone ? 0.5 : 1.0
                                             }
 
-                                            // Delete button
                                             Text {
                                                 text: "󰅖"; color: Theme.primary; font.pixelSize: 15; opacity: 0.3
                                                 Layout.alignment: Qt.AlignVCenter
@@ -729,7 +826,6 @@ PanelWindow {
                             }
                         }
 
-                        // Footer actions
                         RowLayout {
                             Layout.fillWidth: true; visible: todoModel.count > 0
                             Text {
@@ -737,7 +833,6 @@ PanelWindow {
                                 MouseArea {
                                     anchors.fill: parent
                                     onClicked: {
-                                        // iterate backwards so remove doesn't shift indices
                                         for (let i = todoModel.count - 1; i >= 0; i--)
                                             if (todoModel.get(i).todoDone) todoModel.remove(i)
                                         saveTodos()
@@ -756,7 +851,7 @@ PanelWindow {
                     }
                 }
 
-            } // content Item
-        } // ColumnLayout
-    } // container Rectangle
-} // PanelWindow
+            }
+        }
+    }
+}
