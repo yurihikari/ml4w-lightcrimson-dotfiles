@@ -123,13 +123,13 @@ PanelWindow {
             wifiGetter.running = true
             btGetter.running = true
             perfGetter.running = true
+            volGetter.running = true
         }
     }
 
     Timer {
-        interval: 100; running: true; repeat: true
+        interval: 1000; running: true; repeat: true
         onTriggered: { 
-            volGetter.running = true
             wifiRadioGetter.running = true
         }
     }

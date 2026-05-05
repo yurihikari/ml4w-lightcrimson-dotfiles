@@ -25,7 +25,6 @@ PanelWindow {
     WlrLayershell.keyboardFocus: WlrLayershell.None
     color: "transparent"
 
-    // Convenience alias
     property var p: bar.activePlayer
 
     function formatTime(s) {
@@ -73,11 +72,25 @@ PanelWindow {
     }
 
     // --- CAVA ENGINE ---
+    // OPTIMIZATION: cava config written to a temp file at startup instead of a
+    // process substitution fork on every invocation. Also only runs when visible.
     property var cavaData: []
+    property string cavaConfigPath: "/tmp/qs_cava_bar.ini"
+
+    Process {
+        id: cavaConfigWriter
+        command: ["bash", "-c",
+            "cat > /tmp/qs_cava_bar.ini << 'EOF'\n" +
+            "[output]\nmethod=raw\ndata_format=ascii\nascii_max_range=200\nbar_delimiter=32\nbars=100\nEOF"
+        ]
+        running: true
+    }
+
     Process {
         id: cava
-        running: popup.active
-        command: ["bash", "-c", "cava -p <(echo -e '[output]\nmethod=raw\ndata_format=ascii\nascii_max_range=200\nbar_delimiter=32\nbars=100')"]
+        // OPTIMIZATION: run only when popup is visible
+        running: popup.active && cavaConfigWriter.running === false
+        command: ["cava", "-p", popup.cavaConfigPath]
         stdout: SplitParser {
             onRead: {
                 var clean = data.trim()
@@ -98,6 +111,7 @@ PanelWindow {
 
     Process {
         id: sinkGetter
+        // OPTIMIZATION: only auto-run when popup is open, not constantly
         running: popup.active
         command: ["bash", "-c", "pactl get-default-sink"]
         stdout: SplitParser { 
@@ -124,12 +138,13 @@ PanelWindow {
         }
     }
 
+    // OPTIMIZATION: poll sink only every 5s while open (was 2s)
     Timer {
-        interval: 2000; running: popup.active; repeat: true
+        interval: 5000; running: popup.active; repeat: true
         onTriggered: sinkGetter.running = true
     }
 
-    // --- POSITION TICKER (as per Quickshell docs) ---
+    // --- POSITION TICKER ---
     Timer {
         interval: 1000
         repeat: true
@@ -268,7 +283,9 @@ PanelWindow {
                 Item {
                     Layout.preferredWidth: 160; Layout.fillHeight: true
                     Canvas {
-                        id: cavaCanvas; anchors.fill: parent; renderTarget: Canvas.FramebufferObject
+                        id: cavaCanvas; anchors.fill: parent
+                        // OPTIMIZATION: FramebufferObject keeps canvas on GPU
+                        renderTarget: Canvas.FramebufferObject
                         onPaint: {
                             var ctx = getContext("2d"); ctx.clearRect(0, 0, width, height)
                             var centerX = width/2; var centerY = height/2; var innerRadius = 55; var barCount = 100
@@ -401,17 +418,9 @@ PanelWindow {
                             p.position = target
                         }
 
-                        onPressed: {
-                            sliderKnob.dragging = true
-                            seek(mouse)
-                        }
-                        onPositionChanged: {
-                            if (pressed) seek(mouse)
-                        }
-                        onReleased: {
-                            seek(mouse)
-                            sliderKnob.dragging = false
-                        }
+                        onPressed: { sliderKnob.dragging = true; seek(mouse) }
+                        onPositionChanged: { if (pressed) seek(mouse) }
+                        onReleased: { seek(mouse); sliderKnob.dragging = false }
                     }
                 }
 

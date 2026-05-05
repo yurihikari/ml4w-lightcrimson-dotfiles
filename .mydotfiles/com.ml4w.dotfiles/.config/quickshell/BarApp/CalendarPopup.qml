@@ -75,7 +75,7 @@ PanelWindow {
     property bool   isDay:        true
     property bool   wxLoading:    false
     property string wxError:      ""
-    property string cityInput:    ""   // last user search
+    property string cityInput:    ""
 
     property var forecastDates:   []
     property var forecastTempMax: []
@@ -370,27 +370,30 @@ PanelWindow {
                 Item { Layout.preferredHeight: 14 }
 
                 // ── 5-day forecast ──────────────────────────────────────
+                // OPTIMIZATION: pre-compute allMin/allMax once, outside the Repeater
                 ColumnLayout {
                     Layout.fillWidth: true; spacing: 10
                     visible: root.forecastDates.length > 0 && !root.wxLoading
+
+                    // Compute range once for the whole forecast block
+                    property real allMax: {
+                        let m = -999
+                        for (let i = 0; i < root.forecastTempMax.length; i++)
+                            if (root.forecastTempMax[i] > m) m = root.forecastTempMax[i]
+                        return m
+                    }
+                    property real allMin: {
+                        let m = 999
+                        for (let i = 0; i < root.forecastTempMin.length; i++)
+                            if (root.forecastTempMin[i] < m) m = root.forecastTempMin[i]
+                        return m
+                    }
+                    property real span: Math.max(1, allMax - allMin)
 
                     Repeater {
                         model: Math.min(5, root.forecastDates.length)
                         RowLayout {
                             Layout.fillWidth: true; spacing: 0
-                            property real allMax: {
-                                let m = -999
-                                for (let i = 0; i < root.forecastTempMax.length; i++)
-                                    if (root.forecastTempMax[i] > m) m = root.forecastTempMax[i]
-                                return m
-                            }
-                            property real allMin: {
-                                let m = 999
-                                for (let i = 0; i < root.forecastTempMin.length; i++)
-                                    if (root.forecastTempMin[i] < m) m = root.forecastTempMin[i]
-                                return m
-                            }
-                            property real span: Math.max(1, allMax - allMin)
 
                             // Day label
                             Text {
@@ -417,13 +420,13 @@ PanelWindow {
                                 Layout.preferredWidth: 26; horizontalAlignment: Text.AlignRight
                             }
 
-                            // Temp bar
+                            // Temp bar — references parent ColumnLayout's pre-computed span
                             Rectangle {
                                 Layout.preferredWidth: 50; height: 3; radius: 2
                                 Layout.leftMargin: 5; Layout.rightMargin: 5
                                 color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.12)
-                                property real barLeft:  (root.forecastTempMin[index] - allMin) / span
-                                property real barRight: (root.forecastTempMax[index] - allMin) / span
+                                property real barLeft:  (root.forecastTempMin[index] - parent.parent.allMin) / parent.parent.span
+                                property real barRight: (root.forecastTempMax[index] - parent.parent.allMin) / parent.parent.span
                                 Rectangle {
                                     x: parent.barLeft * parent.width
                                     width: (parent.barRight - parent.barLeft) * parent.width
@@ -476,19 +479,20 @@ PanelWindow {
             ColumnLayout {
                 anchors.fill: parent; anchors.margins: 30; spacing: 20
 
-                // Clock header
+                // Clock header — OPTIMIZATION: single Timer + one Date property
                 ColumnLayout {
                     Layout.fillWidth: true; spacing: 0
+                    property var now: new Date()
+                    Timer { interval: 1000; running: true; repeat: true; onTriggered: parent.now = new Date() }
                     Text {
                         id: bigTime
                         Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter
-                        text: Qt.formatDateTime(new Date(), "HH:mm:ss")
+                        text: Qt.formatDateTime(parent.now, "HH:mm:ss")
                         color: Theme.primary; font.pixelSize: 48; font.weight: Font.Black
-                        Timer { interval: 1000; running: true; repeat: true; onTriggered: bigTime.text = Qt.formatDateTime(new Date(), "HH:mm:ss") }
                     }
                     Text {
                         Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter
-                        text: Qt.formatDateTime(new Date(), "dddd, MMMM d")
+                        text: Qt.formatDateTime(parent.now, "dddd, MMMM d")
                         color: Theme.primary; opacity: 0.6; font.pixelSize: 16
                     }
                 }

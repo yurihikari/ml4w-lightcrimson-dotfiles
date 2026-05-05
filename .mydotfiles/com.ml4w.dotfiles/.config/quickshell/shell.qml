@@ -37,10 +37,10 @@ ShellRoot {
     SidebarWindow {}
     CalendarWindow {}
     WallpaperWindow {}
-    Variants {
-        model: Quickshell.screens
-        delegate: Component {
-            CavaWindow {}
-        }
-    }
+    // Variants {
+    //     model: Quickshell.screens
+    //     delegate: Component {
+    //         CavaWindow {}
+    //     }
+    // }
 }

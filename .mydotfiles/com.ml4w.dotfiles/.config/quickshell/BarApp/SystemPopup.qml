@@ -236,7 +236,7 @@ PanelWindow {
             "  printf \"memtotal=%.2f\\n\", tot/1024/1024\n" +
             "}' /proc/meminfo\n" +
             "snap1=$(awk '/:/ && !/lo:/ {gsub(\":\",\"\"); rx+=$2; tx+=$10} END {printf \"%d %d\", rx, tx}' /proc/net/dev)\n" +
-            "sleep 1\n" +
+            "sleep 0.3\n" +
             "snap2=$(awk '/:/ && !/lo:/ {gsub(\":\",\"\"); rx+=$2; tx+=$10} END {printf \"%d %d\", rx, tx}' /proc/net/dev)\n" +
             "rx1=${snap1% *}; tx1=${snap1#* }\n" +
             "rx2=${snap2% *}; tx2=${snap2#* }\n" +
@@ -650,6 +650,7 @@ PanelWindow {
 
                         Canvas {
                             id: gaugeCanvas
+                            renderTarget: Canvas.FramebufferObject
                             anchors.top: parent.top; anchors.horizontalCenter: parent.horizontalCenter
                             width: 80; height: 80
                             property real animValue: 0.0
@@ -725,6 +726,7 @@ PanelWindow {
                     // Sparkline canvas
                     Canvas {
                         id: spark
+                        renderTarget: Canvas.FramebufferObject
                         anchors.left: parent.left; anchors.right: parent.right
                         anchors.bottom: parent.bottom
                         anchors.leftMargin: 10; anchors.rightMargin: 10; anchors.bottomMargin: 8
@@ -884,6 +886,7 @@ PanelWindow {
 
                     Canvas {
                         id: dualSpark
+                        renderTarget: Canvas.FramebufferObject
                         anchors.left: parent.left; anchors.right: parent.right
                         anchors.bottom: parent.bottom
                         anchors.leftMargin: 10; anchors.rightMargin: 10; anchors.bottomMargin: 8

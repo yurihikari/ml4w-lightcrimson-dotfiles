@@ -1,18 +1,16 @@
 import Quickshell
 import Quickshell.Wayland
-import Quickshell.Io // THE FIX: Required for the click logic
+import Quickshell.Io
 import QtQuick
 import "../CustomTheme"
 
 Item {
     id: root
     
-    // Property passed from Variants in shell.qml
     property var screen
     property var modelData
     onModelDataChanged: screen = modelData
 
-    // Local process to trigger your other Quickshell apps
     Process { 
         id: ipcExec
         function call(target) { 
@@ -36,10 +34,12 @@ Item {
             color: Theme.background; opacity: 0.8
         }
 
+        // OPTIMIZATION: FramebufferObject + paint only on color change (not every frame)
         Canvas {
             opacity: 0.8; x: 10; y: 0; width: 20; height: 20
+            renderTarget: Canvas.FramebufferObject
             property color syncColor: Theme.background
-            onSyncColorChanged: { requestPaint() }
+            onSyncColorChanged: requestPaint()
             onPaint: {
                 var ctx = getContext("2d")
                 ctx.reset()
@@ -51,8 +51,9 @@ Item {
 
         Canvas {
             opacity: 0.8; x: parent.width - 30; y: 0; width: 20; height: 20
+            renderTarget: Canvas.FramebufferObject
             property color syncColor: Theme.background
-            onSyncColorChanged: { requestPaint() }
+            onSyncColorChanged: requestPaint()
             onPaint: {
                 var ctx = getContext("2d")
                 ctx.reset()
@@ -68,7 +69,7 @@ Item {
         }
     }
 
-    // --- LEFT FRAME (CLICK FOR WALLPAPER) ---
+    // --- LEFT FRAME ---
     PanelWindow {
         screen: root.screen
         anchors { top: true; bottom: true; left: true }
@@ -81,13 +82,11 @@ Item {
 
         MouseArea {
             anchors.fill: parent
-            onClicked: {
-                ipcExec.call("wallpaper")
-            }
+            onClicked: ipcExec.call("wallpaper")
         }
     }
 
-    // --- RIGHT FRAME (CLICK FOR SIDEBAR) ---
+    // --- RIGHT FRAME ---
     PanelWindow {
         screen: root.screen
         anchors { top: true; bottom: true; right: true }
@@ -100,9 +99,7 @@ Item {
 
         MouseArea {
             anchors.fill: parent
-            onClicked: {
-                ipcExec.call("sidebar")
-            }
+            onClicked: ipcExec.call("sidebar")
         }
     }
 

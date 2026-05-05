@@ -185,38 +185,51 @@ PanelWindow {
                     let name = parts[0].trim()
                     if (popup.seenAppNames[name]) return
                     popup.seenAppNames[name] = true
-                    appModel.append({
+                    let app = {
                         appName: name,
                         appExec: parts[1].trim(),
                         appIcon: parts.length > 2 ? parts[2].trim() : "",
                         appKeys: parts.length > 3 ? parts[3].trim().toLowerCase() : ""
-                    })
+                    }
+                    appModel.append(app)
+                    popup.onAppAdded(app)
                 }
             }
         }
     }
 
+    // OPTIMIZATION: allApps built incrementally by the loader (appended one-by-one),
+    // not by rebuilding from scratch on every count change.
     property var allApps: []
-    Connections {
-        target: appModel
-        function onCountChanged() {
-            let arr = []
-            for (let i = 0; i < appModel.count; i++) arr.push(appModel.get(i))
-            popup.allApps = arr
+
+    // filteredApps is now a stored property updated only when searchText changes,
+    // not a computed binding that re-evaluates on every property access.
+    property var filteredApps: []
+
+    function rebuildFilteredApps() {
+        let q = searchText.toLowerCase().trim()
+        if (q === "") {
+            filteredApps = allApps.slice(0, 80)
+        } else {
+            filteredApps = allApps.filter(e =>
+                e.appName.toLowerCase().includes(q) || e.appKeys.includes(q)
+            ).slice(0, 48)
         }
     }
-    property var filteredApps: {
-        let q = searchText.toLowerCase().trim()
-        if (q === "") return allApps.slice(0, 80)
-        return allApps.filter(e =>
-            e.appName.toLowerCase().includes(q) || e.appKeys.includes(q)
-        ).slice(0, 48)
-    }
+
     onSearchTextChanged: {
+        rebuildFilteredApps()
         let q = searchText.trim()
         isCommandMode = q.length > 0 && (
             q.startsWith("/") || q.includes(" ") ||
             (filteredApps.length === 0 && q.length > 1))
+    }
+
+    // Called by the loader after each batch of apps is added
+    function onAppAdded(app) {
+        allApps.push(app)
+        allApps = allApps  // trigger binding update
+        rebuildFilteredApps()
     }
 
     // ─────────────────────────────────────────────────────────────────────────
