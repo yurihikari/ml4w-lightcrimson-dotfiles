@@ -38,6 +38,7 @@ PanelWindow {
     property bool tuxedoInstalled: false
 
     // ─── Extended metrics ──────────────────────────────────────────────────
+    property real localCpuUsage: 0  // CPU usage measured by metricsCollector directly
     property real cpuTemp: 0
     property real cpuFreq: 0
     property real gpuTemp: 0
@@ -205,6 +206,13 @@ PanelWindow {
             "done\n" +
             "freq=$(awk '/cpu MHz/ {sum+=$4; n++} END {if (n>0) printf \"%.2f\", sum/n/1000}' /proc/cpuinfo)\n" +
             "[ -n \"$freq\" ] && echo \"cpufreq=$freq\"\n" +
+            // CPU usage: two /proc/stat reads 200ms apart, entirely inside awk to avoid $var interpolation
+            "cpuusage=$(awk 'BEGIN{" +
+                "while((getline < \"/proc/stat\")>0){split($0,a);if(a[1]==\"cpu\"){t1=a[2]+a[3]+a[4]+a[5]+a[6]+a[7]+a[8];i1=a[5];break}};close(\"/proc/stat\");"
+                +"system(\"sleep 0.2\");"
+                +"while((getline < \"/proc/stat\")>0){split($0,a);if(a[1]==\"cpu\"){t2=a[2]+a[3]+a[4]+a[5]+a[6]+a[7]+a[8];i2=a[5];break}};"
+                +"dt=t2-t1;print dt>0?(dt-(i2-i1))/dt*100:0}')\n" +
+            "echo \"cpuusage=$cpuusage\"\n" +
             "if command -v nvidia-smi &>/dev/null; then\n" +
             "  out=$(nvidia-smi --query-gpu=temperature.gpu,utilization.gpu --format=csv,noheader,nounits 2>/dev/null | head -1)\n" +
             "  if [ -n \"$out\" ]; then\n" +
@@ -268,6 +276,7 @@ PanelWindow {
                     let k = l.substring(0, i)
                     let v = l.substring(i + 1).trim()
                     switch (k) {
+                        case "cpuusage":    popup.localCpuUsage = (parseFloat(v) || 0) / 100; break
                         case "cputemp":     popup.cpuTemp     = parseFloat(v) || 0; break
                         case "cpufreq":     popup.cpuFreq     = parseFloat(v) || 0; break
                         case "gpuvendor":   popup.gpuVendor   = v; break
@@ -285,7 +294,11 @@ PanelWindow {
                 // Push samples into history rings
                 if (popup.cpuTemp > 0)  popup.cpuTempHistory   = popup.pushHist(popup.cpuTempHistory, popup.cpuTemp, 30)
                 if (popup.gpuTemp > 0)  popup.gpuTempHistory   = popup.pushHist(popup.gpuTempHistory, popup.gpuTemp, 30)
-                popup.cpuUsageHistory = popup.pushHist(popup.cpuUsageHistory, sysInfo.cpuUsage, 30)
+                // Use locally-measured cpuUsage so the chart is always in sync with this collector's timing
+                let cpuForHistory = popup.localCpuUsage > 0 ? popup.localCpuUsage : sysInfo.cpuUsage
+                popup.cpuUsageHistory = popup.pushHist(popup.cpuUsageHistory, cpuForHistory, 30)
+                // Also keep sysInfo in sync if it's stale
+                if (popup.localCpuUsage > 0) sysInfo.cpuUsage = popup.localCpuUsage
                 popup.netRxHistory    = popup.pushHist(popup.netRxHistory, popup.netRxKBs, 30)
                 popup.netTxHistory    = popup.pushHist(popup.netTxHistory, popup.netTxKBs, 30)
                 // Auto-rescale net chart so the peak fills ~80% of the area
@@ -686,6 +699,7 @@ PanelWindow {
 
                 // Sparkline chart card (line + area fill)
                 component SparkCard: Rectangle {
+                    id: sparkCardRoot
                     property string cardIcon: ""
                     property string cardLabel: ""
                     property string cardValue: ""
@@ -695,6 +709,12 @@ PanelWindow {
                     property real   yMin: 0
                     property real   yMax: 100
                     property bool   filled: true   // area fill under line
+
+                    // Directly trigger repaint when data changes — Connections { target: parent }
+                    // inside a Canvas resolves to the visual parent (the Rectangle), not this
+                    // component root, so signals never connected. These handlers are on the root itself.
+                    onHistoryChanged: spark.requestPaint()
+                    onYMaxChanged:    spark.requestPaint()
 
                     width: parent ? parent.width : 0
                     height: 110
@@ -733,11 +753,6 @@ PanelWindow {
                         height: 42
                         antialiasing: true
 
-                        Connections {
-                            target: parent
-                            function onHistoryChanged() { spark.requestPaint() }
-                            function onYMaxChanged()    { spark.requestPaint() }
-                        }
                         onWidthChanged: requestPaint()
 
                         onPaint: {
@@ -830,6 +845,7 @@ PanelWindow {
 
                 // Dual-line chart card (rx + tx)
                 component DualSparkCard: Rectangle {
+                    id: dualCardRoot
                     property string cardIcon: ""
                     property string cardLabel: ""
                     property var    historyA: []
@@ -841,6 +857,11 @@ PanelWindow {
                     property string valueA: ""
                     property string valueB: ""
                     property real   yMax: 100
+
+                    // Same fix as SparkCard — wire directly on the component root
+                    onHistoryAChanged: dualSpark.requestPaint()
+                    onHistoryBChanged: dualSpark.requestPaint()
+                    onYMaxChanged:     dualSpark.requestPaint()
 
                     width: parent ? parent.width : 0
                     height: 130
@@ -893,12 +914,6 @@ PanelWindow {
                         height: 50
                         antialiasing: true
 
-                        Connections {
-                            target: parent
-                            function onHistoryAChanged() { dualSpark.requestPaint() }
-                            function onHistoryBChanged() { dualSpark.requestPaint() }
-                            function onYMaxChanged()    { dualSpark.requestPaint() }
-                        }
                         onWidthChanged: requestPaint()
 
                         function drawSeries(ctx, hist, w, h, color, fill) {
