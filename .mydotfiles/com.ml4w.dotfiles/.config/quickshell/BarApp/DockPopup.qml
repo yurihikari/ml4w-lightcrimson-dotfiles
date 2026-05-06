@@ -6,7 +6,7 @@ import QtQuick.Layouts
 import QtQuick.Controls
 import "../CustomTheme"
 
-// DockPopup — Apps · Notes · Todo
+// DockPopup — Apps · Notes · Todo · Screenshot
 // Wire-up in ScreenFrame:
 //   DockPopup { id: dockPopup; screen: root.screen }
 //   onClicked: dockPopup.active = !dockPopup.active
@@ -59,24 +59,12 @@ PanelWindow {
             if (appModel.count === 0) appLoader.running = true
             if (!notesLoaded)         loadNotes()
             if (!todosLoaded)         loadTodos()
+            if (!screenshotsLoaded)   loadScreenshots()
         }
     }
 
     // ═════════════════════════════════════════════════════════════════════════
     // APP MODEL — fast loader
-    //
-    // The previous loader ran `find /usr/share/icons …` once per app, which
-    // does hundreds of filesystem walks (≈300ms × N apps = several seconds).
-    //
-    // The fast version:
-    //   1. A persistent cache at ~/.cache/quickshell/dock-apps.tsv stores
-    //      parsed name/exec/iconHint/keywords per .desktop file. The cache
-    //      is rebuilt only when any .desktop file is newer than the cache.
-    //   2. We DO NOT resolve icon paths in the loader. We just store the
-    //      icon hint string. The QML Image element resolves it at render
-    //      time using a list of candidate paths — Qt's Image cache means
-    //      this happens lazily and only for visible cells (GridView reuses
-    //      delegates, so off-screen apps never trigger a lookup).
     // ═════════════════════════════════════════════════════════════════════════
     ListModel { id: appModel }
     property var seenAppNames: ({})
@@ -86,10 +74,7 @@ PanelWindow {
         command: ["bash", "-c",
             "CACHE=\"$HOME/.cache/quickshell/dock-apps-v2.tsv\"\n" +
             "mkdir -p \"$(dirname \"$CACHE\")\"\n" +
-            "# Clean up old v1 cache from previous version\n" +
             "rm -f \"$HOME/.cache/quickshell/dock-apps.tsv\" 2>/dev/null\n" +
-            "\n" +
-            "# Rebuild if cache missing or any .desktop newer than it\n" +
             "rebuild=0\n" +
             "if [ ! -f \"$CACHE\" ]; then\n" +
             "  rebuild=1\n" +
@@ -98,22 +83,16 @@ PanelWindow {
             "    -maxdepth 1 -name '*.desktop' -newer \"$CACHE\" -print -quit 2>/dev/null)\n" +
             "  [ -n \"$newer\" ] && rebuild=1\n" +
             "fi\n" +
-            "\n" +
             "if [ \"$rebuild\" = \"1\" ]; then\n" +
-            "  # ── BUILD ICON INDEX (one big find, then everything is in-memory) ─\n" +
-            "  # Walks every standard icon location ONCE and builds a name→path map.\n" +
-            "  # We pick the largest available size when duplicates exist.\n" +
             "  ICON_INDEX=$(mktemp)\n" +
             "  find /usr/share/icons /usr/share/pixmaps \"$HOME/.local/share/icons\" \\\n" +
             "    -type f \\( -name '*.png' -o -name '*.svg' -o -name '*.xpm' \\) 2>/dev/null \\\n" +
             "    | awk '\n" +
             "        {\n" +
             "          path = $0\n" +
-            "          # Strip directory and extension to get just the icon name\n" +
             "          n = split(path, parts, \"/\")\n" +
             "          base = parts[n]\n" +
             "          sub(/\\.(png|svg|xpm)$/, \"\", base)\n" +
-            "          # Heuristic priority: scalable > 256 > 128 > 64 > 48 > 32 > rest\n" +
             "          prio = 0\n" +
             "          if (path ~ /scalable/) prio = 1000\n" +
             "          else if (path ~ /256/)  prio = 900\n" +
@@ -123,7 +102,6 @@ PanelWindow {
             "          else if (path ~ /48/)   prio = 500\n" +
             "          else if (path ~ /32/)   prio = 400\n" +
             "          else                    prio = 100\n" +
-            "          # Prefer apps/ subdirectory over mimetypes/places/etc.\n" +
             "          if (path ~ /\\/apps\\//) prio += 50\n" +
             "          if (!(base in best) || prio > bestp[base]) {\n" +
             "            best[base] = path; bestp[base] = prio\n" +
@@ -131,8 +109,6 @@ PanelWindow {
             "        }\n" +
             "        END { for (k in best) print k \"\\t\" best[k] }\n" +
             "      ' > \"$ICON_INDEX\"\n" +
-            "\n" +
-            "  # ── PARSE .desktop FILES AND RESOLVE ICONS AGAINST THE INDEX ──────\n" +
             "  {\n" +
             "    for f in /usr/share/applications/*.desktop \\\n" +
             "             /usr/local/share/applications/*.desktop \\\n" +
@@ -140,8 +116,6 @@ PanelWindow {
             "      [ -f \"$f\" ] || continue\n" +
             "      awk -F= -v idx=\"$ICON_INDEX\" '\n" +
             "        BEGIN {\n" +
-            "          # Load the icon index into memory once per .desktop file.\n" +
-            "          # (awk per-file is fine; index is small and OS-cached.)\n" +
             "          while ((getline line < idx) > 0) {\n" +
             "            split(line, a, \"\\t\"); icons[a[1]] = a[2]\n" +
             "          }\n" +
@@ -160,9 +134,6 @@ PanelWindow {
             "          gsub(/ *%[uUfFdDnNickvm]*/, \"\", exec)\n" +
             "          gsub(/^[ \\t]+|[ \\t]+$/, \"\", exec)\n" +
             "          gsub(/;/, \" \", keys)\n" +
-            "          # Resolve icon to absolute path using the index.\n" +
-            "          # If icon is already an absolute path, keep it.\n" +
-            "          # Otherwise look it up in the index. Empty if not found.\n" +
             "          ipath = \"\"\n" +
             "          if (icon != \"\") {\n" +
             "            if (substr(icon, 1, 1) == \"/\") ipath = icon\n" +
@@ -175,7 +146,6 @@ PanelWindow {
             "  } | sort -u > \"$CACHE.tmp\" && mv \"$CACHE.tmp\" \"$CACHE\"\n" +
             "  rm -f \"$ICON_INDEX\"\n" +
             "fi\n" +
-            "\n" +
             "cat \"$CACHE\""
         ]
         stdout: SplitParser {
@@ -198,12 +168,7 @@ PanelWindow {
         }
     }
 
-    // OPTIMIZATION: allApps built incrementally by the loader (appended one-by-one),
-    // not by rebuilding from scratch on every count change.
     property var allApps: []
-
-    // filteredApps is now a stored property updated only when searchText changes,
-    // not a computed binding that re-evaluates on every property access.
     property var filteredApps: []
 
     function rebuildFilteredApps() {
@@ -225,31 +190,30 @@ PanelWindow {
             (filteredApps.length === 0 && q.length > 1))
     }
 
-    // Called by the loader after each batch of apps is added
     function onAppAdded(app) {
         allApps.push(app)
-        allApps = allApps  // trigger binding update
+        allApps = allApps
         rebuildFilteredApps()
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // ICON RESOLVER — picks a candidate file path for a freedesktop icon name.
-    // Returns a list-style URL that Qt's Image element accepts; if the first
-    // candidate doesn't exist Qt falls back via status === Image.Error which
-    // we use to show the placeholder glyph in the delegate. We try the
-    // common locations in priority order. NO `find` calls — pure path joins.
-    // ─────────────────────────────────────────────────────────────────────────
-    function resolveIconUrl(hint) {
-        if (!hint || hint === "") return ""
-        // Absolute path → use as-is
-        if (hint.startsWith("/")) return "file://" + hint
-        // Already a URL
-        if (hint.startsWith("file://") || hint.startsWith("http")) return hint
+    // ═════════════════════════════════════════════════════════════════════════
+    // ICON IMAGE
+    // ═════════════════════════════════════════════════════════════════════════
+    component IconImage: Item {
+        id: iconRoot
+        property string iconHint: ""
+        property bool ready: img.status === Image.Ready
 
-        // Candidate roots in priority order. We only try the first couple
-        // since Qt resolves them lazily and most apps use hicolor scalable.
-        let home = Quickshell.env("HOME") || ""
-        return "image://icon/" + hint   // see IconImage component below
+        Image {
+            id: img
+            anchors.fill: parent
+            fillMode: Image.PreserveAspectFit
+            asynchronous: true
+            cache: true
+            source: iconRoot.iconHint && iconRoot.iconHint !== ""
+                ? "file://" + iconRoot.iconHint
+                : ""
+        }
     }
 
     // ═════════════════════════════════════════════════════════════════════════
@@ -317,7 +281,6 @@ PanelWindow {
     // ═════════════════════════════════════════════════════════════════════════
     ListModel { id: todoModel }
     property bool todosLoaded:  false
-    property bool todosLoading: false
 
     function loadTodos() {
         todosReadProc.running = true
@@ -367,25 +330,141 @@ PanelWindow {
         todosWriteProc.write(lines.join("\n"))
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // ICON IMAGE — the cache already stores absolute paths, so we just load
-    // them directly. No candidate walking needed because the bulk find at
-    // cache-build time has already resolved every icon to its best variant.
-    // ─────────────────────────────────────────────────────────────────────────
-    component IconImage: Item {
-        id: iconRoot
-        property string iconHint: ""   // already absolute path from cache
-        property bool ready: img.status === Image.Ready
+    // ═════════════════════════════════════════════════════════════════════════
+    // SCREENSHOTS
+    //
+    // Stable Wayland approach: prefer `grimblast` (Hyprland-contrib) which
+    // wraps grim+slurp+wl-copy with a clean CLI. Fall back to raw
+    // grim+slurp+wl-copy if grimblast isn't installed.
+    //
+    // Capture flow:
+    //   1. User clicks Capture button.
+    //   2. We hide the popup BEFORE shooting (so the dock doesn't appear
+    //      in the screenshot). For "now" mode we wait ~350ms for the
+    //      slide-out animation; for delays we just sleep that long.
+    //   3. The capture runs in a detached subshell so it survives the popup
+    //      closing. Grimblast saves to disk AND copies to clipboard.
+    //   4. After capture, we refresh the recent-list.
+    // ═════════════════════════════════════════════════════════════════════════
+    property bool   screenshotsLoaded: false
+    property bool   screenshotCapturing: false
+    property string screenshotMode:  "area"   // "screen" | "area" | "active"
+    property int    screenshotDelay: 0        // 0 | 3 | 5 | 10
+    ListModel { id: screenshotModel }
+    property string _ssBuf: ""
 
-        Image {
-            id: img
-            anchors.fill: parent
-            fillMode: Image.PreserveAspectFit
-            asynchronous: true
-            cache: true
-            source: iconRoot.iconHint && iconRoot.iconHint !== ""
-                ? "file://" + iconRoot.iconHint
-                : ""
+    function loadScreenshots() {
+        _ssBuf = ""
+        screenshotModel.clear()
+        screenshotsLoader.running = true
+    }
+
+    Process {
+        id: screenshotsLoader
+        command: ["bash", "-c",
+            "DIR=\"$HOME/Pictures/Screenshots\"\n" +
+            "mkdir -p \"$DIR\"\n" +
+            "# List most-recent first, up to 30. Newline-safe via -printf.\n" +
+            "find \"$DIR\" -maxdepth 1 -type f \\\n" +
+            "  \\( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' \\) \\\n" +
+            "  -printf '%T@\\t%p\\n' 2>/dev/null \\\n" +
+            "  | sort -rn | head -30 | cut -f2-\n"
+        ]
+        stdout: SplitParser {
+            onRead: { popup._ssBuf += data + "\n" }
+        }
+        onRunningChanged: {
+            if (running) return
+            let lines = popup._ssBuf.trim().split("\n")
+            popup._ssBuf = ""
+            for (let p of lines) {
+                let path = p.trim()
+                if (!path) continue
+                let name = path.split("/").pop()
+                screenshotModel.append({ ssPath: path, ssName: name })
+            }
+            popup.screenshotsLoaded = true
+        }
+    }
+
+    // Capture process — runs the actual shoot via bash, then triggers a reload.
+    Process {
+        id: screenshotCapture
+        function shoot(mode, delay) {
+            popup.screenshotCapturing = true
+
+            // Hide the popup so it's not in the shot
+            popup.active = false
+            
+            // 0.4s for the slide-out animation + user delay
+            let preWait = parseFloat(delay) + 0.4
+
+            let cmd = `
+                # 1. Setup paths
+                DIR="$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")/Screenshots"
+                mkdir -p "$DIR"
+                FILENAME="screenshot_$(date +%Y-%m-%d_%H-%M-%S).png"
+                TEMP_FILE="/tmp/$FILENAME"
+                FINAL_FILE="$DIR/$FILENAME"
+
+                # 2. Wait for animations/delay
+                sleep ${preWait}
+
+                # 3. Capture logic based on mode
+                success=false
+                
+                if [ "${mode}" = "screen" ]; then
+                    # FULL: Use grim directly to avoid grimblast notification hangs
+                    if grim "$TEMP_FILE"; then success=true; fi
+                    
+                elif [ "${mode}" = "active" ]; then
+                    # WINDOW: Capture the currently focused window geometry via hyprctl
+                    GEOM=$(hyprctl activewindow -j | python3 -c 'import json,sys; w=json.load(sys.stdin); print(f"{w[\\"at\\"][0]},{w[\\"at\\"][1]} {w[\\"size\\"][0]}x{w[\\"size\\"][1]}")' 2>/dev/null)
+                    if [ ! -z "$GEOM" ]; then
+                        if grim -g "$GEOM" "$TEMP_FILE"; then success=true; fi
+                    else
+                        # Fallback to grimblast if hyprctl parsing fails
+                        if grimblast save active "$TEMP_FILE"; then success=true; fi
+                    fi
+
+                elif [ "${mode}" = "area" ]; then
+                    # AREA: Use grimblast WITHOUT --notify to get the smart window selection
+                    # We use 'save' instead of 'copysave' to keep it fast, we handle clipboard later
+                    if grimblast save area "$TEMP_FILE"; then success=true; fi
+                fi
+
+                # 4. Post-processing (ML4W Style)
+                if [ "$success" = true ] && [ -f "$TEMP_FILE" ]; then
+                    mv "$TEMP_FILE" "$FINAL_FILE"
+                    
+                    # Copy to clipboard
+                    if command -v wl-copy >/dev/null; then
+                        wl-copy < "$FINAL_FILE"
+                    fi
+
+                    # Send notification in the background (&) so it can't hang the script
+                    if command -v notify-send >/dev/null; then
+                        notify-send -a "Screen Capture" -i "$FINAL_FILE" "Screenshot saved & copied" "$FILENAME" &
+                    fi
+                    
+                    echo "$FINAL_FILE"
+                fi
+            `
+            command = ["bash", "-c", cmd]
+            running = true
+        }
+
+        stdout: SplitParser { 
+            onRead: {
+                // This captures the echo "$FINAL_FILE" if you need it
+            } 
+        }
+
+        onRunningChanged: {
+            if (!running) {
+                popup.screenshotCapturing = false
+                popup.loadScreenshots()
+            }
         }
     }
 
@@ -416,9 +495,10 @@ PanelWindow {
                 Layout.alignment: Qt.AlignHCenter; spacing: 8
                 Repeater {
                     model: [
-                        { label: "󰍉  Apps",  idx: 0 },
-                        { label: "󰎚  Notes", idx: 1 },
-                        { label: "󰄳  Todo",  idx: 2 }
+                        { label: "󰍉  Apps",        idx: 0 },
+                        { label: "󰎚  Notes",       idx: 1 },
+                        { label: "󰄳  Todo",        idx: 2 },
+                        { label: "󰄀  Screenshot",  idx: 3 }
                     ]
                     delegate: Rectangle {
                         required property var modelData
@@ -439,6 +519,7 @@ PanelWindow {
                                 if (modelData.idx === 0) searchField.forceActiveFocus()
                                 if (modelData.idx === 1) notesEdit.forceActiveFocus()
                                 if (modelData.idx === 2) todoInput.forceActiveFocus()
+                                if (modelData.idx === 3) popup.loadScreenshots()
                             }
                         }
                     }
@@ -592,8 +673,6 @@ PanelWindow {
                                         anchors.fill: parent; anchors.margins: 10; spacing: 6
                                         Item {
                                             Layout.alignment: Qt.AlignHCenter; width: 44; height: 44
-
-                                            // Icon resolved on-demand from candidate paths
                                             IconImage {
                                                 id: icon
                                                 anchors.fill: parent
@@ -858,6 +937,370 @@ PanelWindow {
                                 MouseArea {
                                     anchors.fill: parent
                                     onClicked: { todoModel.clear(); saveTodos() }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ════════════════════════════════════════════════════════════
+                // TAB 3 — SCREENSHOT
+                // Left column: capture controls. Right column: recent shots.
+                // ════════════════════════════════════════════════════════════
+                Item {
+                    anchors.fill: parent; visible: popup.activeTab === 3
+
+                    RowLayout {
+                        anchors.fill: parent; spacing: 16
+
+                        // ── LEFT — controls ────────────────────────────────
+                        ColumnLayout {
+                            Layout.preferredWidth: 280
+                            Layout.fillHeight: true
+                            spacing: 14
+
+                            // Header
+                            Text {
+                                text: "󰄀  Screenshot"
+                                color: Theme.primary; font.pixelSize: 14; font.bold: true
+                            }
+
+                            // ─ Mode picker ────────────────────────────────
+                            ColumnLayout {
+                                Layout.fillWidth: true; spacing: 6
+                                Text { text: "AREA"; color: Theme.primary; opacity: 0.45; font.pixelSize: 9; font.bold: true }
+                                Row {
+                                    spacing: 6
+                                    Repeater {
+                                        model: [
+                                            { id: "screen", icon: "󰍹", label: "Full" },
+                                            { id: "area",   icon: "󰒓", label: "Area" },
+                                            { id: "active", icon: "󱂬", label: "Window" }
+                                        ]
+                                        delegate: Rectangle {
+                                            required property var modelData
+                                            property bool sel: popup.screenshotMode === modelData.id
+                                            width: 84; height: 60; radius: 12
+                                            color: sel ? Theme.primary : Theme.background
+                                            border.color: Theme.primary
+                                            border.width: sel ? 0 : 1
+                                            Behavior on color { ColorAnimation { duration: 120 } }
+
+                                            Column {
+                                                anchors.centerIn: parent; spacing: 4
+                                                Text {
+                                                    anchors.horizontalCenter: parent.horizontalCenter
+                                                    text: modelData.icon
+                                                    color: parent.parent.sel ? Theme.background : Theme.primary
+                                                    font.pixelSize: 18
+                                                }
+                                                Text {
+                                                    anchors.horizontalCenter: parent.horizontalCenter
+                                                    text: modelData.label
+                                                    color: parent.parent.sel ? Theme.background : Theme.primary
+                                                    font.pixelSize: 10
+                                                    font.bold: parent.parent.sel
+                                                }
+                                            }
+                                            MouseArea {
+                                                anchors.fill: parent
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: popup.screenshotMode = modelData.id
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // ─ Delay picker ───────────────────────────────
+                            ColumnLayout {
+                                Layout.fillWidth: true; spacing: 6
+                                Text { text: "DELAY"; color: Theme.primary; opacity: 0.45; font.pixelSize: 9; font.bold: true }
+                                Row {
+                                    spacing: 6
+                                    Repeater {
+                                        model: [
+                                            { val: 0,  label: "Now" },
+                                            { val: 3,  label: "3s" },
+                                            { val: 5,  label: "5s" },
+                                            { val: 10, label: "10s" }
+                                        ]
+                                        delegate: Rectangle {
+                                            required property var modelData
+                                            property bool sel: popup.screenshotDelay === modelData.val
+                                            width: 60; height: 32; radius: 10
+                                            color: sel ? Theme.primary : Theme.background
+                                            border.color: Theme.primary
+                                            border.width: sel ? 0 : 1
+                                            Behavior on color { ColorAnimation { duration: 120 } }
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: modelData.label
+                                                color: parent.sel ? Theme.background : Theme.primary
+                                                font.pixelSize: 11
+                                                font.bold: parent.sel
+                                            }
+                                            MouseArea {
+                                                anchors.fill: parent
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: popup.screenshotDelay = modelData.val
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // ─ Capture button ─────────────────────────────
+                            Rectangle {
+                                Layout.fillWidth: true; height: 52; radius: 14
+                                color: popup.screenshotCapturing
+                                    ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.4)
+                                    : Theme.primary
+                                Behavior on color { ColorAnimation { duration: 150 } }
+
+                                RowLayout {
+                                    anchors.centerIn: parent; spacing: 10
+                                    Text {
+                                        text: popup.screenshotCapturing ? "󱎫" : "󰄀"
+                                        color: Theme.background
+                                        font.pixelSize: 20
+                                    }
+                                    Text {
+                                        text: popup.screenshotCapturing
+                                            ? (popup.screenshotDelay > 0
+                                                ? "Capturing in " + popup.screenshotDelay + "s\u2026"
+                                                : "Capturing\u2026")
+                                            : "Capture"
+                                        color: Theme.background
+                                        font.pixelSize: 14; font.bold: true
+                                    }
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    enabled: !popup.screenshotCapturing
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        screenshotCapture.shoot(
+                                            popup.screenshotMode,
+                                            popup.screenshotDelay)
+                                    }
+                                }
+                            }
+
+                            // ─ Hint footer ────────────────────────────────
+                            Column {
+                                Layout.fillWidth: true; spacing: 4
+                                Text {
+                                    text: "󰈙  Saved to ~/Pictures/Screenshots"
+                                    color: Theme.primary; opacity: 0.5; font.pixelSize: 10
+                                }
+                                Text {
+                                    text: "󰆒  Auto-copied to clipboard"
+                                    color: Theme.primary; opacity: 0.5; font.pixelSize: 10
+                                }
+                            }
+
+                            Item { Layout.fillHeight: true }
+                        }
+
+                        // Vertical separator
+                        Rectangle {
+                            Layout.preferredWidth: 1
+                            Layout.fillHeight: true
+                            color: Theme.primary; opacity: 0.1
+                        }
+
+                        // ── RIGHT — recent shots ───────────────────────────
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            spacing: 8
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Text {
+                                    text: "RECENT"
+                                    color: Theme.primary; opacity: 0.45
+                                    font.pixelSize: 9; font.bold: true
+                                }
+                                Item { Layout.fillWidth: true }
+                                Rectangle {
+                                    width: 24; height: 24; radius: 7
+                                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+                                    Text { anchors.centerIn: parent; text: "󰑓"; color: Theme.primary; font.pixelSize: 12 }
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: popup.loadScreenshots()
+                                    }
+                                }
+                                Rectangle {
+                                    width: 24; height: 24; radius: 7
+                                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+                                    Text { anchors.centerIn: parent; text: "󰉋"; color: Theme.primary; font.pixelSize: 12 }
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            executor.run(["bash", "-c",
+                                                "DIR=\"$(xdg-user-dir PICTURES 2>/dev/null || echo \"$HOME/Pictures\")/Screenshots\"; " +
+                                                "command -v nemo &>/dev/null && nemo \"$DIR\" || xdg-open \"$DIR\""])
+                                            popup.active = false
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Empty state
+                            Item {
+                                Layout.fillWidth: true; Layout.fillHeight: true
+                                visible: screenshotModel.count === 0
+                                Column {
+                                    anchors.centerIn: parent; spacing: 8
+                                    Text {
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        text: "󰋩"; color: Theme.primary; font.pixelSize: 44; opacity: 0.18
+                                    }
+                                    Text {
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        text: "No screenshots yet"
+                                        color: Theme.primary; font.pixelSize: 13; opacity: 0.4
+                                    }
+                                }
+                            }
+
+                            // List with thumbnails
+                            ScrollView {
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                visible: screenshotModel.count > 0
+                                clip: true
+                                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                                ScrollBar.vertical.policy: ScrollBar.AsNeeded
+
+                                ListView {
+                                    id: ssListView
+                                    model: screenshotModel
+                                    spacing: 6
+                                    boundsBehavior: Flickable.StopAtBounds
+
+                                    delegate: Rectangle {
+                                        required property int    index
+                                        required property string ssPath
+                                        required property string ssName
+
+                                        width: ssListView.width
+                                        height: 64
+                                        radius: 12
+                                        color: hovered
+                                            ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.10)
+                                            : Theme.background
+                                        border.color: hovered
+                                            ? Theme.primary
+                                            : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.2)
+                                        border.width: 1
+                                        Behavior on color       { ColorAnimation { duration: 120 } }
+                                        Behavior on border.color { ColorAnimation { duration: 120 } }
+
+                                        property bool hovered: false
+
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.margins: 6
+                                            spacing: 10
+
+                                            // Thumbnail
+                                            Rectangle {
+                                                Layout.preferredWidth: 80
+                                                Layout.preferredHeight: 52
+                                                radius: 8
+                                                color: Qt.rgba(0, 0, 0, 0.05)
+                                                clip: true
+
+                                                Image {
+                                                    anchors.fill: parent
+                                                    source: "file://" + ssPath
+                                                    fillMode: Image.PreserveAspectCrop
+                                                    asynchronous: true
+                                                    cache: true
+                                                    sourceSize.width: 160
+                                                    sourceSize.height: 104
+                                                }
+                                            }
+
+                                            // Filename
+                                            // ColumnLayout {
+                                            //     spacing: 1; Layout.fillWidth: true
+                                            //     Text {
+                                            //         text: ssName
+                                            //         color: Theme.primary
+                                            //         font.pixelSize: 11
+                                            //         font.bold: true
+                                            //         elide: Text.ElideRight
+                                            //         Layout.fillWidth: true
+                                            //     }
+                                            //     Text {
+                                            //         text: "Click to copy path"
+                                            //         color: Theme.primary; opacity: 0.4
+                                            //         font.pixelSize: 9
+                                            //     }
+                                            // }
+
+                                            // Action: open with default viewer
+                                            Rectangle {
+                                                Layout.preferredWidth: 28
+                                                Layout.preferredHeight: 28
+                                                radius: 8
+                                                color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.10)
+                                                Text { anchors.centerIn: parent; text: "󰏋"; color: Theme.primary; font.pixelSize: 14 }
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        executor.run(["xdg-open", ssPath])
+                                                        popup.active = false
+                                                    }
+                                                }
+                                            }
+
+                                            // Action: reveal in nemo
+                                            Rectangle {
+                                                Layout.preferredWidth: 28
+                                                Layout.preferredHeight: 28
+                                                radius: 8
+                                                color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.10)
+                                                Text { anchors.centerIn: parent; text: "󰉋"; color: Theme.primary; font.pixelSize: 14 }
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        // Open parent folder in nemo (nemo doesn't have a
+                                                        // reliable -reveal flag — opening the dir is the
+                                                        // standard behavior)
+                                                        let dir = ssPath.substring(0, ssPath.lastIndexOf("/"))
+                                                        executor.run(["bash", "-c",
+                                                            "command -v nemo &>/dev/null && nemo \"" + dir + "\" || xdg-open \"" + dir + "\""])
+                                                        popup.active = false
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Row-level hover + click-to-copy-path
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            anchors.rightMargin: 80   // leave action buttons clickable
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onEntered: parent.hovered = true
+                                            onExited:  parent.hovered = false
+                                            onClicked: {
+                                                executor.run(["bash", "-c",
+                                                    "command -v wl-copy &>/dev/null && printf '%s' " +
+                                                    JSON.stringify(ssPath) + " | wl-copy"])
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
