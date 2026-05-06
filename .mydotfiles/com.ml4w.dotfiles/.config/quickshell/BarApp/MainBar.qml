@@ -233,8 +233,9 @@ PanelWindow {
                     anchors.fill: parent
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
                     onClicked: (mouse) => {
-                        if (mouse.button === Qt.LeftButton) executor.run(["bash", "-c", "~/.config/hypr/scripts/launcher.sh"])
-                        else executor.run(["bash", "-c", "~/.config/hypr/scripts/keybindings.sh"])
+                        // if (mouse.button === Qt.LeftButton) executor.run(["bash", "-c", "~/.config/hypr/scripts/launcher.sh"])
+                        // else executor.run(["bash", "-c", "~/.config/hypr/scripts/keybindings.sh"])
+                        onClicked: dashPopup.active = !dashPopup.active
                     }
                 }
             }
@@ -407,6 +408,7 @@ PanelWindow {
     CalendarPopup { id: calendarPopup }
     ClipboardPopup { id: clipboardPopup; screen: bar.screen }
     PowerPopup { id: powerPopup; screen: bar.screen }
+    DashboardPopup { id: dashPopup; screen: root.screen }
 
     Canvas { 
         opacity: 0.8; id: leftCorner; x: 10; y: 40; width: 20; height: 20
