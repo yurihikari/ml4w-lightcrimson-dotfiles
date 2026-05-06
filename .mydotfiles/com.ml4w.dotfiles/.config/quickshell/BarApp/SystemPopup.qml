@@ -367,8 +367,8 @@ PanelWindow {
         radius: 30; color: "transparent"
 
         Rectangle {
-            anchors.fill: parent; color: Theme.background; border.color: Theme.primary
-            border.width: 2; radius: 30; opacity: 0.8
+            anchors.fill: parent; color: Theme.background; border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.8);
+            border.width: 2; radius: 30; opacity: 0.8; 
         }
         MouseArea { anchors.fill: parent }
 
@@ -391,7 +391,7 @@ PanelWindow {
                                     : modelData === "Bluetooth" ? "󰂯  Bluetooth"
                                     : "󰻠  System"
                                 color: popup.currentTab === modelData ? Theme.background : Theme.primary
-                                font.bold: true; font.pixelSize: 11
+                                font.bold: true; font.pixelSize: 14
                                 opacity: popup.currentTab === modelData ? 1.0 : 0.6
                             }
                             MouseArea { anchors.fill: parent; onClicked: popup.currentTab = modelData }

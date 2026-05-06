@@ -404,7 +404,7 @@ PanelWindow {
         Rectangle {
             anchors.fill: parent; radius: parent.radius
             color: Theme.background; opacity: 0.8
-            border.color: Theme.primary; border.width: 1.5
+            border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.8); border.width: 1.5
         }
         MouseArea { anchors.fill: parent; onClicked: {} }
 
