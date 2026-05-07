@@ -1,0 +1,15 @@
+{
+  "_comment": "Edit this file to customize your radial menu. Save and re-open the menu (the file is re-read every time it opens). Icons can be: an absolute path (/path/to/icon.png), a freedesktop name (firefox, code), or empty for a fallback glyph.",
+  "_layout": "items 0-3 fill the top arc (NW → NE), items 4-7 fill the bottom arc (SE → SW). Order = position around the ring.",
+
+  "items": [
+    { "name": "Files",    "exec": "nemo",            "icon": "system-file-manager" },
+    { "name": "Browser",  "exec": "brave",           "icon": "" },
+    { "name": "Terminal", "exec": "kitty",           "icon": "kitty" },
+    { "name": "Editor",   "exec": "code",            "icon": "code" },
+    { "name": "Settings", "exec": "nwg-look",        "icon": "preferences-desktop" },
+    { "name": "Music",    "exec": "pear-desktop",    "icon": "pear-desktop" },
+    { "name": "Discord",  "exec": "vesktop",         "icon": "vesktop" },
+    { "name": "System",   "exec": "kitty -e btop",   "icon": "utilities-system-monitor" }
+  ]
+}
