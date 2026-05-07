@@ -36,6 +36,8 @@ PanelWindow {
     anchors { top: true; bottom: true; left: true; right: true }
     WlrLayershell.layer: WlrLayer.Overlay
     exclusionMode: WlrLayershell.Ignore
+    
+    // Allows typing into the popup
     WlrLayershell.keyboardFocus: _visible ? WlrLayershell.OnDemand : WlrLayershell.None
     color: "transparent"
 
@@ -50,6 +52,24 @@ PanelWindow {
     property var recentApps:   []
     property var frequentApps: []
     property bool configLoaded: false
+
+    // Video Game Wheel Selection States
+    property int selectedIndex: -1
+    property bool centerHovered: false
+    
+    // Continuous angle tracks the mouse mathematically to prevent snap-glitching
+    // when crossing the 180 / -180 degree boundary.
+    property real continuousAngle: 0 
+
+    // Global Floating Phase (Optimized continuous animation)
+    // Runs ONLY when menu is visible to save battery/CPU.
+    property real globalFloatPhase: 0
+    NumberAnimation on globalFloatPhase {
+        from: 0; to: 360; duration: 4000
+        loops: Animation.Infinite
+        running: popup._visible
+        easing.type: Easing.Linear 
+    }
 
     // Icon-name → absolute-path map, populated once on first menu open
     property var iconIndex: ({})
@@ -70,8 +90,6 @@ PanelWindow {
 
     // ═══════════════════════════════════════════════════════════════════════
     //  CONFIG LOADING
-    //  Reads ~/.config/quickshell/radial-menu.json. If the file doesn't
-    //  exist yet, writes a default one so the user can immediately edit it.
     // ═══════════════════════════════════════════════════════════════════════
     property string _configBuf: ""
 
@@ -119,12 +137,11 @@ PanelWindow {
 
     // ═══════════════════════════════════════════════════════════════════════
     //  ICON INDEX BUILDER
-    //  One bulk find over icon directories, builds a name→best-path map.
-    //  Same approach as DockPopup. Built lazily on first open.
     // ═══════════════════════════════════════════════════════════════════════
     property string _iconBuf: ""
     Process {
         id: iconIndexer
+        running: true // Pre-loads icons in background on boot
         command: ["bash", "-c",
             "find /usr/share/icons /usr/share/pixmaps \"$HOME/.local/share/icons\" \\\n" +
             "  -type f \\( -name '*.png' -o -name '*.svg' \\) 2>/dev/null \\\n" +
@@ -164,7 +181,6 @@ PanelWindow {
         }
     }
 
-    // Resolve an icon hint (name or absolute path) to an absolute path
     function resolveIcon(hint) {
         if (!hint) return ""
         if (hint.startsWith("/")) return hint
@@ -174,8 +190,6 @@ PanelWindow {
 
     // ═══════════════════════════════════════════════════════════════════════
     //  CURSOR POSITIONING
-    //  Read cursor + monitor list via hyprctl, map global → screen-local,
-    //  clamp to keep the ring inside screen bounds.
     // ═══════════════════════════════════════════════════════════════════════
     Process {
         id: cursorReader
@@ -227,14 +241,14 @@ PanelWindow {
                 } catch (e) {}
             }
 
-            // Edge-aware clamping. We add extra padding at the bottom for
-            // the FREQUENT label and at the top for RECENT.
             let safeH = popup.ringRadius + popup.itemSize / 2 + popup.edgePad
-            let safeT = safeH + 30   // extra room for top label
-            let safeB = safeH + 50   // extra room for bottom label + hover labels
-            if (localX < safeH)               localX = safeH
+            let safeT = safeH + 30 
+            // INCREASED bottom padding so the text-input bar never gets cut off
+            let safeB = safeH + 110 
+            
+            if (localX < safeH)                localX = safeH
             if (localX > popup.width  - safeH) localX = popup.width  - safeH
-            if (localY < safeT)               localY = safeT
+            if (localY < safeT)                localY = safeT
             if (localY > popup.height - safeB) localY = popup.height - safeB
 
             popup.centerX = localX
@@ -247,18 +261,33 @@ PanelWindow {
     //  OPEN / CLOSE FLOW WITH COLLAPSE ANIMATION
     // ═══════════════════════════════════════════════════════════════════════
     function openAtCursor() {
-        if (!popup.iconIndexBuilt) iconIndexer.running = true
+        popup.selectedIndex = -1
+        popup.centerHovered = false
         popup._visible = true
         popup.active = true
         popup.animProgress = 0
+        
+        // Reset command input and grab keyboard focus
+        cmdInput.text = ""
+        focusTimer.restart()
+        
         cursorReader.running = true
+    }
+
+    // Delay grabbing focus slightly to ensure the window composite is ready
+    Timer {
+        id: focusTimer
+        interval: 30
+        onTriggered: cmdInput.forceActiveFocus()
     }
 
     function beginClose() {
         if (!popup.active) return
-        popup.active = false           // triggers Behavior on animProgress to ease back to 0
+        popup.selectedIndex = -1
+        popup.centerHovered = false
+        popup.active = false
         popup.animProgress = 0
-        // Wait for animation to finish before truly hiding the panel
+        cmdInput.focus = false // Release keyboard
         closeHideTimer.restart()
     }
 
@@ -269,7 +298,6 @@ PanelWindow {
         onTriggered: popup._visible = false
     }
 
-    // The bloom driver. 0 = collapsed at center, 1 = fully expanded ring.
     property real animProgress: 0
     Behavior on animProgress {
         NumberAnimation {
@@ -299,10 +327,131 @@ PanelWindow {
         function run(args) { command = args; running = true }
     }
 
-    // Backdrop click closes
+    // ═══════════════════════════════════════════════════════════════════════
+    //  VIDEO GAME WHEEL LOGIC (GLOBAL MOUSE AREA)
+    // ═══════════════════════════════════════════════════════════════════════
+    function updateSelection(mx, my) {
+        let dx = mx - popup.centerX
+        let dy = my - popup.centerY
+        let dist = Math.sqrt(dx * dx + dy * dy)
+
+        // Deadzone: If cursor is within 40px of center, highlight the cancel button instead
+        if (dist < 40) {
+            popup.selectedIndex = -1
+            popup.centerHovered = true
+            return
+        }
+
+        popup.centerHovered = false
+
+        // Calculate angle (-180 to 180 degrees, matching our array formats)
+        let angle = Math.atan2(dy, dx) * 180 / Math.PI
+
+        // -- CONTINUOUS ANGLE MATH FOR PLANET ROTATION --
+        // This prevents the planets from glitch-snapping when crossing the bottom 180-degree line
+        let diff = angle - (popup.continuousAngle % 360)
+        if (diff > 180) diff -= 360
+        if (diff < -180) diff += 360
+        popup.continuousAngle += diff
+        
+        let minDiff = 999
+        let bestIdx = -1
+
+        // Helper to find absolute difference between two angles
+        let angleDiff = function(a, b) {
+            let d = Math.abs(a - b) % 360
+            return d > 180 ? 360 - d : d
+        }
+
+        // Check recent apps (Indexes 0-3)
+        for (let i = 0; i < popup.recentApps.length; i++) {
+            let diff2 = angleDiff(angle, popup.recentAngles[i])
+            if (diff2 < minDiff) {
+                minDiff = diff2
+                bestIdx = i
+            }
+        }
+
+        // Check frequent apps (Indexes 4-7)
+        for (let i = 0; i < popup.frequentApps.length; i++) {
+            let diff2 = angleDiff(angle, popup.frequentAngles[i])
+            if (diff2 < minDiff) {
+                minDiff = diff2
+                bestIdx = i + popup.recentApps.length
+            }
+        }
+
+        popup.selectedIndex = bestIdx
+    }
+
+    // Global backdrop captures all hover and clicks
     MouseArea {
+        id: globalMouseArea
         anchors.fill: parent
-        onClicked: popup.beginClose()
+        hoverEnabled: true
+        
+        // Hide the system cursor so we can draw our own
+        cursorShape: Qt.BlankCursor
+
+        onPositionChanged: (mouse) => {
+            if (!popup.active) return
+            popup.updateSelection(mouse.x, mouse.y)
+        }
+
+        onClicked: {
+            if (!popup.active) return
+            
+            if (popup.centerHovered) {
+                popup.beginClose()
+            } else if (popup.selectedIndex !== -1) {
+                // Determine which item was selected via angle
+                let isRecent = popup.selectedIndex < popup.recentApps.length
+                let item = isRecent 
+                    ? popup.recentApps[popup.selectedIndex] 
+                    : popup.frequentApps[popup.selectedIndex - popup.recentApps.length]
+
+                if (item) popup.launchAndClose(item.exec, item.name, item.icon)
+            } else {
+                popup.beginClose()
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  RADIAL ITEMS CONNECTING ORBIT RING (FATTER WITH GLOW)
+    // ═══════════════════════════════════════════════════════════════════════
+    Item {
+        z: 0
+        width: popup.ringRadius * 2
+        height: popup.ringRadius * 2
+        x: popup.centerX - popup.ringRadius
+        y: popup.centerY - popup.ringRadius
+
+        // Blooms in perfectly with the items
+        opacity: popup.animProgress 
+        scale: 0.4 + 0.6 * popup.animProgress
+
+        // Outer Glow Ring
+        Rectangle {
+            anchors.centerIn: parent
+            width: parent.width + 6
+            height: parent.height + 6
+            radius: width / 2
+            color: "transparent"
+            border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.25)
+            border.width: 8
+            antialiasing: true
+        }
+
+        // Inner Fatter Core Ring
+        Rectangle {
+            anchors.fill: parent
+            radius: width / 2
+            color: "transparent"
+            border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.6)
+            border.width: 3
+            antialiasing: true
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -310,26 +459,54 @@ PanelWindow {
     // ═══════════════════════════════════════════════════════════════════════
     component RadialItem: Item {
         id: ri
+        property int  globalIndex: -1
         property real angleDeg: 0
         property int  staggerIdx: 0
         property string itemName: ""
         property string itemExec: ""
         property string itemIcon: ""
-        property bool   isBottom: false   // if true, hover label appears ABOVE the item
-        property bool   hovered: false
+        property bool   isBottom: false
+
+        // Automatically determine hover state from the wheel's selected angle
+        property bool hovered: popup.selectedIndex === ri.globalIndex
 
         width: popup.itemSize
         height: popup.itemSize
+        z: hovered ? 100 : 10
 
-        // Bring hovered item to the top so its glow + label cover other items
-        z: hovered ? 100 : 0
+        // ─── GEOMETRY MATH ─────────────────────────────────────────────────────
+        // Base coordinate without any physics applied
+        property real baseCX: popup.centerX + Math.cos(angleDeg * Math.PI / 180) * popup.ringRadius
+        property real baseCY: popup.centerY + Math.sin(angleDeg * Math.PI / 180) * popup.ringRadius
 
-        property real targetX: popup.centerX + Math.cos(angleDeg * Math.PI / 180) * popup.ringRadius - width / 2
-        property real targetY: popup.centerY + Math.sin(angleDeg * Math.PI / 180) * popup.ringRadius - height / 2
+        // Distance from item to actual mouse pointer
+        property real distX: globalMouseArea.mouseX - baseCX
+        property real distY: globalMouseArea.mouseY - baseCY
+        property real rawDist: Math.sqrt(distX * distX + distY * distY)
+
+        // ─── MAGNETIC GRAVITY ──────────────────────────────────────────────────
+        // Only trigger within 160px. Calculates a 0-to-1 magnet strength.
+        property real rawMagnet: popup.active ? Math.max(0, 1 - rawDist / 160) : 0
+        
+        // We smooth the magnet output so the pulling/releasing looks completely organic
+        property real smoothMagnet: Math.pow(rawMagnet, 1.5) // Exponent eases the pull strength curve
+        Behavior on smoothMagnet { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
+
+        // The exact pixels to shift the item (up to ~35% of the distance)
+        property real pullX: distX * smoothMagnet * 0.35
+        property real pullY: distY * smoothMagnet * 0.35
+
+        // ─── CONTINUOUS FLOAT (FIGURE 8) ───────────────────────────────────────
+        // Mathematical seamless Figure-8 orbit using the globalFloatPhase
+        property real floatX: Math.cos((popup.globalFloatPhase + staggerIdx * 45) * Math.PI / 180) * 4
+        property real floatY: Math.sin((popup.globalFloatPhase * 2 + staggerIdx * 75) * Math.PI / 180) * 4
+
+        // ─── FINAL CALCULATED TARGET ───────────────────────────────────────────
+        property real targetX: baseCX - width / 2 + floatX + pullX
+        property real targetY: baseCY - height / 2 + floatY + pullY
         property real centerXAtCenter: popup.centerX - width / 2
         property real centerYAtCenter: popup.centerY - height / 2
 
-        // Per-item progress, staggered for the bloom cascade
         readonly property real localProgress: {
             let staggerOffset = staggerIdx * 0.08
             let p = (popup.animProgress - staggerOffset) / Math.max(0.01, 1 - staggerOffset)
@@ -339,7 +516,9 @@ PanelWindow {
         x: centerXAtCenter + (targetX - centerXAtCenter) * localProgress
         y: centerYAtCenter + (targetY - centerYAtCenter) * localProgress
         opacity: localProgress
-        scale:   0.4 + 0.6 * localProgress
+        
+        // Base scale bloom + dynamic scaling depending on magnetic gravity proximity!
+        scale: (0.4 + 0.6 * localProgress) + (smoothMagnet * localProgress * 0.25)
 
         // Soft glow halo on hover
         Rectangle {
@@ -356,14 +535,13 @@ PanelWindow {
             anchors.fill: parent
             radius: width / 2
             color: ri.hovered
-                ? Theme.primary
+                ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.8)
                 : Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.8)
             border.color: Theme.primary
             border.width: 2
             antialiasing: true
             Behavior on color { ColorAnimation { duration: 140 } }
 
-            // Icon — uses the resolved absolute path from the icon index
             Image {
                 anchors.centerIn: parent
                 width:  parent.width * 0.50
@@ -376,7 +554,6 @@ PanelWindow {
                 source: resolved !== "" ? "file://" + resolved : ""
                 visible: status === Image.Ready
             }
-            // Fallback glyph when icon resolution fails
             Text {
                 anchors.centerIn: parent
                 text: "󰣆"
@@ -386,11 +563,9 @@ PanelWindow {
             }
         }
 
-        // Floating label — appears ABOVE for bottom items, BELOW for top items,
-        // so it never gets covered by adjacent items in the same group.
+        // Floating label
         Rectangle {
             anchors.horizontalCenter: parent.horizontalCenter
-            // Switch position based on which half the item lives in
             anchors.bottom: ri.isBottom ? parent.top : undefined
             anchors.bottomMargin: ri.isBottom ? 8 : 0
             anchors.top: ri.isBottom ? undefined : parent.bottom
@@ -409,30 +584,20 @@ PanelWindow {
                 font.pixelSize: 11; font.bold: true
             }
         }
-
-        MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onEntered: ri.hovered = true
-            onExited:  ri.hovered = false
-            onClicked: popup.launchAndClose(ri.itemExec, ri.itemName, ri.itemIcon)
-        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
     //  RADIAL LAYOUT
-    //  Top half (recent): NW → NE arc
-    //  Bottom half (frequent): SE → SW arc
     // ═══════════════════════════════════════════════════════════════════════
-    readonly property var recentAngles:   [-160, -120, -60, -20]   // top
-    readonly property var frequentAngles: [ 160,  120,  60,  20]   // bottom
+    readonly property var recentAngles:   [-160, -120, -60, -20]
+    readonly property var frequentAngles: [ 160,  120,  60,  20]
 
     Repeater {
         model: popup.recentApps
         delegate: RadialItem {
             required property var modelData
             required property int index
+            globalIndex: index // Indexes 0 to 3
             angleDeg:    popup.recentAngles[index] || 0
             staggerIdx:  index
             itemName:    modelData.name
@@ -447,12 +612,13 @@ PanelWindow {
         delegate: RadialItem {
             required property var modelData
             required property int index
+            globalIndex: index + popup.recentApps.length // Indexes 4 to 7
             angleDeg:    popup.frequentAngles[index] || 0
             staggerIdx:  index
             itemName:    modelData.name
             itemExec:    modelData.exec
             itemIcon:    modelData.icon
-            isBottom:    true   // labels render ABOVE the item, not below
+            isBottom:    true
         }
     }
 
@@ -462,7 +628,7 @@ PanelWindow {
         width: 48; height: 48; radius: 24
         x: popup.centerX - width / 2
         y: popup.centerY - height / 2
-        color: closeHover.containsMouse
+        color: popup.centerHovered
             ? Theme.primary
             : Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.8)
         border.color: Theme.primary
@@ -474,17 +640,222 @@ PanelWindow {
         Text {
             anchors.centerIn: parent
             text: "󰅖"
-            color: closeHover.containsMouse ? Theme.background : Theme.primary
+            color: popup.centerHovered ? Theme.background : Theme.primary
             font.pixelSize: 22
             font.bold: true
         }
+    }
 
-        MouseArea {
-            id: closeHover
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: popup.beginClose()
+    // ═══════════════════════════════════════════════════════════════════════
+    //  DYNAMIC COMMAND INPUT (Appears on typing)
+    // ═══════════════════════════════════════════════════════════════════════
+    Rectangle {
+        id: cmdInputBg
+        z: 9990
+        
+        // Dynamically size based on typed text (minimum 220px)
+        width: Math.max(220, cmdInput.contentWidth + 60)
+        height: 44
+        radius: 22
+        
+        // Position beautifully beneath the radial menu
+        x: popup.centerX - width / 2
+        y: popup.centerY + popup.ringRadius + 50
+        
+        color: Qt.rgba(Theme.surface.r, Theme.surface.g, Theme.surface.b, 0.95)
+        border.color: Theme.primary
+        border.width: 2
+        
+        // Magic visibility triggers
+        opacity: cmdInput.text.length > 0 ? 1.0 : 0.0
+        scale: cmdInput.text.length > 0 ? 1.0 : 0.8
+        
+        Behavior on opacity { NumberAnimation { duration: 150 } }
+        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
+
+        // Icon Prompt
+        Text {
+            anchors.left: parent.left
+            anchors.leftMargin: 16
+            anchors.verticalCenter: parent.verticalCenter
+            text: ""
+            color: Theme.primary
+            font.pixelSize: 16
+        }
+
+        // Invisible text input that always listens
+        TextInput {
+            id: cmdInput
+            anchors.left: parent.left
+            anchors.leftMargin: 42
+            anchors.right: parent.right
+            anchors.rightMargin: 16
+            anchors.verticalCenter: parent.verticalCenter
+            
+            color: Theme.on_surface
+            font.pixelSize: 16
+            font.bold: true
+            selectionColor: Theme.primary
+            selectedTextColor: Theme.background
+            
+            // Execute the command!
+            onAccepted: {
+                if (text.trim().length > 0) {
+                    popup.launchAndClose(text, "Command", "")
+                }
+            }
+            
+            // Escape clears text, or if empty, closes menu
+            Keys.onEscapePressed: {
+                if (text.length > 0) {
+                    text = ""
+                } else {
+                    popup.beginClose()
+                }
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  CUSTOM ANIMATED PLANETARY CURSOR
+    // ═══════════════════════════════════════════════════════════════════════
+    Item {
+        id: customCursor
+        // 0x0 size ensures x and y perfectly represent the center of the mouse
+        width: 0; height: 0 
+        x: globalMouseArea.mouseX
+        y: globalMouseArea.mouseY
+        z: 9999 // Make sure it renders on top of everything else
+
+        // Only show if the popup is visible and the mouse is active on the screen
+        visible: popup.active && globalMouseArea.containsMouse
+        
+        // Sync the scale with the menu opening bloom
+        scale: popup.animProgress
+
+        // Prevent the cursor shapes from blocking real mouse clicks
+        enabled: false
+
+        // --- Core Glow (Pulsing) ---
+        Rectangle {
+            anchors.centerIn: parent
+            width: 24; height: 24; radius: 12
+            color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.25)
+            
+            // Breathe animation for the core glow
+            SequentialAnimation on scale {
+                loops: Animation.Infinite
+                NumberAnimation { from: 0.8; to: 1.3; duration: 1000; easing.type: Easing.InOutSine }
+                NumberAnimation { from: 1.3; to: 0.8; duration: 1000; easing.type: Easing.InOutSine }
+            }
+        }
+
+        // --- Core Solid ---
+        Rectangle {
+            anchors.centerIn: parent
+            width: 8; height: 8; radius: 4
+            color: Theme.primary
+            border.color: Theme.background
+            border.width: 1
+        }
+
+        // --- Orbit 1 (Inner, Secondary Color) ---
+        Item {
+            anchors.centerIn: parent
+            width: 34; height: 34
+            
+            // Tracks the mouse 1:1, points the planet towards the center
+            rotation: popup.continuousAngle + 90
+            Behavior on rotation { NumberAnimation { duration: 80; easing.type: Easing.OutQuad } }
+
+            // Orbital Ring
+            Rectangle {
+                anchors.fill: parent; radius: width / 2
+                color: "transparent"; border.color: Theme.secondary
+                border.width: 2; opacity: 0.7
+                antialiasing: true
+            }
+
+            // Planet Container
+            Item {
+                width: 8; height: 8
+                x: parent.width / 2 - width / 2; y: -height / 2
+                
+                // Planet Glow Halo
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 20; height: 20; radius: 10
+                    color: Qt.rgba(Theme.secondary.r, Theme.secondary.g, Theme.secondary.b, 0.4)
+                }
+                // Planet Solid
+                Rectangle { anchors.fill: parent; radius: width / 2; color: Theme.secondary }
+            }
+        }
+
+        // --- Orbit 2 (Middle, Tertiary Color) ---
+        Item {
+            anchors.centerIn: parent
+            width: 56; height: 56
+            
+            // Tracks the mouse in REVERSE, at 1.5x speed
+            rotation: -popup.continuousAngle * 1.5 + 45
+            Behavior on rotation { NumberAnimation { duration: 120; easing.type: Easing.OutQuad } }
+
+            // Orbital Ring
+            Rectangle {
+                anchors.fill: parent; radius: width / 2
+                color: "transparent"; border.color: Theme.tertiary
+                border.width: 1.5; opacity: 0.6
+                antialiasing: true
+            }
+
+            // Planet Container
+            Item {
+                width: 10; height: 10
+                x: parent.width - width / 2; y: parent.height / 2 - height / 2
+                
+                // Planet Glow Halo
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 24; height: 24; radius: 12
+                    color: Qt.rgba(Theme.tertiary.r, Theme.tertiary.g, Theme.tertiary.b, 0.4)
+                }
+                // Planet Solid
+                Rectangle { anchors.fill: parent; radius: width / 2; color: Theme.tertiary }
+            }
+        }
+
+        // --- Orbit 3 (Outer, Primary Container Color) ---
+        Item {
+            anchors.centerIn: parent
+            width: 80; height: 80
+            
+            // Tracks the mouse forward, slightly slower
+            rotation: popup.continuousAngle * 0.7 - 45
+            Behavior on rotation { NumberAnimation { duration: 160; easing.type: Easing.OutQuad } }
+
+            // Orbital Ring
+            Rectangle {
+                anchors.fill: parent; radius: width / 2
+                color: "transparent"; border.color: Theme.primary_container
+                border.width: 1.5; opacity: 0.5
+                antialiasing: true
+            }
+
+            // Planet Container
+            Item {
+                width: 6; height: 6
+                x: parent.width / 2 - width / 2; y: parent.height - height / 2
+                
+                // Planet Glow Halo
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 16; height: 16; radius: 8
+                    color: Qt.rgba(Theme.primary_container.r, Theme.primary_container.g, Theme.primary_container.b, 0.4)
+                }
+                // Planet Solid
+                Rectangle { anchors.fill: parent; radius: width / 2; color: Theme.primary_container }
+            }
         }
     }
 }
