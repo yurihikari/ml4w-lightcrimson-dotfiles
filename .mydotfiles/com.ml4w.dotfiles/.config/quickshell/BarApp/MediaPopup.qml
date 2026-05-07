@@ -11,7 +11,10 @@ import "../CustomTheme"
 PanelWindow {
     id: popup
     property bool active: false
-    visible: active
+    
+    // 1. Wayland-safe exit animation state
+    property bool isAnimating: false
+    visible: active || isAnimating
     
     property var modelData
     screen: modelData
@@ -34,6 +37,12 @@ PanelWindow {
         return mins + ":" + (secs < 10 ? "0" : "") + secs
     }
 
+    // Local executor just in case
+    Process {
+        id: executor
+        function run(args) { command = args; running = true }
+    }
+
     // --- STATE & MODELS ---
     property bool selectingSink: false
     ListModel { id: sinkModel }
@@ -45,9 +54,15 @@ PanelWindow {
         property string cmd: ""
         property string check: ""
         width: 44; height: 44; radius: 12
-        color: Theme.background
         visible: false 
         Layout.alignment: Qt.AlignHCenter
+        
+        // Interactive Hover/Click Colors & Scale
+        color: btnMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15) : Theme.background
+        scale: btnMouse.pressed ? 0.9 : (btnMouse.containsMouse ? 1.1 : 1.0)
+        
+        Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+        Behavior on color { ColorAnimation { duration: 200 } }
         
         Text { 
             anchors.centerIn: parent
@@ -57,11 +72,13 @@ PanelWindow {
         }
 
         MouseArea { 
+            id: btnMouse
             anchors.fill: parent
             hoverEnabled: true
-            onEntered: appBtn.opacity = 0.7
-            onExited: appBtn.opacity = 1.0
-            onClicked: executor.run(["hyprctl", "dispatch", "exec", cmd])
+            onClicked: {
+                executor.run(["hyprctl", "dispatch", "exec", cmd])
+                popup.active = false
+            }
         }
 
         Process {
@@ -72,8 +89,6 @@ PanelWindow {
     }
 
     // --- CAVA ENGINE ---
-    // OPTIMIZATION: cava config written to a temp file at startup instead of a
-    // process substitution fork on every invocation. Also only runs when visible.
     property var cavaData: []
     property string cavaConfigPath: "/tmp/qs_cava_bar.ini"
 
@@ -88,8 +103,8 @@ PanelWindow {
 
     Process {
         id: cava
-        // OPTIMIZATION: run only when popup is visible
-        running: popup.active && cavaConfigWriter.running === false
+        // Keep running while animating out so the visualizer doesn't freeze mid-fade
+        running: (popup.active || popup.isAnimating) && cavaConfigWriter.running === false
         command: ["cava", "-p", popup.cavaConfigPath]
         stdout: SplitParser {
             onRead: {
@@ -111,8 +126,7 @@ PanelWindow {
 
     Process {
         id: sinkGetter
-        // OPTIMIZATION: only auto-run when popup is open, not constantly
-        running: popup.active
+        running: popup.active || popup.isAnimating
         command: ["bash", "-c", "pactl get-default-sink"]
         stdout: SplitParser { 
             onRead: { 
@@ -138,20 +152,21 @@ PanelWindow {
         }
     }
 
-    // OPTIMIZATION: poll sink only every 5s while open (was 2s)
     Timer {
         interval: 5000; running: popup.active; repeat: true
         onTriggered: sinkGetter.running = true
     }
 
-    // --- POSITION TICKER ---
     Timer {
-        interval: 1000
-        repeat: true
-        running: popup.active && p !== null && p.playbackState === MprisPlaybackState.Playing
+        interval: 1000; repeat: true
+        running: (popup.active || popup.isAnimating) && p !== null && p.playbackState === MprisPlaybackState.Playing
         onTriggered: { if (p) p.positionChanged() }
     }
 
+    // 2. Track animation state
+    onActiveChanged: if (active) isAnimating = true
+
+    // Click outside to close
     MouseArea { 
         anchors.fill: parent
         onClicked: {
@@ -160,26 +175,55 @@ PanelWindow {
         }
     }
 
+    // --- MAIN POPUP CONTAINER ---
     Rectangle {
         id: container
         width: 550; height: 400 
-        anchors.top: parent.top; anchors.topMargin: 45
         anchors.horizontalCenter: parent.horizontalCenter
         radius: 30; color: "transparent"
+
+        // 3. Smooth Entrance / Exit Animations
+        transformOrigin: Item.Top
+        opacity: popup.active ? 1.0 : 0.0
+        scale: popup.active ? 1.0 : 0.90
+        y: popup.active ? 45 : 25 // Slides down slightly while fading in
+
+        Behavior on opacity { 
+            NumberAnimation { 
+                duration: 250; easing.type: Easing.OutCubic 
+                onRunningChanged: if (!running && !popup.active) popup.isAnimating = false 
+            } 
+        }
+        Behavior on scale { NumberAnimation { duration: 400; easing.type: Easing.OutExpo } }
+        Behavior on y { NumberAnimation { duration: 400; easing.type: Easing.OutExpo } }
 
         Rectangle {
             anchors.fill: parent
             color: Theme.background; border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.8); border.width: 2
-            radius: 30; opacity: 0.8 
+            radius: 30; opacity: 0.85 
         }
+        
+        MouseArea { anchors.fill: parent } // Prevent click-through
 
         // --- SINK SELECTOR OVERLAY ---
         Rectangle {
             anchors.fill: parent; anchors.margins: 10; z: 100
-            radius: 25; color: "transparent"; visible: popup.selectingSink
+            radius: 25; color: "transparent"
+            
+            // Animate Sink Overlay smoothly
+            visible: opacity > 0
+            opacity: popup.selectingSink ? 1.0 : 0.0
+            scale: popup.selectingSink ? 1.0 : 0.95
+            Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+            Behavior on scale { NumberAnimation { duration: 300; easing.type: Easing.OutBack } }
+
+            // Backdrop for overlay readability
+            Rectangle { anchors.fill: parent; radius: 25; color: Theme.background; opacity: 0.95 }
+
             ColumnLayout {
                 anchors.fill: parent; anchors.margins: 25; spacing: 15
                 Text { text: "Select Audio Output"; color: Theme.primary; font.bold: true; font.pixelSize: 18; Layout.alignment: Qt.AlignHCenter }
+                
                 Rectangle {
                     Layout.fillWidth: true; Layout.fillHeight: true
                     color: "transparent"; radius: 15; clip: true
@@ -187,31 +231,58 @@ PanelWindow {
                         id: sinkListView; anchors.fill: parent; anchors.margins: 10; model: sinkModel; spacing: 8
                         delegate: Rectangle {
                             width: sinkListView.width; height: 45; radius: 10
-                            color: fullName === popup.currentSinkFull ? Theme.primary : Theme.background
-                            border.color: Theme.primary; border.width: fullName === popup.currentSinkFull ? 0 : 1
+                            
+                            property bool isCurrent: fullName === popup.currentSinkFull
+                            color: isCurrent ? Theme.primary : (sinkDelegateMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : "transparent")
+                            border.color: Theme.primary; border.width: isCurrent ? 0 : 1
+                            
+                            scale: sinkDelegateMouse.pressed ? 0.97 : 1.0
+                            Behavior on scale { NumberAnimation { duration: 150 } }
+                            Behavior on color { ColorAnimation { duration: 150 } }
+
                             RowLayout {
                                 anchors.fill: parent; anchors.leftMargin: 15; anchors.rightMargin: 15
-                                Text { text: "󰓃"; color: fullName === popup.currentSinkFull ? Theme.background : Theme.primary; font.pixelSize: 16 }
-                                Text { text: displayName; color: fullName === popup.currentSinkFull ? Theme.background : Theme.primary; font.bold: true; font.pixelSize: 13; Layout.fillWidth: true }
-                                Text { text: "󰄬"; color: Theme.background; visible: fullName === popup.currentSinkFull }
+                                Text { text: "󰓃"; color: isCurrent ? Theme.background : Theme.primary; font.pixelSize: 16 }
+                                Text { text: displayName; color: isCurrent ? Theme.background : Theme.primary; font.bold: true; font.pixelSize: 13; Layout.fillWidth: true }
+                                Text { text: "󰄬"; color: Theme.background; visible: isCurrent }
                             }
-                            MouseArea { anchors.fill: parent; onClicked: { executor.run(["pactl", "set-default-sink", fullName]); popup.selectingSink = false; sinkGetter.running = true } }
+                            MouseArea { 
+                                id: sinkDelegateMouse
+                                anchors.fill: parent; hoverEnabled: true
+                                onClicked: { executor.run(["pactl", "set-default-sink", fullName]); popup.selectingSink = false; sinkGetter.running = true } 
+                            }
                         }
                     }
                 }
+                
+                // Close button
                 Rectangle {
                     Layout.preferredWidth: 140; Layout.preferredHeight: 40; radius: 20
-                    color: Theme.background; border.color: Theme.primary; border.width: 1; Layout.alignment: Qt.AlignHCenter
+                    color: closeSinkMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : "transparent"
+                    border.color: Theme.primary; border.width: 1; Layout.alignment: Qt.AlignHCenter
+                    
+                    scale: closeSinkMouse.pressed ? 0.95 : (closeSinkMouse.containsMouse ? 1.05 : 1.0)
+                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+                    Behavior on color { ColorAnimation { duration: 150 } }
+
                     Text { anchors.centerIn: parent; text: "Close"; color: Theme.primary; font.bold: true }
-                    MouseArea { anchors.fill: parent; onClicked: popup.selectingSink = false }
+                    MouseArea { 
+                        id: closeSinkMouse
+                        anchors.fill: parent; hoverEnabled: true
+                        onClicked: popup.selectingSink = false 
+                    }
                 }
             }
         }
 
+        // --- MAIN CONTENT ---
         ColumnLayout {
             anchors.fill: parent; anchors.margins: 25; spacing: 20
+            
+            // Fade out when overlay is open
             opacity: popup.selectingSink ? 0.0 : 1.0
             enabled: !popup.selectingSink
+            Behavior on opacity { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
 
             // --- PLAYER SWITCHER ---
             Row {
@@ -228,9 +299,15 @@ PanelWindow {
                         height: 30
                         width: pillLabel.implicitWidth + 36
                         radius: 14
-                        color: isSelected ? Theme.primary : Theme.background
+                        
+                        // Smooth Hover colors and scaling
+                        color: isSelected ? Theme.primary : (pillMouse.containsMouse ? Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.1) : Theme.background)
                         border.color: Theme.primary
                         border.width: 1
+                        
+                        scale: pillMouse.pressed ? 0.95 : (pillMouse.containsMouse ? 1.05 : 1.0)
+                        Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+                        Behavior on color { ColorAnimation { duration: 200 } }
 
                         Row {
                             anchors.centerIn: parent
@@ -251,6 +328,7 @@ PanelWindow {
                                 font.pixelSize: 13
                                 height: parent.height
                                 verticalAlignment: Text.AlignVCenter
+                                Behavior on color { ColorAnimation { duration: 200 } }
                             }
                             Text {
                                 id: pillLabel
@@ -264,18 +342,21 @@ PanelWindow {
                                 font.bold: isSelected
                                 height: parent.height
                                 verticalAlignment: Text.AlignVCenter
+                                Behavior on color { ColorAnimation { duration: 200 } }
                             }
                         }
 
                         MouseArea {
+                            id: pillMouse
                             anchors.fill: parent
+                            hoverEnabled: true
                             onClicked: bar.activePlayer = modelData
                         }
                     }
                 }
             }
 
-            // --- MAIN CONTENT ROW ---
+            // --- MEDIA DISPLAY ROW ---
             RowLayout {
                 Layout.fillWidth: true; spacing: 25
 
@@ -284,7 +365,6 @@ PanelWindow {
                     Layout.preferredWidth: 160; Layout.fillHeight: true
                     Canvas {
                         id: cavaCanvas; anchors.fill: parent
-                        // OPTIMIZATION: FramebufferObject keeps canvas on GPU
                         renderTarget: Canvas.FramebufferObject
                         onPaint: {
                             var ctx = getContext("2d"); ctx.clearRect(0, 0, width, height)
@@ -338,23 +418,48 @@ PanelWindow {
                         }
                     }
 
+                    // --- MEDIA CONTROLS ---
                     RowLayout {
                         Layout.alignment: Qt.AlignHCenter; spacing: 40
+                        
                         Text {
                             text: "󰒮"; color: Theme.primary; font.pixelSize: 32
-                            opacity: (p && p.canGoPrevious) ? 1.0 : 0.3
-                            MouseArea { anchors.fill: parent; onClicked: { if (p && p.canGoPrevious) p.previous() } }
+                            opacity: (p && p.canGoPrevious) ? (prevMouse.containsMouse ? 1.0 : 0.8) : 0.3
+                            scale: prevMouse.pressed ? 0.85 : (prevMouse.containsMouse ? 1.15 : 1.0)
+                            Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+                            Behavior on opacity { NumberAnimation { duration: 150 } }
+                            
+                            MouseArea { 
+                                id: prevMouse; anchors.fill: parent; hoverEnabled: true
+                                onClicked: { if (p && p.canGoPrevious) p.previous() } 
+                            }
                         }
+                        
                         Text {
                             text: (p && p.playbackState === MprisPlaybackState.Playing) ? "󰏤" : "󰐊"
                             color: Theme.primary; font.pixelSize: 48
-                            opacity: (p && p.canTogglePlaying) ? 1.0 : 0.3
-                            MouseArea { anchors.fill: parent; onClicked: { if (p && p.canTogglePlaying) p.togglePlaying() } }
+                            opacity: (p && p.canTogglePlaying) ? (playMouse.containsMouse ? 1.0 : 0.85) : 0.3
+                            scale: playMouse.pressed ? 0.85 : (playMouse.containsMouse ? 1.15 : 1.0)
+                            Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+                            Behavior on opacity { NumberAnimation { duration: 150 } }
+
+                            MouseArea { 
+                                id: playMouse; anchors.fill: parent; hoverEnabled: true
+                                onClicked: { if (p && p.canTogglePlaying) p.togglePlaying() } 
+                            }
                         }
+                        
                         Text {
                             text: "󰒭"; color: Theme.primary; font.pixelSize: 32
-                            opacity: (p && p.canGoNext) ? 1.0 : 0.3
-                            MouseArea { anchors.fill: parent; onClicked: { if (p && p.canGoNext) p.next() } }
+                            opacity: (p && p.canGoNext) ? (nextMouse.containsMouse ? 1.0 : 0.8) : 0.3
+                            scale: nextMouse.pressed ? 0.85 : (nextMouse.containsMouse ? 1.15 : 1.0)
+                            Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+                            Behavior on opacity { NumberAnimation { duration: 150 } }
+
+                            MouseArea { 
+                                id: nextMouse; anchors.fill: parent; hoverEnabled: true
+                                onClicked: { if (p && p.canGoNext) p.next() } 
+                            }
                         }
                     }
                 }
@@ -379,16 +484,19 @@ PanelWindow {
                 Rectangle {
                     id: sliderTrack
                     Layout.fillWidth: true
-                    height: 6; radius: 3
-                    color: Theme.background
+                    height: 8; radius: 4 // Slightly thicker for easier clicking
+                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
 
                     Rectangle {
                         width: (p && p.lengthSupported && p.length > 0)
                             ? parent.width * Math.min(1, p.position / p.length)
                             : 0
-                        height: parent.height; radius: 3
+                        height: parent.height; radius: 4
                         color: Theme.primary
-                        Behavior on width { NumberAnimation { duration: 900; easing.type: Easing.Linear } }
+                        Behavior on width { 
+                            enabled: !sliderKnob.dragging
+                            NumberAnimation { duration: 900; easing.type: Easing.Linear } 
+                        }
                     }
 
                     Rectangle {
@@ -398,8 +506,13 @@ PanelWindow {
                             ? (sliderTrack.width * Math.min(1, p.position / p.length)) - width / 2
                             : -width / 2
                         anchors.verticalCenter: parent.verticalCenter
-                        width: 14; height: 14; radius: 7
+                        width: 16; height: 16; radius: 8
+                        
+                        // Grow knob on hover/drag
+                        scale: (sliderMouse.containsMouse || dragging) ? 1.3 : 1.0
                         color: Theme.primary
+                        
+                        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
                         Behavior on x {
                             enabled: !sliderKnob.dragging
                             NumberAnimation { duration: 900; easing.type: Easing.Linear }
@@ -407,8 +520,10 @@ PanelWindow {
                     }
 
                     MouseArea {
+                        id: sliderMouse
                         anchors.fill: parent
-                        anchors.margins: -8
+                        anchors.margins: -10 // Wider grab area
+                        hoverEnabled: true
                         preventStealing: true
 
                         function seek(mouse) {
@@ -450,19 +565,29 @@ PanelWindow {
                         text: sysInfo.isMuted ? "󰝟" : (sysInfo.volValue > 0.6 ? "󰕾" : (sysInfo.volValue > 0.2 ? "󰖀" : "󰕿"))
                         color: sysInfo.isMuted ? Theme.accent : Theme.primary
                         font.pixelSize: 22; verticalAlignment: Text.AlignVCenter
+                        
+                        scale: muteMouse.pressed ? 0.8 : (muteMouse.containsMouse ? 1.15 : 1.0)
+                        Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+                        
                         MouseArea {
+                            id: muteMouse
                             anchors.fill: parent
+                            hoverEnabled: true
                             onClicked: executor.run(["bash", "-c", "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"])
                         }
                     }
                     Rectangle {
-                        Layout.preferredWidth: 150; height: 8; radius: 4; color: Theme.background
+                        Layout.preferredWidth: 150; height: 8; radius: 4; 
+                        color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+                        
                         Rectangle {
                             width: parent.width * sysInfo.volValue; height: parent.height; radius: 4
                             color: sysInfo.isMuted ? Theme.accent : Theme.primary 
                         }
                         MouseArea {
                             anchors.fill: parent
+                            anchors.margins: -8 // Wider grab area
+                            cursorShape: Qt.PointingHandCursor
                             function updateVol(mouse) {
                                 let pv = Math.max(0, Math.min(1, mouse.x / width))
                                 sysInfo.volValue = pv
@@ -477,16 +602,26 @@ PanelWindow {
 
                 Item { Layout.fillWidth: true }
 
+                // --- SINK SELECT BUTTON ---
                 Rectangle {
                     Layout.preferredWidth: 200; height: 44; radius: 15
-                    color: Theme.background; border.color: Theme.primary; border.width: 1
+                    
+                    color: sinkBtnMouse.containsMouse ? Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.1) : Theme.background
+                    border.color: Theme.primary; border.width: 1
+                    
+                    scale: sinkBtnMouse.pressed ? 0.96 : (sinkBtnMouse.containsMouse ? 1.03 : 1.0)
+                    Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+                    Behavior on color { ColorAnimation { duration: 150 } }
+
                     RowLayout {
                         anchors.fill: parent; anchors.leftMargin: 15; anchors.rightMargin: 15
                         Text { text: "󰓃"; color: Theme.primary; font.pixelSize: 18 }
                         Text { text: popup.currentSinkName; color: Theme.primary; font.bold: true; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
                     }
                     MouseArea {
+                        id: sinkBtnMouse
                         anchors.fill: parent
+                        hoverEnabled: true
                         onClicked: {
                             sinkModel.clear()
                             sinkListLoader.running = true

@@ -7,15 +7,16 @@ import QtQuick.Controls
 import "../CustomTheme"
 
 // DockPopup — Apps · Notes · Todo · Screenshot
-// Wire-up in ScreenFrame:
-//   DockPopup { id: dockPopup; screen: root.screen }
-//   onClicked: dockPopup.active = !dockPopup.active
 PanelWindow {
     id: popup
 
     property bool active: false
     property var screen
     screen: popup.screen
+    
+    // 1. Wayland-safe exit animation state
+    property bool isAnimating: false
+    visible: active || isAnimating
 
     anchors { bottom: true; left: true; right: true }
     WlrLayershell.layer: WlrLayer.Overlay
@@ -32,12 +33,11 @@ PanelWindow {
     Behavior on currentBottomMargin {
         NumberAnimation {
             id: slideAnim
-            duration: 300
-            easing.type: Easing.OutCubic
+            duration: 350
+            easing.type: Easing.OutExpo
+            onRunningChanged: if (!running && !popup.active) popup.isAnimating = false
         }
     }
-
-    visible: active || slideAnim.running
 
     // ── EXECUTOR ─────────────────────────────────────────────────────────────
     Process {
@@ -52,6 +52,7 @@ PanelWindow {
 
     onActiveChanged: {
         if (active) {
+            isAnimating      = true // Trigger entrance animation safety
             activeTab        = 0
             searchText       = ""
             isCommandMode    = false
@@ -332,24 +333,11 @@ PanelWindow {
 
     // ═════════════════════════════════════════════════════════════════════════
     // SCREENSHOTS
-    //
-    // Stable Wayland approach: prefer `grimblast` (Hyprland-contrib) which
-    // wraps grim+slurp+wl-copy with a clean CLI. Fall back to raw
-    // grim+slurp+wl-copy if grimblast isn't installed.
-    //
-    // Capture flow:
-    //   1. User clicks Capture button.
-    //   2. We hide the popup BEFORE shooting (so the dock doesn't appear
-    //      in the screenshot). For "now" mode we wait ~350ms for the
-    //      slide-out animation; for delays we just sleep that long.
-    //   3. The capture runs in a detached subshell so it survives the popup
-    //      closing. Grimblast saves to disk AND copies to clipboard.
-    //   4. After capture, we refresh the recent-list.
     // ═════════════════════════════════════════════════════════════════════════
     property bool   screenshotsLoaded: false
     property bool   screenshotCapturing: false
-    property string screenshotMode:  "area"   // "screen" | "area" | "active"
-    property int    screenshotDelay: 0        // 0 | 3 | 5 | 10
+    property string screenshotMode:  "area"
+    property int    screenshotDelay: 0
     ListModel { id: screenshotModel }
     property string _ssBuf: ""
 
@@ -364,7 +352,6 @@ PanelWindow {
         command: ["bash", "-c",
             "DIR=\"$HOME/Pictures/Screenshots\"\n" +
             "mkdir -p \"$DIR\"\n" +
-            "# List most-recent first, up to 30. Newline-safe via -printf.\n" +
             "find \"$DIR\" -maxdepth 1 -type f \\\n" +
             "  \\( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' \\) \\\n" +
             "  -printf '%T@\\t%p\\n' 2>/dev/null \\\n" +
@@ -387,79 +374,49 @@ PanelWindow {
         }
     }
 
-    // Capture process — runs the actual shoot via bash, then triggers a reload.
     Process {
         id: screenshotCapture
         function shoot(mode, delay) {
             popup.screenshotCapturing = true
-
-            // Hide the popup so it's not in the shot
             popup.active = false
             
-            // 0.4s for the slide-out animation + user delay
             let preWait = parseFloat(delay) + 0.4
-
             let cmd = `
-                # 1. Setup paths
                 DIR="$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")/Screenshots"
                 mkdir -p "$DIR"
                 FILENAME="screenshot_$(date +%Y-%m-%d_%H-%M-%S).png"
                 TEMP_FILE="/tmp/$FILENAME"
                 FINAL_FILE="$DIR/$FILENAME"
 
-                # 2. Wait for animations/delay
                 sleep ${preWait}
 
-                # 3. Capture logic based on mode
                 success=false
-                
                 if [ "${mode}" = "screen" ]; then
-                    # FULL: Use grim directly to avoid grimblast notification hangs
                     if grim "$TEMP_FILE"; then success=true; fi
-                    
                 elif [ "${mode}" = "active" ]; then
-                    # WINDOW: Capture the currently focused window geometry via hyprctl
                     GEOM=$(hyprctl activewindow -j | python3 -c 'import json,sys; w=json.load(sys.stdin); print(f"{w[\\"at\\"][0]},{w[\\"at\\"][1]} {w[\\"size\\"][0]}x{w[\\"size\\"][1]}")' 2>/dev/null)
                     if [ ! -z "$GEOM" ]; then
                         if grim -g "$GEOM" "$TEMP_FILE"; then success=true; fi
                     else
-                        # Fallback to grimblast if hyprctl parsing fails
                         if grimblast save active "$TEMP_FILE"; then success=true; fi
                     fi
-
                 elif [ "${mode}" = "area" ]; then
-                    # AREA: Use grimblast WITHOUT --notify to get the smart window selection
-                    # We use 'save' instead of 'copysave' to keep it fast, we handle clipboard later
                     if grimblast save area "$TEMP_FILE"; then success=true; fi
                 fi
 
-                # 4. Post-processing (ML4W Style)
                 if [ "$success" = true ] && [ -f "$TEMP_FILE" ]; then
                     mv "$TEMP_FILE" "$FINAL_FILE"
-                    
-                    # Copy to clipboard
-                    if command -v wl-copy >/dev/null; then
-                        wl-copy < "$FINAL_FILE"
-                    fi
-
-                    # Send notification in the background (&) so it can't hang the script
+                    if command -v wl-copy >/dev/null; then wl-copy < "$FINAL_FILE"; fi
                     if command -v notify-send >/dev/null; then
                         notify-send -a "Screen Capture" -i "$FINAL_FILE" "Screenshot saved & copied" "$FILENAME" &
                     fi
-                    
                     echo "$FINAL_FILE"
                 fi
             `
             command = ["bash", "-c", cmd]
             running = true
         }
-
-        stdout: SplitParser { 
-            onRead: {
-                // This captures the echo "$FINAL_FILE" if you need it
-            } 
-        }
-
+        stdout: SplitParser { onRead: {} }
         onRunningChanged: {
             if (!running) {
                 popup.screenshotCapturing = false
@@ -479,6 +436,12 @@ PanelWindow {
         anchors.rightMargin: parent.width > 700 ? parent.width / 2 - 350 : 40
         height: 520
         radius: 28; color: "transparent"; clip: false
+        
+        // Smooth Opacity Fade on the Container
+        opacity: popup.active ? 1.0 : 0.0
+        Behavior on opacity { 
+            NumberAnimation { duration: 250; easing.type: Easing.OutCubic } 
+        }
 
         Rectangle {
             anchors.fill: parent; radius: parent.radius
@@ -504,8 +467,15 @@ PanelWindow {
                         required property var modelData
                         property bool sel: popup.activeTab === modelData.idx
                         width: tabLbl.implicitWidth + 28; height: 32; radius: 16
-                        color: sel ? Theme.primary : "transparent"
+                        
+                        // Smooth tactile tab selection
+                        color: sel ? Theme.primary : (tabMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : "transparent")
                         border.color: Theme.primary; border.width: sel ? 0 : 1
+                        
+                        scale: tabMouse.pressed ? 0.95 : (tabMouse.containsMouse && !sel ? 1.05 : 1.0)
+                        Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+                        Behavior on color { ColorAnimation { duration: 150 } }
+
                         Text {
                             id: tabLbl; anchors.centerIn: parent
                             text: modelData.label
@@ -513,7 +483,9 @@ PanelWindow {
                             font.pixelSize: 12; font.bold: sel
                         }
                         MouseArea {
+                            id: tabMouse
                             anchors.fill: parent
+                            hoverEnabled: true
                             onClicked: {
                                 popup.activeTab = modelData.idx
                                 if (modelData.idx === 0) searchField.forceActiveFocus()
@@ -575,11 +547,21 @@ PanelWindow {
                         color: Theme.primary; opacity: 0.28; font.pixelSize: 11
                         verticalAlignment: Text.AlignVCenter
                     }
+                    
+                    // Clear search button
                     Text {
-                        text: "󰅖"; color: Theme.primary; font.pixelSize: 16; opacity: 0.5
+                        text: "󰅖"; color: Theme.primary; font.pixelSize: 16
+                        opacity: clearSearchMouse.containsMouse ? 0.8 : 0.5
+                        scale: clearSearchMouse.pressed ? 0.9 : 1.0
                         visible: searchField.text.length > 0; verticalAlignment: Text.AlignVCenter
+                        
+                        Behavior on opacity { NumberAnimation { duration: 150 } }
+                        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
+
                         MouseArea {
+                            id: clearSearchMouse
                             anchors.fill: parent
+                            hoverEnabled: true
                             onClicked: { searchField.text = ""; searchField.forceActiveFocus() }
                         }
                     }
@@ -603,16 +585,25 @@ PanelWindow {
                             Text { anchors.horizontalCenter: parent.horizontalCenter
                                    text: "Run in Kitty terminal"
                                    color: Theme.primary; font.pixelSize: 14; opacity: 0.45 }
+                            
+                            // Run terminal command button
                             Rectangle {
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 width: Math.min(runLbl.implicitWidth + 48, 620); height: 46; radius: 23
-                                color: Theme.primary
+                                
+                                color: runCmdMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.8) : Theme.primary
+                                scale: runCmdMouse.pressed ? 0.98 : (runCmdMouse.containsMouse ? 1.02 : 1.0)
+                                Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+                                Behavior on color { ColorAnimation { duration: 150 } }
+
                                 Text { id: runLbl; anchors.centerIn: parent
                                        text: "  " + popup.searchText; color: Theme.background
                                        font.pixelSize: 14; font.family: "monospace"; font.bold: true
                                        elide: Text.ElideRight; width: Math.min(implicitWidth, 570) }
                                 MouseArea {
+                                    id: runCmdMouse
                                     anchors.fill: parent
+                                    hoverEnabled: true
                                     onClicked: {
                                         executor.run(["kitty", "--", "bash", "-c",
                                             popup.searchText + "; echo; read -rsp 'Press any key…' -n1"])
@@ -665,9 +656,19 @@ PanelWindow {
                                 width: appGrid.cellWidth; height: appGrid.cellHeight
                                 property var app: popup.filteredApps[index] || {}
 
+                                // Tactile App Icon
                                 Rectangle {
                                     anchors.centerIn: parent; width: 108; height: 108; radius: 20
-                                    color: Theme.background; border.color: Theme.background; border.width: 1
+                                    
+                                    color: appMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.08) : Theme.background
+                                    border.color: appMouse.containsMouse ? Theme.primary : Theme.background
+                                    border.width: 1
+                                    
+                                    scale: appMouse.pressed ? 0.92 : (appMouse.containsMouse ? 1.05 : 1.0)
+                                    
+                                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+                                    Behavior on color { ColorAnimation { duration: 150 } }
+                                    Behavior on border.color { ColorAnimation { duration: 150 } }
 
                                     ColumnLayout {
                                         anchors.fill: parent; anchors.margins: 10; spacing: 6
@@ -692,9 +693,8 @@ PanelWindow {
                                         }
                                     }
                                     MouseArea {
+                                        id: appMouse
                                         anchors.fill: parent; hoverEnabled: true
-                                        onEntered: parent.border.color = Theme.primary
-                                        onExited:  parent.border.color = Theme.background
                                         onClicked: { executor.run(["bash", "-c", app.appExec]); popup.active = false }
                                     }
                                 }
@@ -752,22 +752,40 @@ PanelWindow {
                         }
 
                         RowLayout { Layout.fillWidth: true; spacing: 8
+                            
+                            // Copy Notes Button
                             Rectangle {
                                 width: 36; height: 36; radius: 10
-                                color: Theme.background; border.color: Theme.primary; border.width: 1
+                                color: copyNotesMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : Theme.background
+                                border.color: Theme.primary; border.width: 1
+                                
+                                scale: copyNotesMouse.pressed ? 0.9 : (copyNotesMouse.containsMouse ? 1.1 : 1.0)
+                                Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+                                Behavior on color { ColorAnimation { duration: 150 } }
+
                                 Text { anchors.centerIn: parent; text: "󰆒"; color: Theme.primary; font.pixelSize: 16 }
                                 MouseArea {
-                                    anchors.fill: parent
+                                    id: copyNotesMouse
+                                    anchors.fill: parent; hoverEnabled: true
                                     onClicked: executor.run(["bash", "-c",
                                         "printf '%s' " + JSON.stringify(notesEdit.text) + " | wl-copy"])
                                 }
                             }
+                            
+                            // Clear Notes Button
                             Rectangle {
                                 width: 36; height: 36; radius: 10
-                                color: Theme.background; border.color: Theme.primary; border.width: 1
+                                color: clearNotesMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : Theme.background
+                                border.color: Theme.primary; border.width: 1
+
+                                scale: clearNotesMouse.pressed ? 0.9 : (clearNotesMouse.containsMouse ? 1.1 : 1.0)
+                                Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+                                Behavior on color { ColorAnimation { duration: 150 } }
+
                                 Text { anchors.centerIn: parent; text: "󰆴"; color: Theme.primary; font.pixelSize: 16 }
                                 MouseArea {
-                                    anchors.fill: parent
+                                    id: clearNotesMouse
+                                    anchors.fill: parent; hoverEnabled: true
                                     onClicked: {
                                         notesEdit.text     = ""
                                         popup.notesContent = ""
@@ -868,25 +886,40 @@ PanelWindow {
                                         required property bool   todoDone
 
                                         width: parent.width; height: 46; radius: 13
-                                        color: Theme.background
+                                        
+                                        // Subtle hover over entire task
+                                        color: todoMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05) : Theme.background
                                         border.color: Theme.primary
                                         border.width: todoDone ? 0 : 1
                                         opacity: todoDone ? 0.5 : 1.0
+                                        
+                                        Behavior on color { ColorAnimation { duration: 150 } }
+
+                                        MouseArea {
+                                            id: todoMouse
+                                            anchors.fill: parent; hoverEnabled: true
+                                        }
 
                                         RowLayout {
                                             anchors.fill: parent
                                             anchors.leftMargin: 12; anchors.rightMargin: 10; spacing: 10
 
+                                            // Bouncy Checkbox
                                             Rectangle {
                                                 width: 22; height: 22; radius: 11
                                                 color: todoDone ? Theme.primary : "transparent"
                                                 border.color: Theme.primary; border.width: 1.5
                                                 Layout.alignment: Qt.AlignVCenter
+                                                
+                                                scale: checkMouse.pressed ? 0.8 : (checkMouse.containsMouse ? 1.15 : 1.0)
+                                                Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+
                                                 Text { anchors.centerIn: parent; text: "󰄬"
                                                        color: Theme.background; font.pixelSize: 12
                                                        visible: todoDone }
                                                 MouseArea {
-                                                    anchors.fill: parent
+                                                    id: checkMouse
+                                                    anchors.fill: parent; hoverEnabled: true
                                                     onClicked: {
                                                         todoModel.setProperty(index, "todoDone", !todoDone)
                                                         saveTodos()
@@ -901,11 +934,19 @@ PanelWindow {
                                                 opacity: todoDone ? 0.5 : 1.0
                                             }
 
+                                            // Delete Task Button
                                             Text {
-                                                text: "󰅖"; color: Theme.primary; font.pixelSize: 15; opacity: 0.3
+                                                text: "󰅖"; color: Theme.primary; font.pixelSize: 15
+                                                opacity: delTaskMouse.containsMouse ? 0.8 : 0.3
+                                                scale: delTaskMouse.pressed ? 0.8 : (delTaskMouse.containsMouse ? 1.2 : 1.0)
                                                 Layout.alignment: Qt.AlignVCenter
+                                                
+                                                Behavior on opacity { NumberAnimation { duration: 150 } }
+                                                Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+
                                                 MouseArea {
-                                                    anchors.fill: parent
+                                                    id: delTaskMouse
+                                                    anchors.fill: parent; hoverEnabled: true
                                                     onClicked: {
                                                         todoModel.remove(index)
                                                         saveTodos()
@@ -921,9 +962,15 @@ PanelWindow {
                         RowLayout {
                             Layout.fillWidth: true; visible: todoModel.count > 0
                             Text {
-                                text: "Clear done"; color: Theme.primary; font.pixelSize: 12; opacity: 0.4
+                                text: "Clear done"; color: Theme.primary; font.pixelSize: 12
+                                opacity: clearDoneMouse.containsMouse ? 0.8 : 0.4
+                                scale: clearDoneMouse.pressed ? 0.95 : 1.0
+                                Behavior on opacity { NumberAnimation { duration: 150 } }
+                                Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
+
                                 MouseArea {
-                                    anchors.fill: parent
+                                    id: clearDoneMouse
+                                    anchors.fill: parent; hoverEnabled: true
                                     onClicked: {
                                         for (let i = todoModel.count - 1; i >= 0; i--)
                                             if (todoModel.get(i).todoDone) todoModel.remove(i)
@@ -933,9 +980,15 @@ PanelWindow {
                             }
                             Item { Layout.fillWidth: true }
                             Text {
-                                text: "Clear all"; color: Theme.primary; font.pixelSize: 12; opacity: 0.4
+                                text: "Clear all"; color: Theme.primary; font.pixelSize: 12
+                                opacity: clearAllMouse.containsMouse ? 0.8 : 0.4
+                                scale: clearAllMouse.pressed ? 0.95 : 1.0
+                                Behavior on opacity { NumberAnimation { duration: 150 } }
+                                Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
+
                                 MouseArea {
-                                    anchors.fill: parent
+                                    id: clearAllMouse
+                                    anchors.fill: parent; hoverEnabled: true
                                     onClicked: { todoModel.clear(); saveTodos() }
                                 }
                             }
@@ -945,7 +998,6 @@ PanelWindow {
 
                 // ════════════════════════════════════════════════════════════
                 // TAB 3 — SCREENSHOT
-                // Left column: capture controls. Right column: recent shots.
                 // ════════════════════════════════════════════════════════════
                 Item {
                     anchors.fill: parent; visible: popup.activeTab === 3
@@ -959,7 +1011,6 @@ PanelWindow {
                             Layout.fillHeight: true
                             spacing: 14
 
-                            // Header
                             Text {
                                 text: "󰄀  Screenshot"
                                 color: Theme.primary; font.pixelSize: 14; font.bold: true
@@ -981,10 +1032,14 @@ PanelWindow {
                                             required property var modelData
                                             property bool sel: popup.screenshotMode === modelData.id
                                             width: 84; height: 60; radius: 12
-                                            color: sel ? Theme.primary : Theme.background
-                                            border.color: Theme.primary
-                                            border.width: sel ? 0 : 1
-                                            Behavior on color { ColorAnimation { duration: 120 } }
+                                            
+                                            // Interactive Mode Buttons
+                                            color: sel ? Theme.primary : (modeMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : Theme.background)
+                                            border.color: Theme.primary; border.width: sel ? 0 : 1
+                                            
+                                            scale: modeMouse.pressed ? 0.92 : (modeMouse.containsMouse && !sel ? 1.05 : 1.0)
+                                            Behavior on color { ColorAnimation { duration: 150 } }
+                                            Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
 
                                             Column {
                                                 anchors.centerIn: parent; spacing: 4
@@ -993,17 +1048,19 @@ PanelWindow {
                                                     text: modelData.icon
                                                     color: parent.parent.sel ? Theme.background : Theme.primary
                                                     font.pixelSize: 18
+                                                    Behavior on color { ColorAnimation { duration: 150 } }
                                                 }
                                                 Text {
                                                     anchors.horizontalCenter: parent.horizontalCenter
                                                     text: modelData.label
                                                     color: parent.parent.sel ? Theme.background : Theme.primary
-                                                    font.pixelSize: 10
-                                                    font.bold: parent.parent.sel
+                                                    font.pixelSize: 10; font.bold: parent.parent.sel
+                                                    Behavior on color { ColorAnimation { duration: 150 } }
                                                 }
                                             }
                                             MouseArea {
-                                                anchors.fill: parent
+                                                id: modeMouse
+                                                anchors.fill: parent; hoverEnabled: true
                                                 cursorShape: Qt.PointingHandCursor
                                                 onClicked: popup.screenshotMode = modelData.id
                                             }
@@ -1029,19 +1086,24 @@ PanelWindow {
                                             required property var modelData
                                             property bool sel: popup.screenshotDelay === modelData.val
                                             width: 60; height: 32; radius: 10
-                                            color: sel ? Theme.primary : Theme.background
-                                            border.color: Theme.primary
-                                            border.width: sel ? 0 : 1
-                                            Behavior on color { ColorAnimation { duration: 120 } }
+                                            
+                                            color: sel ? Theme.primary : (delayMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : Theme.background)
+                                            border.color: Theme.primary; border.width: sel ? 0 : 1
+                                            
+                                            scale: delayMouse.pressed ? 0.92 : (delayMouse.containsMouse && !sel ? 1.05 : 1.0)
+                                            Behavior on color { ColorAnimation { duration: 150 } }
+                                            Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+
                                             Text {
                                                 anchors.centerIn: parent
                                                 text: modelData.label
                                                 color: parent.sel ? Theme.background : Theme.primary
-                                                font.pixelSize: 11
-                                                font.bold: parent.sel
+                                                font.pixelSize: 11; font.bold: parent.sel
+                                                Behavior on color { ColorAnimation { duration: 150 } }
                                             }
                                             MouseArea {
-                                                anchors.fill: parent
+                                                id: delayMouse
+                                                anchors.fill: parent; hoverEnabled: true
                                                 cursorShape: Qt.PointingHandCursor
                                                 onClicked: popup.screenshotDelay = modelData.val
                                             }
@@ -1053,10 +1115,12 @@ PanelWindow {
                             // ─ Capture button ─────────────────────────────
                             Rectangle {
                                 Layout.fillWidth: true; height: 52; radius: 14
-                                color: popup.screenshotCapturing
-                                    ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.4)
-                                    : Theme.primary
+                                
+                                color: popup.screenshotCapturing ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.4) : (capMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.9) : Theme.primary)
+                                scale: capMouse.pressed ? 0.96 : (capMouse.containsMouse ? 1.02 : 1.0)
+                                
                                 Behavior on color { ColorAnimation { duration: 150 } }
+                                Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
 
                                 RowLayout {
                                     anchors.centerIn: parent; spacing: 10
@@ -1076,7 +1140,8 @@ PanelWindow {
                                     }
                                 }
                                 MouseArea {
-                                    anchors.fill: parent
+                                    id: capMouse
+                                    anchors.fill: parent; hoverEnabled: true
                                     enabled: !popup.screenshotCapturing
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: {
@@ -1090,14 +1155,8 @@ PanelWindow {
                             // ─ Hint footer ────────────────────────────────
                             Column {
                                 Layout.fillWidth: true; spacing: 4
-                                Text {
-                                    text: "󰈙  Saved to ~/Pictures/Screenshots"
-                                    color: Theme.primary; opacity: 0.5; font.pixelSize: 10
-                                }
-                                Text {
-                                    text: "󰆒  Auto-copied to clipboard"
-                                    color: Theme.primary; opacity: 0.5; font.pixelSize: 10
-                                }
+                                Text { text: "󰈙  Saved to ~/Pictures/Screenshots"; color: Theme.primary; opacity: 0.5; font.pixelSize: 10 }
+                                Text { text: "󰆒  Auto-copied to clipboard"; color: Theme.primary; opacity: 0.5; font.pixelSize: 10 }
                             }
 
                             Item { Layout.fillHeight: true }
@@ -1124,22 +1183,34 @@ PanelWindow {
                                     font.pixelSize: 9; font.bold: true
                                 }
                                 Item { Layout.fillWidth: true }
+                                
+                                // Refresh Shots Button
                                 Rectangle {
                                     width: 24; height: 24; radius: 7
                                     color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+                                    scale: refShotsMouse.pressed ? 0.85 : (refShotsMouse.containsMouse ? 1.15 : 1.0)
+                                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+
                                     Text { anchors.centerIn: parent; text: "󰑓"; color: Theme.primary; font.pixelSize: 12 }
                                     MouseArea {
-                                        anchors.fill: parent
+                                        id: refShotsMouse
+                                        anchors.fill: parent; hoverEnabled: true
                                         cursorShape: Qt.PointingHandCursor
                                         onClicked: popup.loadScreenshots()
                                     }
                                 }
+                                
+                                // Open Shots Folder Button
                                 Rectangle {
                                     width: 24; height: 24; radius: 7
                                     color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+                                    scale: openFolderMouse.pressed ? 0.85 : (openFolderMouse.containsMouse ? 1.15 : 1.0)
+                                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+
                                     Text { anchors.centerIn: parent; text: "󰉋"; color: Theme.primary; font.pixelSize: 12 }
                                     MouseArea {
-                                        anchors.fill: parent
+                                        id: openFolderMouse
+                                        anchors.fill: parent; hoverEnabled: true
                                         cursorShape: Qt.PointingHandCursor
                                         onClicked: {
                                             executor.run(["bash", "-c",
@@ -1192,17 +1263,17 @@ PanelWindow {
                                         width: ssListView.width
                                         height: 64
                                         radius: 12
-                                        color: hovered
-                                            ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.10)
-                                            : Theme.background
-                                        border.color: hovered
-                                            ? Theme.primary
-                                            : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.2)
+                                        
+                                        color: rowHoverArea.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.10) : Theme.background
+                                        border.color: rowHoverArea.containsMouse ? Theme.primary : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.2)
                                         border.width: 1
-                                        Behavior on color       { ColorAnimation { duration: 120 } }
+                                        
+                                        // Slight scale down on click (not on hover because it's a full width list item)
+                                        scale: rowHoverArea.pressed ? 0.98 : 1.0
+                                        
+                                        Behavior on color { ColorAnimation { duration: 120 } }
                                         Behavior on border.color { ColorAnimation { duration: 120 } }
-
-                                        property bool hovered: false
+                                        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
 
                                         RowLayout {
                                             anchors.fill: parent
@@ -1228,33 +1299,21 @@ PanelWindow {
                                                 }
                                             }
 
-                                            // Filename
-                                            // ColumnLayout {
-                                            //     spacing: 1; Layout.fillWidth: true
-                                            //     Text {
-                                            //         text: ssName
-                                            //         color: Theme.primary
-                                            //         font.pixelSize: 11
-                                            //         font.bold: true
-                                            //         elide: Text.ElideRight
-                                            //         Layout.fillWidth: true
-                                            //     }
-                                            //     Text {
-                                            //         text: "Click to copy path"
-                                            //         color: Theme.primary; opacity: 0.4
-                                            //         font.pixelSize: 9
-                                            //     }
-                                            // }
-
                                             // Action: open with default viewer
                                             Rectangle {
                                                 Layout.preferredWidth: 28
                                                 Layout.preferredHeight: 28
                                                 radius: 8
-                                                color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.10)
+                                                color: openImgMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.2) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.10)
+                                                
+                                                scale: openImgMouse.pressed ? 0.9 : (openImgMouse.containsMouse ? 1.15 : 1.0)
+                                                Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+                                                Behavior on color { ColorAnimation { duration: 150 } }
+
                                                 Text { anchors.centerIn: parent; text: "󰏋"; color: Theme.primary; font.pixelSize: 14 }
                                                 MouseArea {
-                                                    anchors.fill: parent
+                                                    id: openImgMouse
+                                                    anchors.fill: parent; hoverEnabled: true
                                                     cursorShape: Qt.PointingHandCursor
                                                     onClicked: {
                                                         executor.run(["xdg-open", ssPath])
@@ -1268,15 +1327,18 @@ PanelWindow {
                                                 Layout.preferredWidth: 28
                                                 Layout.preferredHeight: 28
                                                 radius: 8
-                                                color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.10)
+                                                color: revealImgMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.2) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.10)
+                                                
+                                                scale: revealImgMouse.pressed ? 0.9 : (revealImgMouse.containsMouse ? 1.15 : 1.0)
+                                                Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+                                                Behavior on color { ColorAnimation { duration: 150 } }
+
                                                 Text { anchors.centerIn: parent; text: "󰉋"; color: Theme.primary; font.pixelSize: 14 }
                                                 MouseArea {
-                                                    anchors.fill: parent
+                                                    id: revealImgMouse
+                                                    anchors.fill: parent; hoverEnabled: true
                                                     cursorShape: Qt.PointingHandCursor
                                                     onClicked: {
-                                                        // Open parent folder in nemo (nemo doesn't have a
-                                                        // reliable -reveal flag — opening the dir is the
-                                                        // standard behavior)
                                                         let dir = ssPath.substring(0, ssPath.lastIndexOf("/"))
                                                         executor.run(["bash", "-c",
                                                             "command -v nemo &>/dev/null && nemo \"" + dir + "\" || xdg-open \"" + dir + "\""])
@@ -1288,12 +1350,11 @@ PanelWindow {
 
                                         // Row-level hover + click-to-copy-path
                                         MouseArea {
+                                            id: rowHoverArea
                                             anchors.fill: parent
                                             anchors.rightMargin: 80   // leave action buttons clickable
                                             hoverEnabled: true
                                             cursorShape: Qt.PointingHandCursor
-                                            onEntered: parent.hovered = true
-                                            onExited:  parent.hovered = false
                                             onClicked: {
                                                 executor.run(["bash", "-c",
                                                     "command -v wl-copy &>/dev/null && printf '%s' " +

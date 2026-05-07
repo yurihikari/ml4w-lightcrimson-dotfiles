@@ -10,7 +10,10 @@ PanelWindow {
     id: popup
     property bool active: false
     property string currentTab: "Network"
-    visible: active
+    
+    // 1. Wayland-safe exit animation state
+    property bool isAnimating: false
+    visible: active || isAnimating
 
     anchors { top: true; bottom: true; left: true; right: true }
     WlrLayershell.layer: WlrLayer.Overlay
@@ -38,7 +41,7 @@ PanelWindow {
     property bool tuxedoInstalled: false
 
     // ─── Extended metrics ──────────────────────────────────────────────────
-    property real localCpuUsage: 0  // CPU usage measured by metricsCollector directly
+    property real localCpuUsage: 0
     property real cpuTemp: 0
     property real cpuFreq: 0
     property real gpuTemp: 0
@@ -58,7 +61,7 @@ PanelWindow {
     property var cpuUsageHistory: []
     property var netRxHistory: []
     property var netTxHistory: []
-    property real netMaxSeen: 100   // for scaling rx/tx chart, KB/s
+    property real netMaxSeen: 100
 
     function pushHist(arr, val, max) {
         let copy = arr.slice()
@@ -206,7 +209,6 @@ PanelWindow {
             "done\n" +
             "freq=$(awk '/cpu MHz/ {sum+=$4; n++} END {if (n>0) printf \"%.2f\", sum/n/1000}' /proc/cpuinfo)\n" +
             "[ -n \"$freq\" ] && echo \"cpufreq=$freq\"\n" +
-            // CPU usage: two /proc/stat reads 200ms apart, entirely inside awk to avoid $var interpolation
             "cpuusage=$(awk 'BEGIN{" +
                 "while((getline < \"/proc/stat\")>0){split($0,a);if(a[1]==\"cpu\"){t1=a[2]+a[3]+a[4]+a[5]+a[6]+a[7]+a[8];i1=a[5];break}};close(\"/proc/stat\");"
                 +"system(\"sleep 0.2\");"
@@ -291,17 +293,13 @@ PanelWindow {
                         case "batcharging": popup.batteryCharging = (v === "1"); break
                     }
                 }
-                // Push samples into history rings
                 if (popup.cpuTemp > 0)  popup.cpuTempHistory   = popup.pushHist(popup.cpuTempHistory, popup.cpuTemp, 30)
                 if (popup.gpuTemp > 0)  popup.gpuTempHistory   = popup.pushHist(popup.gpuTempHistory, popup.gpuTemp, 30)
-                // Use locally-measured cpuUsage so the chart is always in sync with this collector's timing
                 let cpuForHistory = popup.localCpuUsage > 0 ? popup.localCpuUsage : sysInfo.cpuUsage
                 popup.cpuUsageHistory = popup.pushHist(popup.cpuUsageHistory, cpuForHistory, 30)
-                // Also keep sysInfo in sync if it's stale
                 if (popup.localCpuUsage > 0) sysInfo.cpuUsage = popup.localCpuUsage
                 popup.netRxHistory    = popup.pushHist(popup.netRxHistory, popup.netRxKBs, 30)
                 popup.netTxHistory    = popup.pushHist(popup.netTxHistory, popup.netTxKBs, 30)
-                // Auto-rescale net chart so the peak fills ~80% of the area
                 let peak = 100
                 for (let v of popup.netRxHistory) if (v > peak) peak = v
                 for (let v of popup.netTxHistory) if (v > peak) peak = v
@@ -322,6 +320,7 @@ PanelWindow {
 
     onActiveChanged: {
         if (active) {
+            isAnimating = true // Start entrance animation
             if (currentTab === "Network")     { popup._wifiBuf=""; popup.wifiScanning=true; wifiScanner.running=true }
             if (currentTab === "Bluetooth")   { popup._btBuf="";   popup.btScanning=true;   btScanner.running=true }
             if (currentTab === "Performance") { powerProfileReader.running=true }
@@ -366,6 +365,19 @@ PanelWindow {
         anchors.right: parent.right; anchors.rightMargin: 15
         radius: 30; color: "transparent"
 
+        // Wayland-Safe Entrance/Exit Animations
+        transformOrigin: Item.TopRight
+        opacity: popup.active ? 1.0 : 0.0
+        scale: popup.active ? 1.0 : 0.90
+
+        Behavior on opacity { 
+            NumberAnimation { 
+                duration: 250; easing.type: Easing.OutCubic 
+                onRunningChanged: if (!running && !popup.active) popup.isAnimating = false 
+            } 
+        }
+        Behavior on scale { NumberAnimation { duration: 350; easing.type: Easing.OutExpo } }
+
         Rectangle {
             anchors.fill: parent; color: Theme.background; border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.8);
             border.width: 2; radius: 30; opacity: 0.8; 
@@ -385,6 +397,11 @@ PanelWindow {
                         Rectangle {
                             width: (parent.width - 8) / 3; height: parent.height; radius: 9
                             color: popup.currentTab === modelData ? Theme.primary : "transparent"
+                            
+                            // Tactile Tab Hover/Press
+                            scale: tabMouse.pressed ? 0.95 : (tabMouse.containsMouse && popup.currentTab !== modelData ? 1.03 : 1.0)
+                            Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+
                             Text {
                                 anchors.centerIn: parent
                                 text: modelData === "Network"   ? "󰤨  Network"
@@ -392,9 +409,14 @@ PanelWindow {
                                     : "󰻠  System"
                                 color: popup.currentTab === modelData ? Theme.background : Theme.primary
                                 font.bold: true; font.pixelSize: 14
-                                opacity: popup.currentTab === modelData ? 1.0 : 0.6
+                                opacity: popup.currentTab === modelData ? 1.0 : (tabMouse.containsMouse ? 0.9 : 0.6)
+                                Behavior on opacity { NumberAnimation { duration: 150 } }
                             }
-                            MouseArea { anchors.fill: parent; onClicked: popup.currentTab = modelData }
+                            MouseArea { 
+                                id: tabMouse
+                                anchors.fill: parent; hoverEnabled: true
+                                onClicked: popup.currentTab = modelData 
+                            }
                         }
                     }
                 }
@@ -428,23 +450,34 @@ PanelWindow {
                     Layout.fillWidth: true
                     Text { text: "󰤨  Wi-Fi"; color: Theme.primary; font.bold: true; font.pixelSize: 13 }
                     Item { Layout.fillWidth: true }
+                    
+                    // Wi-Fi Refresh Button
                     Rectangle {
                         width: 28; height: 28; radius: 8
                         color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+                        scale: wifiRefMouse.pressed ? 0.9 : (wifiRefMouse.containsMouse ? 1.1 : 1.0)
+                        Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+
                         Text { anchors.centerIn: parent; text: "󰑓"; color: Theme.primary; font.pixelSize: 14; opacity: popup.wifiScanning ? 0.3 : 0.8 }
                         MouseArea {
-                            anchors.fill: parent; enabled: !popup.wifiScanning
+                            id: wifiRefMouse
+                            anchors.fill: parent; hoverEnabled: true; enabled: !popup.wifiScanning
                             onClicked: { popup._wifiBuf=""; popup.wifiScanning=true; wifiScanner.running=true }
                         }
                     }
+                    
+                    // Wi-Fi Toggle Switch
                     Rectangle {
                         width: 44; height: 24; radius: 12
                         color: sysInfo.wifiRadio ? Theme.primary : "transparent"
                         border.color: Theme.primary; border.width: 2
+                        Behavior on color { ColorAnimation { duration: 200 } }
+
                         Rectangle {
                             x: sysInfo.wifiRadio ? parent.width - width - 3 : 3; y: 3; width: 18; height: 18; radius: 9
                             color: sysInfo.wifiRadio ? Theme.background : Theme.primary
-                            Behavior on x { NumberAnimation { duration: 180 } }
+                            Behavior on x { NumberAnimation { duration: 350; easing.type: Easing.OutBack } }
+                            Behavior on color { ColorAnimation { duration: 200 } }
                         }
                         MouseArea {
                             anchors.fill: parent
@@ -491,13 +524,20 @@ PanelWindow {
                                 }
                                 Row {
                                     spacing: 6
+                                    
+                                    // Connect/Disconnect Button
                                     Rectangle {
                                         width: 68; height: 26; radius: 8
                                         color: modelData.active ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15) : Theme.primary
                                         visible: popup.wifiConnecting !== modelData.ssid
+                                        
+                                        scale: wifiActMouse.pressed ? 0.92 : (wifiActMouse.containsMouse ? 1.05 : 1.0)
+                                        Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+
                                         Text { anchors.centerIn: parent; text: modelData.active ? "Disconnect" : "Connect"; color: modelData.active ? Theme.primary : Theme.background; font.pixelSize: 9; font.weight: Font.Bold }
                                         MouseArea {
-                                            anchors.fill: parent
+                                            id: wifiActMouse
+                                            anchors.fill: parent; hoverEnabled: true
                                             onClicked: {
                                                 if (modelData.active) {
                                                     wifiDisconnector.command = ["nmcli","dev","disconnect","wlan0"]; wifiDisconnector.running = true
@@ -512,10 +552,19 @@ PanelWindow {
                                         }
                                     }
                                     Text { visible: popup.wifiConnecting === modelData.ssid; text: "…"; color: Theme.primary; opacity: 0.5; font.pixelSize: 12 }
+                                    
+                                    // Forget Button
                                     Rectangle {
                                         width: 26; height: 26; radius: 8; color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+                                        scale: wifiForgetMouse.pressed ? 0.9 : (wifiForgetMouse.containsMouse ? 1.1 : 1.0)
+                                        Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+
                                         Text { anchors.centerIn: parent; text: "󰆴"; color: Theme.primary; font.pixelSize: 12; opacity: 0.6 }
-                                        MouseArea { anchors.fill: parent; onClicked: { wifiForget.command=["bash","-c","nmcli connection delete \""+modelData.ssid+"\" 2>/dev/null||true"]; wifiForget.running=true } }
+                                        MouseArea { 
+                                            id: wifiForgetMouse
+                                            anchors.fill: parent; hoverEnabled: true
+                                            onClicked: { wifiForget.command=["bash","-c","nmcli connection delete \""+modelData.ssid+"\" 2>/dev/null||true"]; wifiForget.running=true } 
+                                        }
                                     }
                                 }
                             }
@@ -541,12 +590,24 @@ PanelWindow {
                                                 onAccepted: { popup.wifiConnecting=modelData.ssid; popup.showPasswordFor=false; wifiConnector.command=["nmcli","dev","wifi","connect",modelData.ssid,"password",popup.wifiPassword]; wifiConnector.running=true }
                                             }
                                         }
+                                        // Join Button
                                         Rectangle {
                                             width: 50; height: 22; radius: 6; color: Theme.primary
+                                            scale: joinMouse.pressed ? 0.95 : (joinMouse.containsMouse ? 1.05 : 1.0)
+                                            Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+
                                             Text { anchors.centerIn: parent; text: "Join"; color: Theme.background; font.pixelSize: 10; font.weight: Font.Bold }
-                                            MouseArea { anchors.fill: parent; onClicked: { popup.wifiConnecting=modelData.ssid; popup.showPasswordFor=false; wifiConnector.command=["nmcli","dev","wifi","connect",modelData.ssid,"password",popup.wifiPassword]; wifiConnector.running=true } }
+                                            MouseArea { 
+                                                id: joinMouse
+                                                anchors.fill: parent; hoverEnabled: true
+                                                onClicked: { popup.wifiConnecting=modelData.ssid; popup.showPasswordFor=false; wifiConnector.command=["nmcli","dev","wifi","connect",modelData.ssid,"password",popup.wifiPassword]; wifiConnector.running=true } 
+                                            }
                                         }
-                                        Text { text: "󰅖"; color: Theme.primary; opacity: 0.4; font.pixelSize: 12; MouseArea { anchors.fill: parent; onClicked: popup.showPasswordFor=false } }
+                                        Text { 
+                                            text: "󰅖"; color: Theme.primary; opacity: closePwMouse.containsMouse ? 0.8 : 0.4; font.pixelSize: 12
+                                            Behavior on opacity { NumberAnimation { duration: 150 } }
+                                            MouseArea { id: closePwMouse; anchors.fill: parent; hoverEnabled: true; onClicked: popup.showPasswordFor=false } 
+                                        }
                                     }
                                 }
                             }
@@ -554,11 +615,22 @@ PanelWindow {
                     }
                 }
 
+                // Advanced Network Settings Button
                 Rectangle {
                     Layout.fillWidth: true; height: 34; radius: 10
                     border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.3); border.width: 1; color: "transparent"
-                    Text { anchors.centerIn: parent; text: "󰖟  Advanced Network Settings"; color: Theme.primary; font.pixelSize: 11; opacity: 0.7 }
-                    MouseArea { anchors.fill: parent; onClicked: { localExec.run(["kitty","--class","floating","nmtui"]); popup.active=false } }
+                    
+                    scale: advNetMouse.pressed ? 0.98 : (advNetMouse.containsMouse ? 1.02 : 1.0)
+                    opacity: advNetMouse.containsMouse ? 1.0 : 0.7
+                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+                    Behavior on opacity { NumberAnimation { duration: 150 } }
+
+                    Text { anchors.centerIn: parent; text: "󰖟  Advanced Network Settings"; color: Theme.primary; font.pixelSize: 11 }
+                    MouseArea { 
+                        id: advNetMouse
+                        anchors.fill: parent; hoverEnabled: true
+                        onClicked: { localExec.run(["kitty","--class","floating","nmtui"]); popup.active=false } 
+                    }
                 }
             }
 
@@ -573,18 +645,32 @@ PanelWindow {
                     Layout.fillWidth: true
                     Text { text: "󰂯  Bluetooth"; color: Theme.primary; font.bold: true; font.pixelSize: 13 }
                     Item { Layout.fillWidth: true }
+                    
+                    // BT Refresh Button
                     Rectangle {
                         width: 28; height: 28; radius: 8; color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+                        scale: btRefMouse.pressed ? 0.9 : (btRefMouse.containsMouse ? 1.1 : 1.0)
+                        Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+
                         Text { anchors.centerIn: parent; text: "󰑓"; color: Theme.primary; font.pixelSize: 14; opacity: popup.btScanning ? 0.3 : 0.8 }
-                        MouseArea { anchors.fill: parent; enabled: !popup.btScanning; onClicked: { popup._btBuf=""; popup.btScanning=true; btScanner.running=true } }
+                        MouseArea { 
+                            id: btRefMouse
+                            anchors.fill: parent; hoverEnabled: true; enabled: !popup.btScanning
+                            onClicked: { popup._btBuf=""; popup.btScanning=true; btScanner.running=true } 
+                        }
                     }
+                    
+                    // BT Toggle Switch
                     Rectangle {
                         width: 44; height: 24; radius: 12
                         color: sysInfo.bluetooth ? Theme.primary : "transparent"; border.color: Theme.primary; border.width: 2
+                        Behavior on color { ColorAnimation { duration: 200 } }
+
                         Rectangle {
                             x: sysInfo.bluetooth ? parent.width - width - 3 : 3; y: 3; width: 18; height: 18; radius: 9
                             color: sysInfo.bluetooth ? Theme.background : Theme.primary
-                            Behavior on x { NumberAnimation { duration: 180 } }
+                            Behavior on x { NumberAnimation { duration: 350; easing.type: Easing.OutBack } }
+                            Behavior on color { ColorAnimation { duration: 200 } }
                         }
                         MouseArea { anchors.fill: parent; onClicked: { localExec.run(["bash","-c",sysInfo.bluetooth?"bluetoothctl power off":"bluetoothctl power on"]); repollTimer.restart() } }
                     }
@@ -613,27 +699,56 @@ PanelWindow {
                                     Text { text: modelData.name||modelData.mac; color: Theme.primary; font.pixelSize: 12; font.weight: modelData.connected?Font.Bold:Font.Normal; elide: Text.ElideRight; width: parent.width }
                                     Text { text: modelData.connected?"Connected":(modelData.paired?"Paired":""); color: Theme.primary; opacity: 0.45; font.pixelSize: 10 }
                                 }
+                                
+                                // BT Connect/Disconnect
                                 Rectangle {
                                     width: 76; height: 26; radius: 8
                                     color: modelData.connected ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15) : Theme.primary
+                                    scale: btActMouse.pressed ? 0.92 : (btActMouse.containsMouse ? 1.05 : 1.0)
+                                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+
                                     Text { anchors.centerIn: parent; text: modelData.connected?"Disconnect":"Connect"; color: modelData.connected?Theme.primary:Theme.background; font.pixelSize: 9; font.weight: Font.Bold }
-                                    MouseArea { anchors.fill: parent; onClicked: { btAction.command=["bash","-c",(modelData.connected?"bluetoothctl disconnect ":"bluetoothctl connect ")+modelData.mac]; btAction.running=true } }
+                                    MouseArea { 
+                                        id: btActMouse
+                                        anchors.fill: parent; hoverEnabled: true
+                                        onClicked: { btAction.command=["bash","-c",(modelData.connected?"bluetoothctl disconnect ":"bluetoothctl connect ")+modelData.mac]; btAction.running=true } 
+                                    }
                                 }
+                                
+                                // BT Forget
                                 Rectangle {
                                     width: 26; height: 26; radius: 8; color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+                                    scale: btForgetMouse.pressed ? 0.9 : (btForgetMouse.containsMouse ? 1.1 : 1.0)
+                                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+
                                     Text { anchors.centerIn: parent; text: "󰆴"; color: Theme.primary; font.pixelSize: 12; opacity: 0.6 }
-                                    MouseArea { anchors.fill: parent; onClicked: { btAction.command=["bash","-c","bluetoothctl remove "+modelData.mac]; btAction.running=true } }
+                                    MouseArea { 
+                                        id: btForgetMouse
+                                        anchors.fill: parent; hoverEnabled: true
+                                        onClicked: { btAction.command=["bash","-c","bluetoothctl remove "+modelData.mac]; btAction.running=true } 
+                                    }
                                 }
                             }
                         }
                     }
                 }
 
+                // BT Manager Button
                 Rectangle {
                     Layout.fillWidth: true; height: 34; radius: 10
                     border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.3); border.width: 1; color: "transparent"
-                    Text { anchors.centerIn: parent; text: "󰂱  Bluetooth Manager"; color: Theme.primary; font.pixelSize: 11; opacity: 0.7 }
-                    MouseArea { anchors.fill: parent; onClicked: { localExec.run(["blueman-manager"]); popup.active=false } }
+                    
+                    scale: btManMouse.pressed ? 0.98 : (btManMouse.containsMouse ? 1.02 : 1.0)
+                    opacity: btManMouse.containsMouse ? 1.0 : 0.7
+                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+                    Behavior on opacity { NumberAnimation { duration: 150 } }
+
+                    Text { anchors.centerIn: parent; text: "󰂱  Bluetooth Manager"; color: Theme.primary; font.pixelSize: 11 }
+                    MouseArea { 
+                        id: btManMouse
+                        anchors.fill: parent; hoverEnabled: true
+                        onClicked: { localExec.run(["blueman-manager"]); popup.active=false } 
+                    }
                 }
             }
 
@@ -708,11 +823,8 @@ PanelWindow {
                     property var    history: []
                     property real   yMin: 0
                     property real   yMax: 100
-                    property bool   filled: true   // area fill under line
+                    property bool   filled: true
 
-                    // Directly trigger repaint when data changes — Connections { target: parent }
-                    // inside a Canvas resolves to the visual parent (the Rectangle), not this
-                    // component root, so signals never connected. These handlers are on the root itself.
                     onHistoryChanged: spark.requestPaint()
                     onYMaxChanged:    spark.requestPaint()
 
@@ -723,7 +835,6 @@ PanelWindow {
                     border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.12)
                     border.width: 1
 
-                    // Header row
                     RowLayout {
                         anchors.left: parent.left; anchors.right: parent.right
                         anchors.top: parent.top
@@ -743,7 +854,6 @@ PanelWindow {
                         Text { text: cardSub; color: Theme.primary; opacity: 0.4; font.pixelSize: 9 }
                     }
 
-                    // Sparkline canvas
                     Canvas {
                         id: spark
                         renderTarget: Canvas.FramebufferObject
@@ -764,7 +874,6 @@ PanelWindow {
                             if (range <= 0) range = 1
 
                             var step = w / Math.max(1, hist.length - 1)
-                            // Build path
                             ctx.beginPath()
                             for (var i = 0; i < hist.length; i++) {
                                 var x = i * step
@@ -775,7 +884,6 @@ PanelWindow {
                             }
 
                             if (parent.filled) {
-                                // Area fill
                                 ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath()
                                 var grad = ctx.createLinearGradient(0, 0, 0, h)
                                 grad.addColorStop(0, Qt.rgba(parent.cardColor.r, parent.cardColor.g, parent.cardColor.b, 0.35))
@@ -784,7 +892,6 @@ PanelWindow {
                                 ctx.fill()
                             }
 
-                            // Stroke line on top
                             ctx.beginPath()
                             for (var j = 0; j < hist.length; j++) {
                                 var x2 = j * step
@@ -798,7 +905,6 @@ PanelWindow {
                             ctx.lineJoin = "round"; ctx.lineCap = "round"
                             ctx.stroke()
 
-                            // End-point dot
                             if (hist.length > 0) {
                                 var lx = (hist.length - 1) * step
                                 var lv = (hist[hist.length - 1] - parent.yMin) / range
@@ -858,7 +964,6 @@ PanelWindow {
                     property string valueB: ""
                     property real   yMax: 100
 
-                    // Same fix as SparkCard — wire directly on the component root
                     onHistoryAChanged: dualSpark.requestPaint()
                     onHistoryBChanged: dualSpark.requestPaint()
                     onYMaxChanged:     dualSpark.requestPaint()
@@ -957,9 +1062,6 @@ PanelWindow {
                 }
 
                 // ── MASONRY (3 columns) ──────────────────────────────────
-                // Manual columns — each is a Column with auto-sizing items.
-                // This gives a true masonry feel because column heights differ
-                // naturally based on which cards land where.
                 Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
@@ -1090,16 +1192,21 @@ PanelWindow {
                                     color: Theme.primary; opacity: 0.45; font.pixelSize: 10
                                 }
                             }
+                            
+                            // Game Mode Toggle Switch
                             Rectangle {
                                 width: 44; height: 24; radius: 12
                                 color: popup.gamemodeActive ? Theme.primary : "transparent"
                                 border.color: Theme.primary; border.width: 2
                                 Layout.alignment: Qt.AlignVCenter
+                                Behavior on color { ColorAnimation { duration: 200 } }
+
                                 Rectangle {
                                     x: popup.gamemodeActive ? parent.width - width - 3 : 3; y: 3
                                     width: 18; height: 18; radius: 9
                                     color: popup.gamemodeActive ? Theme.background : Theme.primary
-                                    Behavior on x { NumberAnimation { duration: 180 } }
+                                    Behavior on x { NumberAnimation { duration: 350; easing.type: Easing.OutBack } }
+                                    Behavior on color { ColorAnimation { duration: 200 } }
                                 }
                                 MouseArea {
                                     anchors.fill: parent
@@ -1112,7 +1219,7 @@ PanelWindow {
                         }
                     }
 
-                    // Power profile pills (or tuxedo button) — compact inline
+                    // Power profile pills (or tuxedo button)
                     Rectangle {
                         Layout.fillWidth: true; Layout.preferredWidth: 1
                         height: 56; radius: 14
@@ -1129,13 +1236,23 @@ PanelWindow {
                                 Text { text: "Power Profile"; color: Theme.primary; font.pixelSize: 13; font.bold: true }
                                 Text { text: "Tuxedo CC"; color: Theme.primary; opacity: 0.5; font.pixelSize: 10 }
                             }
+                            
+                            // Tuxedo Button
                             Rectangle {
                                 width: 74; height: 28; radius: 8
                                 color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
                                 border.color: Theme.primary; border.width: 1
                                 Layout.alignment: Qt.AlignVCenter; Layout.rightMargin: 4
+                                
+                                scale: tuxMouse.pressed ? 0.95 : (tuxMouse.containsMouse ? 1.05 : 1.0)
+                                Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+
                                 Text { anchors.centerIn: parent; text: "Open"; color: Theme.primary; font.pixelSize: 10; font.bold: true }
-                                MouseArea { anchors.fill: parent; onClicked: { localExec.run(["hyprctl","dispatch","exec","tuxedo-control-center"]); popup.active=false } }
+                                MouseArea { 
+                                    id: tuxMouse
+                                    anchors.fill: parent; hoverEnabled: true
+                                    onClicked: { localExec.run(["hyprctl","dispatch","exec","tuxedo-control-center"]); popup.active=false } 
+                                }
                             }
                         }
 
@@ -1154,12 +1271,22 @@ PanelWindow {
                                     radius: 10
                                     color: sel ? Theme.primary : "transparent"
                                     border.color: Theme.primary; border.width: sel ? 0 : 1
+                                    
+                                    scale: ppMouse.pressed ? 0.95 : (ppMouse.containsMouse && !sel ? 1.05 : 1.0)
+                                    opacity: (ppMouse.containsMouse || sel) ? 1.0 : 0.8
+                                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+                                    Behavior on opacity { NumberAnimation { duration: 150 } }
+
                                     Column {
                                         anchors.centerIn: parent; spacing: 1
                                         Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData.icon; color: sel ? Theme.background : Theme.primary; font.pixelSize: 14 }
                                         Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData.label; color: sel ? Theme.background : Theme.primary; font.pixelSize: 9; font.bold: sel }
                                     }
-                                    MouseArea { anchors.fill: parent; onClicked: { popup.powerProfile = modelData.id; powerProfileSetter.set(modelData.id) } }
+                                    MouseArea { 
+                                        id: ppMouse
+                                        anchors.fill: parent; hoverEnabled: true
+                                        onClicked: { popup.powerProfile = modelData.id; powerProfileSetter.set(modelData.id) } 
+                                    }
                                 }
                             }
                         }
@@ -1169,8 +1296,18 @@ PanelWindow {
                 // ── System monitor button ─────────────────────────────────
                 Rectangle {
                     Layout.fillWidth: true; height: 38; radius: 12; color: Theme.primary
+                    
+                    scale: sysMonMouse.pressed ? 0.98 : (sysMonMouse.containsMouse ? 1.02 : 1.0)
+                    opacity: sysMonMouse.containsMouse ? 0.9 : 1.0
+                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+                    Behavior on opacity { NumberAnimation { duration: 150 } }
+
                     Text { anchors.centerIn: parent; text: "󰓅  Open System Monitor"; color: Theme.background; font.bold: true; font.pixelSize: 11 }
-                    MouseArea { anchors.fill: parent; onClicked: { localExec.run(["bash","-c","~/.config/ml4w/settings/system-monitor.sh"]); popup.active=false } }
+                    MouseArea { 
+                        id: sysMonMouse
+                        anchors.fill: parent; hoverEnabled: true
+                        onClicked: { localExec.run(["bash","-c","~/.config/ml4w/settings/system-monitor.sh"]); popup.active=false } 
+                    }
                 }
             }
         }

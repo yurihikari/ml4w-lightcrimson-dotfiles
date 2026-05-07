@@ -195,8 +195,13 @@ PanelWindow {
         height: 30
         width: Math.min(centerRow.implicitWidth + 30, 450)
         radius: 15
-        color: Theme.background
         z: 5
+        scale: centerMouse.pressed ? 0.96 : (centerMouse.containsMouse ? 1.02 : 1.0)
+        color: centerMouse.containsMouse ? Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.95) : Theme.background
+        
+        Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+        Behavior on color { ColorAnimation { duration: 200 } }
+
         Row {
             id: centerRow
             anchors.centerIn: parent
@@ -214,7 +219,9 @@ PanelWindow {
             }
         }
         MouseArea { 
+            id: centerMouse
             anchors.fill: parent
+            hoverEnabled: true
             onClicked: mediaPopup.active = !mediaPopup.active 
         }
     }
@@ -229,14 +236,19 @@ PanelWindow {
             Text { 
                 text: "   󰣇"; color: Theme.primary; font.pixelSize: 24
                 anchors.verticalCenter: parent.verticalCenter 
+                
+                opacity: 1
+                scale: logoMouse.pressed ? 0.85 : (logoMouse.containsMouse ? 1.15 : 1.0)
+                
+                Behavior on opacity { NumberAnimation { duration: 150 } }
+                Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+
                 MouseArea {
+                    id: logoMouse
                     anchors.fill: parent
+                    hoverEnabled: true
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
-                    onClicked: (mouse) => {
-                        // if (mouse.button === Qt.LeftButton) executor.run(["bash", "-c", "~/.config/hypr/scripts/launcher.sh"])
-                        // else executor.run(["bash", "-c", "~/.config/hypr/scripts/keybindings.sh"])
-                        onClicked: dashPopup.active = !dashPopup.active
-                    }
+                    onClicked: dashPopup.active = !dashPopup.active
                 }
             }
             Rectangle {
@@ -250,14 +262,22 @@ PanelWindow {
                         model: Hyprland.workspaces
                         Item {
                             width: 16; height: 16
+                            
+                            // Add a scale effect to the dot itself
+                            scale: wsMouse.pressed ? 0.7 : (wsMouse.containsMouse ? 1.3 : 1.0)
+                            Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+
                             Text {
                                 anchors.centerIn: parent
                                 text: modelData.active ? "󰮯" : "󰊠"
                                 color: modelData.active ? Theme.on_primary_container : Theme.primary
                                 font.pixelSize: 16; verticalAlignment: Text.AlignVCenter
+                                Behavior on color { ColorAnimation { duration: 200 } }
                             }
                             MouseArea {
+                                id: wsMouse
                                 anchors.fill: parent
+                                hoverEnabled: true
                                 onClicked: executor.run(["hyprctl", "dispatch", "workspace", modelData.name])
                             }
                         }
@@ -279,8 +299,16 @@ PanelWindow {
                     text: sysInfo.isMuted ? "󰝟" : (sysInfo.volValue > 0.6 ? "󰕾" : (sysInfo.volValue > 0.2 ? "󰖀" : "󰕿"))
                     color: sysInfo.isMuted ? Theme.accent : Theme.primary
                     font.pixelSize: 18; verticalAlignment: Text.AlignVCenter 
+                    
+                    opacity: 1
+                    scale: volIconMouse.pressed ? 0.85 : (volIconMouse.containsMouse ? 1.15 : 1.0)
+                    Behavior on opacity { NumberAnimation { duration: 150 } }
+                    Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+
                     MouseArea {
+                        id: volIconMouse
                         anchors.fill: parent
+                        hoverEnabled: true
                         onClicked: {
                             executor.run(["bash", "-c", "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"])
                             volGetter.running = true
@@ -288,14 +316,28 @@ PanelWindow {
                     }
                 }
                 Rectangle {
-                    width: 80; height: 6; radius: 3
+                    width: 80
+                    height: (volMouse.containsMouse || sysInfo.isDragging) ? 8 : 6
+                    radius: height / 2
                     color: Theme.background; anchors.verticalCenter: parent.verticalCenter
+                    
+                    Behavior on height { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
+
                     Rectangle { 
-                        width: parent.width * sysInfo.volValue; height: parent.height; radius: 3
+                        width: parent.width * sysInfo.volValue; height: parent.height; radius: parent.radius
                         color: sysInfo.isMuted ? Theme.accent : Theme.primary 
+                        
+                        Behavior on width {
+                            enabled: !sysInfo.isDragging
+                            NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
+                        }
                     }
                     MouseArea {
+                        id: volMouse
                         anchors.fill: parent
+                        anchors.margins: -8
+                        hoverEnabled: true
+                        
                         function update(mouse) {
                             sysInfo.isDragging = true
                             let p = Math.max(0, Math.min(1, mouse.x / width))
@@ -303,7 +345,10 @@ PanelWindow {
                             executor.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", p.toFixed(2)])
                         }
                         onPressed: update(mouse)
-                        onPositionChanged: update(mouse)
+                        
+                        // FIX: Only update the slider if the mouse button is pressed!
+                        onPositionChanged: { if (pressed) update(mouse) }
+                        
                         onReleased: { sysInfo.isDragging = false; volGetter.running = true }
                         onWheel: (wheel) => {
                             let delta = wheel.angleDelta.y > 0 ? 0.05 : -0.05
@@ -320,7 +365,18 @@ PanelWindow {
             Text {
                 text: "󰅌"; color: Theme.primary; font.pixelSize: 18
                 anchors.verticalCenter: parent.verticalCenter; verticalAlignment: Text.AlignVCenter
-                MouseArea { anchors.fill: parent; onClicked: clipboardPopup.active = !clipboardPopup.active }
+                
+                opacity: 1
+                scale: clipMouse.pressed ? 0.85 : (clipMouse.containsMouse ? 1.15 : 1.0)
+                Behavior on opacity { NumberAnimation { duration: 150 } }
+                Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+
+                MouseArea { 
+                    id: clipMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    onClicked: clipboardPopup.active = !clipboardPopup.active 
+                }
             }
 
             // NOTIFICATIONS
@@ -328,8 +384,16 @@ PanelWindow {
                 text: getNotificationIcon(bar.swayncState)
                 color: Theme.primary; font.pixelSize: 20
                 anchors.verticalCenter: parent.verticalCenter; verticalAlignment: Text.AlignVCenter
+                
+                opacity: 1
+                scale: notifMouse.pressed ? 0.85 : (notifMouse.containsMouse ? 1.15 : 1.0)
+                Behavior on opacity { NumberAnimation { duration: 150 } }
+                Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+
                 MouseArea {
+                    id: notifMouse
                     anchors.fill: parent; acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    hoverEnabled: true
                     onClicked: (mouse) => {
                         if (mouse.button === Qt.LeftButton) executor.run(["swaync-client", "-t", "-sw"])
                         else executor.run(["swaync-client", "-d", "-sw"])
@@ -341,6 +405,12 @@ PanelWindow {
             Item {
                 width: clockCol.implicitWidth; height: 32
                 anchors.verticalCenter: parent.verticalCenter
+                
+                opacity: 1
+                scale: clockMouse.pressed ? 0.95 : (clockMouse.containsMouse ? 1.05 : 1.0)
+                Behavior on opacity { NumberAnimation { duration: 150 } }
+                Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+
                 Column {
                     id: clockCol
                     anchors.centerIn: parent; spacing: -2
@@ -357,13 +427,25 @@ PanelWindow {
                         horizontalAlignment: Text.AlignHCenter 
                     }
                 }
-                MouseArea { anchors.fill: parent; onClicked: calendarPopup.active = !calendarPopup.active }
+                MouseArea { 
+                    id: clockMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    onClicked: calendarPopup.active = !calendarPopup.active 
+                }
             }
 
             // SYSTEM PILL (network, bt, battery)
             Rectangle {
                 height: 30; width: sysRow.implicitWidth + 24; radius: 15
-                color: Theme.background; anchors.verticalCenter: parent.verticalCenter
+                color: sysMouse.containsMouse ? Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.95) : Theme.background
+                anchors.verticalCenter: parent.verticalCenter
+                
+                scale: sysMouse.pressed ? 0.96 : (sysMouse.containsMouse ? 1.02 : 1.0)
+                
+                Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+                Behavior on color { ColorAnimation { duration: 200 } }
+
                 RowLayout {
                     id: sysRow; anchors.centerIn: parent; spacing: 10
                     Row { 
@@ -391,14 +473,30 @@ PanelWindow {
                         Text { text: sysInfo.bat; color: Theme.primary; font.pixelSize: 13; font.weight: Font.Bold; verticalAlignment: Text.AlignVCenter }
                     }
                 }
-                MouseArea { anchors.fill: parent; onClicked: systemPopup.active = !systemPopup.active }
+                MouseArea { 
+                    id: sysMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    onClicked: systemPopup.active = !systemPopup.active 
+                }
             }
 
             // POWER
             Text { 
                 text: "󰐥    "; color: Theme.primary; font.pixelSize: 18
                 anchors.verticalCenter: parent.verticalCenter; verticalAlignment: Text.AlignVCenter
-                MouseArea { anchors.fill: parent; onClicked: powerPopup.active = !powerPopup.active }
+                
+                opacity: 1
+                scale: powerMouse.pressed ? 0.85 : (powerMouse.containsMouse ? 1.15 : 1.0)
+                Behavior on opacity { NumberAnimation { duration: 150 } }
+                Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+
+                MouseArea { 
+                    id: powerMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    onClicked: powerPopup.active = !powerPopup.active 
+                }
             }
         }
     }
@@ -408,7 +506,7 @@ PanelWindow {
     CalendarPopup { id: calendarPopup }
     ClipboardPopup { id: clipboardPopup; screen: bar.screen }
     PowerPopup { id: powerPopup; screen: bar.screen }
-    DashboardPopup { id: dashPopup; screen: root.screen }
+    DashboardPopup { id: dashPopup; screen: bar.screen }
 
     Canvas { 
         opacity: 0.8; id: leftCorner; x: 10; y: 40; width: 20; height: 20
