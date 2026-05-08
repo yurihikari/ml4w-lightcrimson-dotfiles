@@ -9,7 +9,10 @@ import "../CustomTheme"
 PanelWindow {
     id: root
     property bool active: false
-    visible: active
+    
+    // KEEP VISIBLE DURING OUTRO ANIMATION
+    visible: active || mainContent.opacity > 0
+    
     anchors { top: true; bottom: true; left: true; right: true }
     WlrLayershell.layer: WlrLayer.Overlay
     exclusionMode: WlrLayershell.Ignore
@@ -205,11 +208,27 @@ PanelWindow {
 
     // ─── Outer container — two panels side by side ─────────────────────────
     Row {
+        id: mainContent
         anchors.top:        parent.top
         anchors.topMargin:  45
         anchors.right:      parent.right
         anchors.rightMargin: 155
         spacing: 10
+
+        // ─── ANIMATION LOGIC ──────────────────────────────────────────────
+        // Adjust `duration` and `-20` to match the Media popup values.
+        opacity: root.active ? 1.0 : 0.0
+        Behavior on opacity {
+            NumberAnimation { duration: 250; easing.type: Easing.OutExpo }
+        }
+
+        transform: Translate {
+            y: root.active ? 0 : -20
+            Behavior on y {
+                NumberAnimation { duration: 250; easing.type: Easing.OutExpo }
+            }
+        }
+        // ──────────────────────────────────────────────────────────────────
 
         // ══════════════════════════════════════════════════════════════════
         //  LEFT — WEATHER PANEL

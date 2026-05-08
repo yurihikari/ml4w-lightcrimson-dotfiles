@@ -24,6 +24,19 @@ PanelWindow {
     WlrLayershell.keyboardFocus: active ? WlrLayershell.OnDemand : WlrLayershell.None
     color: "transparent"
 
+    // ── FIX: Close when clicking outside the popup (backdrop) ──────────────
+    MouseArea {
+        anchors.fill: parent
+        onClicked: popup.active = false
+    }
+
+    // ── FIX: Close on ESC key globally across all tabs ─────────────────────
+    Shortcut {
+        sequence: "Escape"
+        onActivated: popup.active = false
+    }
+    // ───────────────────────────────────────────────────────────────────────
+
     implicitHeight: 580
     width: screen ? screen.width : 800
 
@@ -448,6 +461,7 @@ PanelWindow {
             color: Theme.background; opacity: 0.8
             border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.8); border.width: 1.5
         }
+        // Prevents clicks from falling through the container and closing the menu
         MouseArea { anchors.fill: parent; onClicked: {} }
 
         ColumnLayout {
@@ -732,6 +746,9 @@ PanelWindow {
                                     color: Theme.primary; font.pixelSize: 14; wrapMode: TextEdit.Wrap
                                     selectionColor: Theme.primary; selectedTextColor: Theme.background
                                     focus: popup.activeTab === 1 && popup.active
+                                    
+                                    // ── FIX: Ensure ESC key works while typing in Notes ──────────────────
+                                    Keys.onEscapePressed: popup.active = false
 
                                     Text {
                                         anchors.fill: parent
