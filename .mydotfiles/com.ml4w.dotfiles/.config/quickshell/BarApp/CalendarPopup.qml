@@ -19,7 +19,28 @@ PanelWindow {
     WlrLayershell.keyboardFocus: WlrLayershell.OnDemand
     color: "transparent"
 
-    MouseArea { anchors.fill: parent; onClicked: root.active = false }
+    MouseArea { 
+        anchors.fill: parent
+        onClicked: root.active = false 
+    }
+
+    // ─── Global Time State (Robust & Always Accessible) ─────────────────────
+    property var localNow: new Date()
+    property var worldNow: new Date()
+    
+    Timer { 
+        interval: 1000
+        running: true
+        repeat: true 
+        onTriggered: {
+            root.localNow = new Date()
+            if (root.showWorldClock && root.targetWcCity !== "") {
+                let utcMs = root.localNow.getTime()
+                let offsetDiffMs = (root.targetWcOffsetSeconds * 1000) + (root.localNow.getTimezoneOffset() * 60000)
+                root.worldNow = new Date(utcMs + offsetDiffMs)
+            }
+        }
+    }
 
     // ─── Calendar state ────────────────────────────────────────────────────
     property var monthNames: ["January","February","March","April","May","June","July","August","September","October","November","December"]
@@ -28,6 +49,7 @@ PanelWindow {
     property int currentYear:  new Date().getFullYear()
 
     ListModel { id: calendarModel }
+    ListModel { id: hourlyModel }
 
     function updateCalendar(year, month) {
         calendarModel.clear()
@@ -53,13 +75,17 @@ PanelWindow {
                 let i = (row * 7) + col
                 let dayNum, isCur, isTod
                 if (i < startCell) {
-                    dayNum = prevMonthDays - startCell + i + 1; isCur = false; isTod = false
+                    dayNum = prevMonthDays - startCell + i + 1
+                    isCur = false
+                    isTod = false
                 } else if (i < startCell + daysInMonth) {
                     dayNum = i - startCell + 1
                     isCur  = true
                     isTod  = (dayNum === now.getDate() && month === now.getMonth() && year === now.getFullYear())
                 } else {
-                    dayNum = i - startCell - daysInMonth + 1; isCur = false; isTod = false
+                    dayNum = i - startCell - daysInMonth + 1
+                    isCur = false
+                    isTod = false
                 }
                 calendarModel.append({ d: dayNum, cur: isCur, tod: isTod, type: "day" })
             }
@@ -74,19 +100,31 @@ PanelWindow {
     property real   feelsLikeC:   0
     property int    humidity:     0
     property real   windKph:      0
+    property real   uvIndex:      0
+    property real   precipMm:     0
     property int    weatherCode:  -1
     property bool   isDay:        true
     property bool   wxLoading:    false
     property string wxError:      ""
     property string cityInput:    ""
+    property int    weatherTab:   0 // 0 = Today (Hourly), 1 = 5-Day
 
     property var forecastDates:   []
     property var forecastTempMax: []
     property var forecastTempMin: []
     property var forecastCodes:   []
+    property var forecastPrecip:  []
 
     property real geoLat: 0
     property real geoLon: 0
+
+    // ─── World Clock state ─────────────────────────────────────────────────
+    property bool   showWorldClock: false
+    property string targetWcCity: ""
+    property string targetWcTz: ""
+    property int    targetWcOffsetSeconds: 0
+    property bool   wcLoading: false
+    property string wcError: ""
 
     // ─── WMO helpers ──────────────────────────────────────────────────────
     function wmoIcon(code, day) {
@@ -122,6 +160,15 @@ PanelWindow {
         let d = new Date(dateStr)
         return ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()]
     }
+    function getWcTimeDiffString() {
+        let localOffsetSec = -(new Date().getTimezoneOffset() * 60)
+        let diffSec = root.targetWcOffsetSeconds - localOffsetSec
+        if (diffSec === 0) return "Same time zone"
+        let hrs = Math.abs(diffSec / 3600)
+        let suffix = diffSec > 0 ? " ahead" : " behind"
+        let hrStr = hrs % 1 === 0 ? hrs.toString() : hrs.toFixed(1)
+        return hrStr + (hrStr === "1" ? " hour" : " hours") + suffix
+    }
 
     // ─── Processes ────────────────────────────────────────────────────────
     Process {
@@ -133,10 +180,17 @@ PanelWindow {
                     let j = JSON.parse(data.trim())
                     if (j.status === "success") {
                         root.displayCity = j.city
-                        root.geoLat = j.lat; root.geoLon = j.lon
+                        root.geoLat = j.lat
+                        root.geoLon = j.lon
                         fetchWeather(j.lat, j.lon)
-                    } else { root.wxError = "Location unavailable"; root.wxLoading = false }
-                } catch(e) { root.wxError = "Network error"; root.wxLoading = false }
+                    } else { 
+                        root.wxError = "Location unavailable"
+                        root.wxLoading = false 
+                    }
+                } catch(e) { 
+                    root.wxError = "Network error"
+                    root.wxLoading = false 
+                }
             }
         }
     }
@@ -150,10 +204,17 @@ PanelWindow {
                     if (j.results && j.results.length > 0) {
                         let r = j.results[0]
                         root.displayCity = r.name + (r.country_code ? ", " + r.country_code : "")
-                        root.geoLat = r.latitude; root.geoLon = r.longitude
+                        root.geoLat = r.latitude
+                        root.geoLon = r.longitude
                         fetchWeather(r.latitude, r.longitude)
-                    } else { root.wxError = "City not found"; root.wxLoading = false }
-                } catch(e) { root.wxError = "Geocode error"; root.wxLoading = false }
+                    } else { 
+                        root.wxError = "City not found"
+                        root.wxLoading = false 
+                    }
+                } catch(e) { 
+                    root.wxError = "Geocode error"
+                    root.wxLoading = false 
+                }
             }
         }
     }
@@ -170,14 +231,81 @@ PanelWindow {
                     root.feelsLikeC   = c.apparent_temperature
                     root.humidity     = c.relative_humidity_2m
                     root.windKph      = c.wind_speed_10m
+                    root.uvIndex      = c.uv_index || 0
+                    root.precipMm     = c.precipitation || 0
                     root.isDay        = c.is_day === 1
                     root.weatherDesc  = wmoDesc(c.weather_code)
+                    
                     root.forecastDates   = j.daily.time
                     root.forecastTempMax = j.daily.temperature_2m_max
                     root.forecastTempMin = j.daily.temperature_2m_min
                     root.forecastCodes   = j.daily.weather_code
-                    root.wxLoading = false; root.wxError = ""
-                } catch(e) { root.wxError = "Weather error"; root.wxLoading = false }
+                    root.forecastPrecip  = j.daily.precipitation_probability_max || []
+
+                    hourlyModel.clear()
+                    let currentTargetMs = new Date(c.time).getTime()
+                    let added = 0
+                    for (let i = 0; i < j.hourly.time.length; i++) {
+                        let t = new Date(j.hourly.time[i]).getTime()
+                        if (t >= currentTargetMs - 3600000) {
+                            let dateObj = new Date(t)
+                            let hrStr = Qt.formatDateTime(dateObj, "HH:mm")
+                            hourlyModel.append({
+                                timeStr: (added === 0) ? "Now" : hrStr,
+                                temp: Math.round(j.hourly.temperature_2m[i]),
+                                code: j.hourly.weather_code[i],
+                                precip: j.hourly.precipitation_probability[i],
+                                isDay: j.hourly.is_day[i] === 1
+                            })
+                            added++
+                            if (added >= 24) break;
+                        }
+                    }
+                    
+                    root.wxLoading = false
+                    root.wxError = ""
+                } catch(e) { 
+                    root.wxError = "Weather error"
+                    root.wxLoading = false 
+                }
+            }
+        }
+    }
+
+    Process {
+        id: wcGeocodeProc
+        stdout: SplitParser {
+            onRead: {
+                try {
+                    let j = JSON.parse(data.trim())
+                    if (j.results && j.results.length > 0) {
+                        let r = j.results[0]
+                        root.targetWcCity = r.name + (r.country_code ? ", " + r.country_code : "")
+                        root.targetWcTz = r.timezone || "UTC"
+                        wcOffsetProc.command = ["sh", "-c", "TZ='" + root.targetWcTz + "' date +%z"]
+                        wcOffsetProc.running = true
+                    } else { 
+                        root.wcError = "City not found"
+                        root.wcLoading = false 
+                    }
+                } catch(e) { 
+                    root.wcError = "Search error"
+                    root.wcLoading = false 
+                }
+            }
+        }
+    }
+
+    Process {
+        id: wcOffsetProc
+        stdout: SplitParser {
+            onRead: {
+                let str = data.trim()
+                let sign = (str.charAt(0) === '-') ? -1 : 1
+                let hours = parseInt(str.substring(1, 3))
+                let mins = parseInt(str.substring(3, 5))
+                root.targetWcOffsetSeconds = sign * ((hours * 3600) + (mins * 60))
+                root.wcLoading = false
             }
         }
     }
@@ -185,15 +313,17 @@ PanelWindow {
     function fetchWeather(la, lo) {
         let url = "https://api.open-meteo.com/v1/forecast" +
                   "?latitude=" + la + "&longitude=" + lo +
-                  "&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day" +
-                  "&daily=temperature_2m_max,temperature_2m_min,weather_code" +
+                  "&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day,precipitation,uv_index" +
+                  "&hourly=temperature_2m,weather_code,precipitation_probability,is_day" +
+                  "&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max" +
                   "&wind_speed_unit=kmh&forecast_days=5&timezone=auto"
         weatherProc.command = ["curl", "-sf", "--max-time", "8", url]
         weatherProc.running = true
     }
 
     function loadCity(name) {
-        root.wxLoading = true; root.wxError = ""
+        root.wxLoading = true
+        root.wxError = ""
         if (!name || name.trim() === "") {
             ipGeoProc.running = true
         } else {
@@ -204,368 +334,1031 @@ PanelWindow {
         }
     }
 
-    onActiveChanged: { if (active && weatherCode === -1) loadCity("") }
+    function loadWcCity(name) {
+        if (!name || name.trim() === "") return
+        root.wcLoading = true
+        root.wcError = ""
+        let enc = encodeURIComponent(name.trim())
+        wcGeocodeProc.command = ["curl", "-sf", "--max-time", "6",
+            "https://geocoding-api.open-meteo.com/v1/search?name=" + enc + "&count=1&language=en&format=json"]
+        wcGeocodeProc.running = true
+    }
 
-    // ─── Outer container — two panels side by side ─────────────────────────
-    Row {
+    onActiveChanged: { 
+        if (active && weatherCode === -1) {
+            loadCity("") 
+        }
+    }
+
+    // ─── UNIFIED MAIN CONTAINER ───────────────────────────────────────────
+    Rectangle {
         id: mainContent
         anchors.top:        parent.top
         anchors.topMargin:  45
         anchors.right:      parent.right
         anchors.rightMargin: 155
-        spacing: 10
+        
+        // REDUCED HEIGHT: Wide, modern ratio
+        width: 900
+        height: 580
+        radius: 30
+        color: Theme.background
+        border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.8)
+        border.width: 2
+        clip: true 
 
-        // ─── ANIMATION LOGIC ──────────────────────────────────────────────
-        // Adjust `duration` and `-20` to match the Media popup values.
-        opacity: root.active ? 1.0 : 0.0
+        // ── ANIMATION LOGIC
+        opacity: root.active ? 0.8 : 0.0
         Behavior on opacity {
             NumberAnimation { duration: 250; easing.type: Easing.OutExpo }
         }
-
         transform: Translate {
             y: root.active ? 0 : -20
             Behavior on y {
                 NumberAnimation { duration: 250; easing.type: Easing.OutExpo }
             }
         }
-        // ──────────────────────────────────────────────────────────────────
 
-        // ══════════════════════════════════════════════════════════════════
-        //  LEFT — WEATHER PANEL
-        // ══════════════════════════════════════════════════════════════════
-        Rectangle {
-            width: 260; height: 520
-            radius: 30; color: "transparent"
+        // ── LIGHTWEIGHT WEATHER BACKGROUND ANIMATIONS ────────────────────────
+        Item {
+            anchors.fill: parent
+            property bool isRain: (weatherCode >= 51 && weatherCode <= 67) || (weatherCode >= 80 && weatherCode <= 82)
+            property bool isSnow: (weatherCode >= 71 && weatherCode <= 77) || (weatherCode >= 85 && weatherCode <= 86)
+            property bool isClear: weatherCode === 0 || weatherCode === 1
 
-            Rectangle {
-                anchors.fill: parent
-                color: Theme.background
-                border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.8); border.width: 2
-                radius: 30; opacity: 0.8
+            Text {
+                text: "󰖙"
+                color: Theme.primary
+                font.pixelSize: 380
+                anchors.centerIn: parent
+                visible: parent.isClear && root.isDay && !root.wxLoading
+                opacity: 0.04
+                RotationAnimation on rotation { 
+                    loops: Animation.Infinite 
+                    from: 0 
+                    to: 360 
+                    duration: 90000 
+                    running: parent.visible 
+                }
             }
 
-            MouseArea { anchors.fill: parent }
+            Repeater {
+                model: (parent.isRain || parent.isSnow) && !root.wxLoading ? 25 : 0
+                Item {
+                    property real startX: Math.random() * mainContent.width
+                    property real startY: -50 - Math.random() * mainContent.height
+                    property real dur: parent.isSnow ? (3000 + Math.random() * 4000) : (600 + Math.random() * 400)
+                    
+                    x: startX
+                    
+                    Text { 
+                        text: parent.parent.isSnow ? "󰜗" : "󰖖"
+                        color: Theme.primary
+                        font.pixelSize: parent.parent.isSnow ? (8 + Math.random() * 12) : 14
+                        opacity: 0.15 + Math.random() * 0.1 
+                    }
+                    
+                    NumberAnimation on y { 
+                        from: startY
+                        to: mainContent.height + 50
+                        duration: dur
+                        loops: Animation.Infinite
+                        running: root.active 
+                    }
+                }
+            }
+        }
+        // ──────────────────────────────────────────────────────────────────
 
+        MouseArea { anchors.fill: parent } 
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.margins: 25
+            spacing: 25
+
+            // ══════════════════════════════════════════════════════════════════
+            //  LEFT — WEATHER PANEL (With Tab System)
+            // ══════════════════════════════════════════════════════════════════
             ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 22
+                Layout.fillHeight: true
+                Layout.preferredWidth: 310
                 spacing: 0
 
-                // ── Search bar ──────────────────────────────────────────
+                // Search Bar
                 Rectangle {
-                    Layout.fillWidth: true; height: 30; radius: 15
-                    color: Theme.background; opacity: 1
-                    border.color: Theme.primary; border.width: 1
+                    Layout.fillWidth: true
+                    height: 32
+                    radius: 16
+                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05)
+                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.3)
+                    border.width: 1
 
                     RowLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: 10; anchors.rightMargin: 8
-                        spacing: 5
+                        anchors.leftMargin: 12
+                        anchors.rightMargin: 10
+                        spacing: 6
 
-                        Text {
-                            text: "󰍉"; color: Theme.primary; opacity: 0.4
-                            font.pixelSize: 12; verticalAlignment: Text.AlignVCenter
+                        Text { 
+                            text: "󰍉"
+                            color: Theme.primary
+                            opacity: 0.5
+                            font.pixelSize: 13
+                            verticalAlignment: Text.AlignVCenter 
                         }
+
                         Item {
                             Layout.fillWidth: true
                             height: 20
-                            Text {
+
+                            Text { 
                                 anchors.fill: parent
                                 text: root.displayCity !== "" ? root.displayCity : "Search city…"
-                                color: Theme.primary; opacity: 0.4; font.pixelSize: 12
+                                color: Theme.primary
+                                opacity: 0.5
+                                font.pixelSize: 12
                                 verticalAlignment: Text.AlignVCenter
                                 visible: cityField.text.length === 0
-                                elide: Text.ElideRight
+                                elide: Text.ElideRight 
                             }
-                            TextInput {
+
+                            TextInput { 
                                 id: cityField
                                 anchors.fill: parent
-                                color: Theme.primary; font.pixelSize: 12
+                                color: Theme.primary
+                                font.pixelSize: 12
                                 verticalAlignment: TextInput.AlignVCenter
-                                onAccepted: { root.cityInput = text; loadCity(text) }
-                                Keys.onEscapePressed: root.active = false
+                                onAccepted: { 
+                                    root.cityInput = text
+                                    loadCity(text) 
+                                }
+                                Keys.onEscapePressed: root.active = false 
                             }
                         }
-                        Text {
-                            text: "󰅖"; color: Theme.primary; opacity: 0.3; font.pixelSize: 11
+
+                        Text { 
+                            text: "󰅖"
+                            color: Theme.primary
+                            opacity: 0.4
+                            font.pixelSize: 13
                             visible: cityField.text.length > 0
                             verticalAlignment: Text.AlignVCenter
-                            MouseArea {
+
+                            MouseArea { 
                                 anchors.fill: parent
-                                onClicked: { cityField.text = ""; root.cityInput = ""; loadCity("") }
-                            }
+                                onClicked: { 
+                                    cityField.text = ""
+                                    root.cityInput = ""
+                                    loadCity("") 
+                                } 
+                            } 
                         }
                     }
                 }
 
-                Item { Layout.preferredHeight: 16 }
+                Item { Layout.preferredHeight: 15 }
 
-                // ── Loading / Error ─────────────────────────────────────
+                // Error / Loading
                 Item {
-                    Layout.fillWidth: true; height: 20
+                    Layout.fillWidth: true
+                    height: 15
                     visible: root.wxLoading || root.wxError !== ""
-                    Text {
+
+                    Text { 
                         anchors.centerIn: parent
-                        text: root.wxLoading ? "Updating…" : root.wxError
+                        text: root.wxLoading ? "Updating forecast…" : root.wxError
                         color: root.wxError !== "" ? "#ff6b6b" : Theme.primary
-                        opacity: 0.55; font.pixelSize: 11
+                        opacity: 0.6
+                        font.pixelSize: 11 
                     }
                 }
 
-                // ── Big icon + temp ─────────────────────────────────────
+                // Current Big Stats
                 Item {
                     Layout.fillWidth: true
                     height: bigIcon.implicitHeight + 4
                     visible: root.weatherCode !== -1 && !root.wxLoading
 
-                    Text {
+                    Text { 
                         id: bigIcon
-                        anchors.left: parent.left; anchors.top: parent.top
+                        anchors.left: parent.left
+                        anchors.top: parent.top
                         text: wmoIcon(root.weatherCode, root.isDay)
-                        color: Theme.primary; font.pixelSize: 52
+                        color: Theme.primary
+                        font.pixelSize: 58 
                     }
+
                     Column {
                         anchors.right: parent.right
                         anchors.verticalCenter: bigIcon.verticalCenter
-                        spacing: -2
-                        Text {
+                        spacing: -4
+
+                        Text { 
                             text: Math.round(root.tempC) + "°"
-                            color: Theme.primary; font.pixelSize: 44; font.weight: Font.Black
-                            horizontalAlignment: Text.AlignRight; anchors.right: parent.right
+                            color: Theme.primary
+                            font.pixelSize: 48
+                            font.weight: Font.Black
+                            horizontalAlignment: Text.AlignRight
+                            anchors.right: parent.right 
                         }
-                        Text {
+                        
+                        Text { 
                             text: root.weatherDesc
-                            color: Theme.primary; opacity: 0.5; font.pixelSize: 11
-                            horizontalAlignment: Text.AlignRight; anchors.right: parent.right
+                            color: Theme.primary
+                            opacity: 0.6
+                            font.pixelSize: 12
+                            font.weight: Font.Medium
+                            horizontalAlignment: Text.AlignRight
+                            anchors.right: parent.right 
                         }
                     }
                 }
 
                 Item { Layout.preferredHeight: 10 }
 
-                // ── City name ───────────────────────────────────────────
-                Text {
+                Text { 
                     Layout.fillWidth: true
                     text: root.displayCity
-                    color: Theme.primary; opacity: 0.55; font.pixelSize: 12; font.weight: Font.Medium
+                    color: Theme.primary
+                    opacity: 0.55
+                    font.pixelSize: 12
+                    font.weight: Font.Medium
                     elide: Text.ElideRight
-                    visible: root.weatherCode !== -1
+                    visible: root.weatherCode !== -1 
                 }
 
-                Item { Layout.preferredHeight: 14 }
+                Item { Layout.preferredHeight: 16 }
 
-                // ── Stat chips row ──────────────────────────────────────
-                RowLayout {
-                    Layout.fillWidth: true; spacing: 6
+                // ── TAB SWITCHER ──
+                Rectangle {
+                    Layout.fillWidth: true
+                    height: 32
+                    radius: 16
+                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05)
                     visible: root.weatherCode !== -1 && !root.wxLoading
 
-                    Repeater {
-                        model: [
-                            { icon: "󰖌", val: Math.round(root.feelsLikeC) + "°C" },
-                            { icon: "󰖎", val: root.humidity + "%" },
-                            { icon: "󰖝", val: Math.round(root.windKph) + "" }
-                        ]
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.margins: 4
+                        spacing: 4
+
                         Rectangle {
-                            Layout.fillWidth: true; height: 40; radius: 12
-                            color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.07)
-                            Column {
-                                anchors.centerIn: parent; spacing: 1
-                                Text { text: modelData.icon; color: Theme.primary; font.pixelSize: 14; anchors.horizontalCenter: parent.horizontalCenter }
-                                Text { text: modelData.val;  color: Theme.primary; font.pixelSize: 10; font.weight: Font.Bold; anchors.horizontalCenter: parent.horizontalCenter }
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            radius: 12
+                            color: root.weatherTab === 0 ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : "transparent"
+                            
+                            Behavior on color { ColorAnimation { duration: 150 } }
+
+                            Text { 
+                                text: "Today"
+                                color: Theme.primary
+                                opacity: root.weatherTab === 0 ? 1.0 : 0.5
+                                font.pixelSize: 12
+                                font.weight: Font.Bold
+                                anchors.centerIn: parent 
                             }
+                            MouseArea { anchors.fill: parent; onClicked: root.weatherTab = 0 }
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            radius: 12
+                            color: root.weatherTab === 1 ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : "transparent"
+                            
+                            Behavior on color { ColorAnimation { duration: 150 } }
+
+                            Text { 
+                                text: "5-Day Forecast"
+                                color: Theme.primary
+                                opacity: root.weatherTab === 1 ? 1.0 : 0.5
+                                font.pixelSize: 12
+                                font.weight: Font.Bold
+                                anchors.centerIn: parent 
+                            }
+                            MouseArea { anchors.fill: parent; onClicked: root.weatherTab = 1 }
                         }
                     }
                 }
 
-                Item { Layout.preferredHeight: 18 }
+                Item { Layout.preferredHeight: 16 }
 
-                // ── Divider ─────────────────────────────────────────────
-                Rectangle {
-                    Layout.fillWidth: true; height: 1
-                    color: Theme.primary; opacity: 0.1
-                    visible: root.forecastDates.length > 0
-                }
+                // ── DYNAMIC CONTENT AREA ──
+                Item {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
 
-                Item { Layout.preferredHeight: 14 }
+                    // VIEW 1: TODAY (Chips + Hourly)
+                    ColumnLayout {
+                        anchors.fill: parent
+                        spacing: 0
+                        opacity: root.weatherTab === 0 ? 1.0 : 0.0
+                        visible: opacity > 0
+                        Behavior on opacity { NumberAnimation { duration: 200 } }
 
-                // ── 5-day forecast ──────────────────────────────────────
-                // OPTIMIZATION: pre-compute allMin/allMax once, outside the Repeater
-                ColumnLayout {
-                    Layout.fillWidth: true; spacing: 10
-                    visible: root.forecastDates.length > 0 && !root.wxLoading
+                        // Stat Chips
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: 2
+                            columnSpacing: 8
+                            rowSpacing: 8
 
-                    // Compute range once for the whole forecast block
-                    property real allMax: {
-                        let m = -999
-                        for (let i = 0; i < root.forecastTempMax.length; i++)
-                            if (root.forecastTempMax[i] > m) m = root.forecastTempMax[i]
-                        return m
-                    }
-                    property real allMin: {
-                        let m = 999
-                        for (let i = 0; i < root.forecastTempMin.length; i++)
-                            if (root.forecastTempMin[i] < m) m = root.forecastTempMin[i]
-                        return m
-                    }
-                    property real span: Math.max(1, allMax - allMin)
-
-                    Repeater {
-                        model: Math.min(5, root.forecastDates.length)
-                        RowLayout {
-                            Layout.fillWidth: true; spacing: 0
-
-                            // Day label
-                            Text {
-                                text: index === 0 ? "Today" : shortDay(root.forecastDates[index])
-                                color: Theme.primary
-                                opacity: index === 0 ? 1.0 : 0.55
-                                font.pixelSize: 11; font.weight: index === 0 ? Font.Bold : Font.Normal
-                                Layout.preferredWidth: 38
-                            }
-
-                            // Icon
-                            Text {
-                                text: wmoIcon(root.forecastCodes[index] || 0, true)
-                                color: Theme.primary; font.pixelSize: 13
-                                Layout.preferredWidth: 20; horizontalAlignment: Text.AlignHCenter
-                            }
-
-                            Item { Layout.fillWidth: true }
-
-                            // Min
-                            Text {
-                                text: Math.round(root.forecastTempMin[index] || 0) + "°"
-                                color: Theme.primary; opacity: 0.4; font.pixelSize: 11
-                                Layout.preferredWidth: 26; horizontalAlignment: Text.AlignRight
-                            }
-
-                            // Temp bar — references parent ColumnLayout's pre-computed span
-                            Rectangle {
-                                Layout.preferredWidth: 50; height: 3; radius: 2
-                                Layout.leftMargin: 5; Layout.rightMargin: 5
-                                color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.12)
-                                property real barLeft:  (root.forecastTempMin[index] - parent.parent.allMin) / parent.parent.span
-                                property real barRight: (root.forecastTempMax[index] - parent.parent.allMin) / parent.parent.span
+                            Repeater {
+                                model: [
+                                    { icon: "󰖌", label: "Feels", val: Math.round(root.feelsLikeC) + "°C" },
+                                    { icon: "󰖎", label: "Humid", val: root.humidity + "%" },
+                                    { icon: "󰖝", label: "Wind",  val: Math.round(root.windKph) + " km/h" },
+                                    { icon: "󰖑", label: "UV",    val: root.uvIndex + " Index" }
+                                ]
+                                
                                 Rectangle {
-                                    x: parent.barLeft * parent.width
-                                    width: (parent.barRight - parent.barLeft) * parent.width
-                                    height: parent.height; radius: 2
-                                    color: Theme.primary; opacity: 0.75
+                                    Layout.fillWidth: true
+                                    height: 38
+                                    radius: 10
+                                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.06)
+                                    
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.margins: 8
+                                        
+                                        Text { 
+                                            text: modelData.icon
+                                            color: Theme.primary
+                                            font.pixelSize: 14
+                                            opacity: 0.8 
+                                        }
+                                        
+                                        Column { 
+                                            Layout.fillWidth: true
+                                            
+                                            Text { 
+                                                text: modelData.label
+                                                color: Theme.primary
+                                                font.pixelSize: 9
+                                                opacity: 0.5 
+                                            }
+                                            
+                                            Text { 
+                                                text: modelData.val
+                                                color: Theme.primary
+                                                font.pixelSize: 10
+                                                font.weight: Font.Bold 
+                                            } 
+                                        }
+                                    }
                                 }
                             }
+                        }
 
-                            // Max
-                            Text {
-                                text: Math.round(root.forecastTempMax[index] || 0) + "°"
-                                color: Theme.primary; font.pixelSize: 11; font.weight: Font.Bold
-                                Layout.preferredWidth: 26
+                        Item { Layout.preferredHeight: 16 }
+                        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.primary; opacity: 0.1 }
+                        Item { Layout.preferredHeight: 16 }
+
+                        // 24-HOUR SCROLLABLE FORECAST
+                        ListView {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 85 // Taller to prevent cropping
+                            orientation: ListView.Horizontal
+                            spacing: 16
+                            clip: true
+                            model: hourlyModel
+                            interactive: true
+                            boundsBehavior: Flickable.StopAtBounds
+
+                            delegate: ColumnLayout {
+                                width: 48
+                                spacing: 2 // Tighter spacing to fit nicely
+
+                                Text {
+                                    Layout.alignment: Qt.AlignHCenter
+                                    text: model.timeStr
+                                    color: Theme.primary
+                                    opacity: model.timeStr === "Now" ? 1.0 : 0.6
+                                    font.pixelSize: 11
+                                    font.weight: model.timeStr === "Now" ? Font.Bold : Font.Normal
+                                }
+                                
+                                Text {
+                                    Layout.alignment: Qt.AlignHCenter
+                                    text: root.wmoIcon(model.code, model.isDay)
+                                    color: Theme.primary
+                                    font.pixelSize: 18
+                                }
+                                
+                                // FIX: Use Opacity instead of visibility to prevent layout jumping/cropping!
+                                Item {
+                                    Layout.alignment: Qt.AlignHCenter
+                                    Layout.preferredHeight: 14
+                                    Layout.preferredWidth: 40
+                                    opacity: model.precip > 0 ? 1.0 : 0.0 
+                                    
+                                    Row {
+                                        anchors.centerIn: parent
+                                        spacing: 2
+                                        
+                                        Text { 
+                                            text: "󰖖"
+                                            color: "#60a5fa"
+                                            font.pixelSize: 9
+                                            anchors.verticalCenter: parent.verticalCenter 
+                                        }
+                                        
+                                        Text { 
+                                            text: model.precip + "%"
+                                            color: "#60a5fa"
+                                            opacity: 0.9
+                                            font.pixelSize: 9
+                                            font.weight: Font.Bold
+                                            anchors.verticalCenter: parent.verticalCenter 
+                                        }
+                                    }
+                                }
+
+                                Text {
+                                    Layout.alignment: Qt.AlignHCenter
+                                    text: model.temp + "°"
+                                    color: Theme.primary
+                                    font.pixelSize: 13
+                                    font.weight: Font.Bold
+                                }
                             }
                         }
+
+                        Item { Layout.fillHeight: true }
+                    }
+
+                    // VIEW 2: 5-DAY FORECAST
+                    ColumnLayout {
+                        anchors.fill: parent
+                        spacing: 16
+                        opacity: root.weatherTab === 1 ? 1.0 : 0.0
+                        visible: opacity > 0
+                        Behavior on opacity { NumberAnimation { duration: 200 } }
+
+                        property real allMax: { 
+                            let m = -999; 
+                            for(let i = 0; i < root.forecastTempMax.length; i++) {
+                                if(root.forecastTempMax[i] > m) m = root.forecastTempMax[i];
+                            }
+                            return m;
+                        }
+
+                        property real allMin: { 
+                            let m = 999; 
+                            for(let i = 0; i < root.forecastTempMin.length; i++) {
+                                if(root.forecastTempMin[i] < m) m = root.forecastTempMin[i];
+                            }
+                            return m;
+                        }
+
+                        property real span: Math.max(1, allMax - allMin)
+
+                        Repeater {
+                            model: Math.min(5, root.forecastDates.length)
+                            
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 0
+                                
+                                Text { 
+                                    text: index === 0 ? "Today" : shortDay(root.forecastDates[index])
+                                    color: Theme.primary
+                                    opacity: index === 0 ? 1.0 : 0.6
+                                    font.pixelSize: 11
+                                    font.weight: index === 0 ? Font.Bold : Font.Normal
+                                    Layout.preferredWidth: 45 
+                                }
+                                
+                                Text { 
+                                    text: wmoIcon(root.forecastCodes[index] || 0, true)
+                                    color: Theme.primary
+                                    font.pixelSize: 14
+                                    Layout.preferredWidth: 26
+                                    horizontalAlignment: Text.AlignHCenter 
+                                }
+                                
+                                Item {
+                                    Layout.preferredWidth: 36
+                                    Layout.fillHeight: true
+                                    
+                                    Row { 
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        visible: root.forecastPrecip[index] > 0
+                                        spacing: 2
+                                        
+                                        Text { 
+                                            text: "󰖖"
+                                            color: "#60a5fa"
+                                            font.pixelSize: 9
+                                            anchors.verticalCenter: parent.verticalCenter 
+                                        }
+                                        
+                                        Text { 
+                                            text: root.forecastPrecip[index] + "%"
+                                            color: Theme.primary
+                                            opacity: 0.5
+                                            font.pixelSize: 9
+                                            anchors.verticalCenter: parent.verticalCenter 
+                                        }
+                                    }
+                                }
+
+                                Item { Layout.fillWidth: true }
+                                
+                                Text { 
+                                    text: Math.round(root.forecastTempMin[index] || 0) + "°"
+                                    color: Theme.primary
+                                    opacity: 0.5
+                                    font.pixelSize: 11
+                                    Layout.preferredWidth: 26
+                                    horizontalAlignment: Text.AlignRight 
+                                }
+
+                                Rectangle {
+                                    Layout.preferredWidth: 70
+                                    height: 4
+                                    radius: 2
+                                    Layout.leftMargin: 8
+                                    Layout.rightMargin: 8
+                                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+                                    property real barLeft:  (root.forecastTempMin[index] - parent.parent.allMin) / parent.parent.span
+                                    property real barRight: (root.forecastTempMax[index] - parent.parent.allMin) / parent.parent.span
+                                    
+                                    Rectangle { 
+                                        x: parent.barLeft * parent.width
+                                        width: (parent.barRight - parent.barLeft) * parent.width
+                                        height: parent.height
+                                        radius: 2
+                                        color: Theme.primary
+                                        opacity: 0.8 
+                                    }
+                                }
+                                
+                                Text { 
+                                    text: Math.round(root.forecastTempMax[index] || 0) + "°"
+                                    color: Theme.primary
+                                    font.pixelSize: 11
+                                    font.weight: Font.Bold
+                                    Layout.preferredWidth: 26 
+                                }
+                            }
+                        }
+                        
+                        Item { Layout.fillHeight: true }
                     }
                 }
 
-                Item { Layout.fillWidth: true; Layout.fillHeight: true }
-
-                // ── Refresh hint ────────────────────────────────────────
-                Text {
+                // Global refresh button
+                Text { 
                     Layout.alignment: Qt.AlignRight
                     text: "󰑓"
-                    color: Theme.primary; opacity: 0.2; font.pixelSize: 13
-                    MouseArea {
+                    color: Theme.primary
+                    opacity: 0.3
+                    font.pixelSize: 14
+                    
+                    MouseArea { 
                         anchors.fill: parent
-                        onClicked: loadCity(root.cityInput)
-                    }
+                        anchors.margins: -10
+                        onClicked: loadCity(root.cityInput) 
+                    } 
                 }
             }
-        }
 
-        // ══════════════════════════════════════════════════════════════════
-        //  RIGHT — CALENDAR PANEL 
-        // ══════════════════════════════════════════════════════════════════
-        Rectangle {
-            width: 400; height: 520
-            radius: 30; color: "transparent"
-
+            // ══════════════════════════════════════════════════════════════════
+            //  CENTER DIVIDER
+            // ══════════════════════════════════════════════════════════════════
             Rectangle {
-                anchors.fill: parent
-                color: Theme.background
-                border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.8); border.width: 2
-                radius: 30; opacity: 0.8
+                Layout.fillHeight: true
+                width: 1
+                color: Theme.primary
+                opacity: 0.1
+                Layout.topMargin: 10
+                Layout.bottomMargin: 10
             }
 
-            MouseArea { anchors.fill: parent }
-
+            // ══════════════════════════════════════════════════════════════════
+            //  RIGHT — CALENDAR / WORLD CLOCK PANEL 
+            // ══════════════════════════════════════════════════════════════════
             ColumnLayout {
-                anchors.fill: parent; anchors.margins: 30; spacing: 20
+                Layout.fillHeight: true
+                Layout.fillWidth: true
+                spacing: 15
 
-                // Clock header — OPTIMIZATION: single Timer + one Date property
-                ColumnLayout {
-                    Layout.fillWidth: true; spacing: 0
-                    property var now: new Date()
-                    Timer { interval: 1000; running: true; repeat: true; onTriggered: parent.now = new Date() }
-                    Text {
-                        id: bigTime
-                        Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter
-                        text: Qt.formatDateTime(parent.now, "HH:mm:ss")
-                        color: Theme.primary; font.pixelSize: 48; font.weight: Font.Black
-                    }
-                    Text {
-                        Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter
-                        text: Qt.formatDateTime(parent.now, "dddd, MMMM d")
-                        color: Theme.primary; opacity: 0.6; font.pixelSize: 16
-                    }
-                }
-
-                Rectangle { Layout.fillWidth: true; height: 1; color: Theme.primary; opacity: 0.1 }
-
-                // Month nav
+                // ── Clock Header (Shared) ──────────────────────────────────
                 RowLayout {
                     Layout.fillWidth: true
-                    Text {
-                        text: ""; color: Theme.primary; font.pixelSize: 18
-                        MouseArea { anchors.fill: parent; onClicked: { if (currentMonth === 0) { currentMonth = 11; currentYear-- } else currentMonth--; updateCalendar(currentYear, currentMonth) } }
+                    
+                    Item { Layout.preferredWidth: 24 }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: -2
+                        
+                        Text {
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignHCenter
+                            text: Qt.formatDateTime(root.localNow, "HH:mm:ss")
+                            color: Theme.primary
+                            font.pixelSize: 56
+                            font.weight: Font.Black
+                        }
+                        
+                        Text {
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignHCenter
+                            text: Qt.formatDateTime(root.localNow, "dddd, MMMM d")
+                            color: Theme.primary
+                            opacity: 0.6
+                            font.pixelSize: 16
+                            font.weight: Font.Medium
+                        }
                     }
-                    Text {
-                        text: monthNames[currentMonth] + " " + currentYear
-                        color: Theme.primary; font.bold: true; font.pixelSize: 18
-                        Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter
-                    }
-                    Text {
-                        text: ""; color: Theme.primary; font.pixelSize: 18
-                        MouseArea { anchors.fill: parent; onClicked: { if (currentMonth === 11) { currentMonth = 0; currentYear++ } else currentMonth++; updateCalendar(currentYear, currentMonth) } }
+
+                    // World Clock Toggle Button
+                    Item {
+                        Layout.preferredWidth: 24
+                        Layout.alignment: Qt.AlignTop
+                        Layout.topMargin: 10
+                        
+                        Text {
+                            anchors.centerIn: parent
+                            text: root.showWorldClock ? "󰃰" : "󰅐" 
+                            color: Theme.primary
+                            opacity: toggleWcMouse.containsMouse ? 0.9 : 0.4
+                            font.pixelSize: 20
+                            
+                            Behavior on opacity { 
+                                NumberAnimation { duration: 150 } 
+                            }
+                            
+                            MouseArea {
+                                id: toggleWcMouse
+                                anchors.fill: parent
+                                anchors.margins: -15
+                                hoverEnabled: true
+                                onClicked: root.showWorldClock = !root.showWorldClock
+                            }
+                        }
                     }
                 }
 
-                // Unified 8-column grid
-                GridLayout {
-                    columns: 8; rowSpacing: 12; columnSpacing: 10; Layout.fillWidth: true
-
-                    Text { text: "Wk"; color: Theme.primary; opacity: 0.3; font.pixelSize: 11; Layout.alignment: Qt.AlignHCenter }
-                    Repeater {
-                        model: dayNames
-                        Text { text: modelData; color: Theme.primary; font.bold: true; font.pixelSize: 12; Layout.alignment: Qt.AlignHCenter; opacity: 0.5 }
-                    }
-
-                    Repeater {
-                        model: calendarModel
-                        Item {
-                            Layout.preferredWidth: 32; Layout.preferredHeight: 32
-                            Rectangle {
-                                anchors.fill: parent; radius: 16
-                                color: model.tod ? Theme.primary : "transparent"
-                                visible: model.type === "day"
-                                Text {
-                                    anchors.centerIn: parent; text: model.d
-                                    color: model.tod ? Theme.background : Theme.primary
-                                    opacity: model.cur ? 1.0 : 0.25
-                                    font.bold: model.tod; font.pixelSize: 12
+                Item { 
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+                    
+                    // ── Calendar View ──────────────────────────────────────────
+                    ColumnLayout {
+                        anchors.fill: parent
+                        spacing: 20
+                        opacity: root.showWorldClock ? 0.0 : 1.0
+                        visible: opacity > 0
+                        
+                        Behavior on opacity { 
+                            NumberAnimation { duration: 250; easing.type: Easing.OutExpo } 
+                        }
+                        
+                        // Full Navigation Row
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 10
+                            Layout.rightMargin: 10
+                            
+                            Text { 
+                                text: "󰄾"
+                                color: Theme.primary
+                                font.pixelSize: 18
+                                opacity: ypa.pressed ? 0.4 : 0.7
+                                MouseArea { 
+                                    id: ypa
+                                    anchors.fill: parent
+                                    anchors.margins: -5
+                                    onClicked: { 
+                                        currentYear--; 
+                                        updateCalendar(currentYear, currentMonth) 
+                                    } 
+                                } 
+                            }
+                            
+                            Text { 
+                                text: "󰅁"
+                                color: Theme.primary
+                                font.pixelSize: 22
+                                opacity: mpa.pressed ? 0.4 : 0.9
+                                Layout.leftMargin: 5
+                                MouseArea { 
+                                    id: mpa
+                                    anchors.fill: parent
+                                    anchors.margins: -5
+                                    onClicked: { 
+                                        if (currentMonth === 0) { 
+                                            currentMonth = 11; 
+                                            currentYear-- 
+                                        } else {
+                                            currentMonth--
+                                        } 
+                                        updateCalendar(currentYear, currentMonth) 
+                                    } 
+                                } 
+                            }
+                            
+                            Text {
+                                text: monthNames[currentMonth] + " " + currentYear
+                                color: Theme.primary
+                                font.bold: true
+                                font.pixelSize: 18
+                                Layout.fillWidth: true
+                                horizontalAlignment: Text.AlignHCenter
+                                
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onWheel: function(wheel) {
+                                        if (wheel.angleDelta.y > 0) { 
+                                            if (currentMonth === 11) { 
+                                                currentMonth = 0; 
+                                                currentYear++ 
+                                            } else {
+                                                currentMonth++ 
+                                            }
+                                        } else { 
+                                            if (currentMonth === 0) { 
+                                                currentMonth = 11; 
+                                                currentYear-- 
+                                            } else {
+                                                currentMonth-- 
+                                            }
+                                        }
+                                        updateCalendar(currentYear, currentMonth)
+                                    }
                                 }
                             }
-                            Text {
-                                anchors.centerIn: parent
-                                visible: model.type === "week"
-                                text: model.d; color: Theme.primary; opacity: 0.3; font.pixelSize: 11
+                            
+                            Text { 
+                                text: "󰅂"
+                                color: Theme.primary
+                                font.pixelSize: 22
+                                opacity: mna.pressed ? 0.4 : 0.9
+                                Layout.rightMargin: 5
+                                MouseArea { 
+                                    id: mna
+                                    anchors.fill: parent
+                                    anchors.margins: -5
+                                    onClicked: { 
+                                        if (currentMonth === 11) { 
+                                            currentMonth = 0; 
+                                            currentYear++ 
+                                        } else {
+                                            currentMonth++
+                                        } 
+                                        updateCalendar(currentYear, currentMonth) 
+                                    } 
+                                } 
                             }
+                            
+                            Text { 
+                                text: "󰄿"
+                                color: Theme.primary
+                                font.pixelSize: 18
+                                opacity: yna.pressed ? 0.4 : 0.7
+                                MouseArea { 
+                                    id: yna
+                                    anchors.fill: parent
+                                    anchors.margins: -5
+                                    onClicked: { 
+                                        currentYear++; 
+                                        updateCalendar(currentYear, currentMonth) 
+                                    } 
+                                } 
+                            }
+                        }
+
+                        // Calendar grid
+                        GridLayout {
+                            columns: 8
+                            rowSpacing: 14
+                            columnSpacing: 12
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignHCenter
+                            
+                            Text { 
+                                text: "Wk"
+                                color: Theme.primary
+                                opacity: 0.3
+                                font.pixelSize: 11
+                                Layout.alignment: Qt.AlignHCenter 
+                            }
+                            
+                            Repeater { 
+                                model: dayNames
+                                Text { 
+                                    text: modelData
+                                    color: Theme.primary
+                                    font.bold: true
+                                    font.pixelSize: 12
+                                    Layout.alignment: Qt.AlignHCenter
+                                    opacity: 0.5 
+                                } 
+                            }
+                            
+                            Repeater {
+                                model: calendarModel
+                                Item {
+                                    Layout.preferredWidth: 36
+                                    Layout.preferredHeight: 36
+                                    
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        radius: 18
+                                        color: model.tod ? Theme.primary : "transparent"
+                                        border.color: model.tod ? "transparent" : (model.cur ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : "transparent")
+                                        border.width: 1
+                                        visible: model.type === "day"
+                                        
+                                        Text { 
+                                            anchors.centerIn: parent
+                                            text: model.d
+                                            color: model.tod ? Theme.background : Theme.primary
+                                            opacity: model.tod ? 1.0 : (model.cur ? 0.9 : 0.25)
+                                            font.bold: model.tod
+                                            font.pixelSize: 13 
+                                        }
+                                    }
+                                    
+                                    Text { 
+                                        anchors.centerIn: parent
+                                        visible: model.type === "week"
+                                        text: model.d
+                                        color: Theme.primary
+                                        opacity: 0.3
+                                        font.pixelSize: 11 
+                                    }
+                                }
+                            }
+                        }
+                        Item { Layout.fillHeight: true } 
+                    }
+
+                    // ── World Clock View ───────────────────────────────────────
+                    ColumnLayout {
+                        anchors.fill: parent
+                        spacing: 0
+                        opacity: root.showWorldClock ? 1.0 : 0.0
+                        visible: opacity > 0
+                        
+                        Behavior on opacity { 
+                            NumberAnimation { duration: 250; easing.type: Easing.OutExpo } 
+                        }
+
+                        // Search Bar
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 32
+                            radius: 16
+                            Layout.margins: 10
+                            color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05)
+                            border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.3)
+                            border.width: 1
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 12
+                                anchors.rightMargin: 10
+                                spacing: 6
+                                
+                                Text { 
+                                    text: "󰍉"
+                                    color: Theme.primary
+                                    opacity: 0.5
+                                    font.pixelSize: 13
+                                    verticalAlignment: Text.AlignVCenter 
+                                }
+                                
+                                Item {
+                                    Layout.fillWidth: true
+                                    height: 20
+                                    
+                                    Text {
+                                        anchors.fill: parent
+                                        text: "Check time in city..."
+                                        color: Theme.primary
+                                        opacity: 0.5
+                                        font.pixelSize: 12
+                                        verticalAlignment: Text.AlignVCenter
+                                        visible: wcCityField.text.length === 0
+                                    }
+                                    
+                                    TextInput {
+                                        id: wcCityField
+                                        anchors.fill: parent
+                                        color: Theme.primary
+                                        font.pixelSize: 12
+                                        verticalAlignment: TextInput.AlignVCenter
+                                        onAccepted: loadWcCity(text)
+                                        Keys.onEscapePressed: { 
+                                            root.showWorldClock = false; 
+                                            text = "" 
+                                        }
+                                    }
+                                }
+                                
+                                Text {
+                                    text: "󰅖"
+                                    color: Theme.primary
+                                    opacity: 0.4
+                                    font.pixelSize: 13
+                                    visible: wcCityField.text.length > 0
+                                    verticalAlignment: Text.AlignVCenter
+                                    
+                                    MouseArea { 
+                                        anchors.fill: parent
+                                        onClicked: { 
+                                            wcCityField.text = ""
+                                            root.targetWcCity = "" 
+                                        } 
+                                    }
+                                }
+                            }
+                        }
+
+                        // Loading/Error Indicator
+                        Item {
+                            Layout.fillWidth: true
+                            height: 30
+                            visible: root.wcLoading || root.wcError !== ""
+                            
+                            Text { 
+                                anchors.centerIn: parent
+                                text: root.wcLoading ? "Locating..." : root.wcError
+                                color: root.wcError !== "" ? "#ff6b6b" : Theme.primary
+                                opacity: 0.6
+                                font.pixelSize: 12 
+                            }
+                        }
+
+                        // Beautiful World Clock Display
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            spacing: 8
+                            visible: !root.wcLoading && root.targetWcCity !== ""
+
+                            Item { Layout.fillHeight: true }
+
+                            Text { 
+                                Layout.fillWidth: true
+                                horizontalAlignment: Text.AlignHCenter
+                                text: root.targetWcCity
+                                color: Theme.primary
+                                opacity: 0.6
+                                font.pixelSize: 20
+                                elide: Text.ElideRight
+                            }
+                            
+                            Text { 
+                                Layout.fillWidth: true
+                                horizontalAlignment: Text.AlignHCenter
+                                text: Qt.formatDateTime(root.worldNow, "HH:mm") 
+                                color: Theme.primary
+                                font.pixelSize: 84
+                                font.weight: Font.Black 
+                            }
+                            
+                            Text { 
+                                Layout.fillWidth: true
+                                horizontalAlignment: Text.AlignHCenter
+                                text: Qt.formatDateTime(root.worldNow, "dddd, MMMM d") 
+                                color: Theme.primary
+                                opacity: 0.8
+                                font.pixelSize: 18 
+                            }
+                            
+                            Item { Layout.preferredHeight: 12 }
+                            
+                            // Time Difference Badge
+                            Rectangle {
+                                Layout.alignment: Qt.AlignHCenter
+                                height: 28
+                                width: timeDiffTxt.implicitWidth + 30
+                                radius: 14
+                                color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+                                border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.2)
+                                border.width: 1
+                                
+                                Text {
+                                    id: timeDiffTxt
+                                    anchors.centerIn: parent
+                                    text: getWcTimeDiffString()
+                                    color: Theme.primary
+                                    opacity: 0.7
+                                    font.pixelSize: 12
+                                    font.weight: Font.Bold
+                                }
+                            }
+                            
+                            Item { Layout.fillHeight: true }
                         }
                     }
                 }
