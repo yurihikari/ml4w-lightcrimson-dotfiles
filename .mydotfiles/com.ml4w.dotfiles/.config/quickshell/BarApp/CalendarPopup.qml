@@ -358,7 +358,6 @@ PanelWindow {
         anchors.right:      parent.right
         anchors.rightMargin: 155
         
-        // REDUCED HEIGHT: Wide, modern ratio
         width: 900
         height: 580
         radius: 30
@@ -367,7 +366,6 @@ PanelWindow {
         border.width: 2
         clip: true 
 
-        // ── ANIMATION LOGIC
         opacity: root.active ? 0.8 : 0.0
         Behavior on opacity {
             NumberAnimation { duration: 250; easing.type: Easing.OutExpo }
@@ -381,17 +379,24 @@ PanelWindow {
 
         // ── LIGHTWEIGHT WEATHER BACKGROUND ANIMATIONS ────────────────────────
         Item {
+            id: bgAnimItem
             anchors.fill: parent
-            property bool isRain: (weatherCode >= 51 && weatherCode <= 67) || (weatherCode >= 80 && weatherCode <= 82)
-            property bool isSnow: (weatherCode >= 71 && weatherCode <= 77) || (weatherCode >= 85 && weatherCode <= 86)
-            property bool isClear: weatherCode === 0 || weatherCode === 1
+            
+            // WMO Logic Parsing
+            property bool isClear:   weatherCode === 0 || weatherCode === 1
+            property bool isCloudy:  weatherCode === 2 || weatherCode === 3
+            property bool isFog:     weatherCode === 45 || weatherCode === 48
+            property bool isThunder: weatherCode >= 95 && weatherCode <= 99
+            property bool isRain:    (weatherCode >= 51 && weatherCode <= 67) || (weatherCode >= 80 && weatherCode <= 82) || isThunder
+            property bool isSnow:    (weatherCode >= 71 && weatherCode <= 77) || (weatherCode >= 85 && weatherCode <= 86)
 
+            // 1. SUN (Clear or Cloudy, Day)
             Text {
                 text: "󰖙"
                 color: Theme.primary
                 font.pixelSize: 380
                 anchors.centerIn: parent
-                visible: parent.isClear && root.isDay && !root.wxLoading
+                visible: (bgAnimItem.isClear || bgAnimItem.isCloudy) && root.isDay && !root.wxLoading
                 opacity: 0.04
                 RotationAnimation on rotation { 
                     loops: Animation.Infinite 
@@ -402,19 +407,109 @@ PanelWindow {
                 }
             }
 
+            // 2. MOON (Clear or Cloudy, Night)
+            Text {
+                text: "󰖔" // MDI Moon
+                color: Theme.primary
+                font.pixelSize: 320
+                anchors.centerIn: parent
+                visible: (bgAnimItem.isClear || bgAnimItem.isCloudy) && !root.isDay && !root.wxLoading
+                opacity: 0.04
+                
+                SequentialAnimation on rotation {
+                    loops: Animation.Infinite
+                    running: parent.visible
+                    NumberAnimation { from: -5; to: 5; duration: 8000; easing.type: Easing.InOutSine }
+                    NumberAnimation { from: 5; to: -5; duration: 8000; easing.type: Easing.InOutSine }
+                }
+            }
+
+            // 3. STARS (Clear, Night)
             Repeater {
-                model: (parent.isRain || parent.isSnow) && !root.wxLoading ? 25 : 0
+                model: bgAnimItem.isClear && !root.isDay && !root.wxLoading ? 20 : 0
+                Text {
+                    property real startX: Math.random() * mainContent.width
+                    property real startY: Math.random() * (mainContent.height * 0.7)
+                    property real animDelay: Math.random() * 3000
+                    
+                    x: startX
+                    y: startY
+                    text: "✦"
+                    color: Theme.primary
+                    font.pixelSize: 10 + Math.random() * 14
+                    opacity: 0.0
+                    
+                    SequentialAnimation on opacity {
+                        loops: Animation.Infinite
+                        running: root.active
+                        PauseAnimation { duration: animDelay }
+                        NumberAnimation { to: 0.15; duration: 1500; easing.type: Easing.InOutSine }
+                        NumberAnimation { to: 0.0; duration: 1500; easing.type: Easing.InOutSine }
+                        PauseAnimation { duration: 2000 + Math.random() * 3000 }
+                    }
+                }
+            }
+
+            // 4. CLOUDS (Cloudy Day/Night)
+            Repeater {
+                model: bgAnimItem.isCloudy && !root.wxLoading ? 3 : 0
+                Text {
+                    property real startY: 20 + Math.random() * (mainContent.height * 0.4)
+                    property real dur: 40000 + Math.random() * 40000
+                    
+                    y: startY
+                    text: "󰖐"
+                    color: Theme.primary
+                    font.pixelSize: 180 + Math.random() * 100
+                    opacity: 0.03
+                    
+                    NumberAnimation on x {
+                        from: -300
+                        to: mainContent.width + 100
+                        duration: dur
+                        loops: Animation.Infinite
+                        running: root.active
+                    }
+                }
+            }
+
+            // 5. FOG (Dense, low opacity drifting clouds)
+            Repeater {
+                model: bgAnimItem.isFog && !root.wxLoading ? 6 : 0
+                Text {
+                    property real startY: -50 + Math.random() * (mainContent.height - 100)
+                    property real dur: 30000 + Math.random() * 40000
+                    
+                    y: startY
+                    text: "󰖐"
+                    color: Theme.primary
+                    font.pixelSize: 300 + Math.random() * 200
+                    opacity: 0.02
+                    
+                    NumberAnimation on x {
+                        from: -400
+                        to: mainContent.width + 200
+                        duration: dur
+                        loops: Animation.Infinite
+                        running: root.active
+                    }
+                }
+            }
+
+            // 6. RAIN / SNOW Particles
+            Repeater {
+                model: (bgAnimItem.isRain || bgAnimItem.isSnow) && !root.wxLoading ? (bgAnimItem.isThunder ? 40 : 25) : 0
                 Item {
                     property real startX: Math.random() * mainContent.width
                     property real startY: -50 - Math.random() * mainContent.height
-                    property real dur: parent.isSnow ? (3000 + Math.random() * 4000) : (600 + Math.random() * 400)
+                    property real dur: bgAnimItem.isSnow ? (3000 + Math.random() * 4000) : (600 + Math.random() * 400)
                     
                     x: startX
                     
                     Text { 
-                        text: parent.parent.isSnow ? "󰜗" : "󰖖"
+                        text: bgAnimItem.isSnow ? "󰜗" : "󰖖"
                         color: Theme.primary
-                        font.pixelSize: parent.parent.isSnow ? (8 + Math.random() * 12) : 14
+                        font.pixelSize: bgAnimItem.isSnow ? (8 + Math.random() * 12) : 14
                         opacity: 0.15 + Math.random() * 0.1 
                     }
                     
@@ -425,6 +520,31 @@ PanelWindow {
                         loops: Animation.Infinite
                         running: root.active 
                     }
+                }
+            }
+
+            // 7. THUNDERSTORM (Lightning flashes)
+            Rectangle {
+                anchors.fill: parent
+                color: Theme.primary
+                opacity: 0.0
+                visible: bgAnimItem.isThunder && !root.wxLoading
+
+                SequentialAnimation on opacity {
+                    loops: Animation.Infinite
+                    running: parent.visible
+                    
+                    PauseAnimation { duration: 3000 + Math.random() * 7000 }
+                    
+                    // First Flash
+                    NumberAnimation { to: 0.15; duration: 50 }
+                    NumberAnimation { to: 0.0; duration: 100 }
+                    
+                    PauseAnimation { duration: 50 + Math.random() * 100 }
+                    
+                    // Second Flash
+                    NumberAnimation { to: 0.2; duration: 50 }
+                    NumberAnimation { to: 0.0; duration: 400 }
                 }
             }
         }
@@ -748,7 +868,6 @@ PanelWindow {
                                     font.pixelSize: 18
                                 }
                                 
-                                // FIX: Use Opacity instead of visibility to prevent layout jumping/cropping!
                                 Item {
                                     Layout.alignment: Qt.AlignHCenter
                                     Layout.preferredHeight: 14
