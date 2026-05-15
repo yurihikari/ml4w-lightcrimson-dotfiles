@@ -389,7 +389,7 @@ PanelWindow {
 
             // ── Tab bar ───────────────────────────────────────────────────
             Rectangle {
-                Layout.fillWidth: true; height: 36; radius: 12; color: Theme.background
+                Layout.fillWidth: true; height: 36; radius: 12; color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
                 Row {
                     anchors.fill: parent; anchors.margins: 4; spacing: 4
                     Repeater {
