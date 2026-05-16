@@ -395,7 +395,7 @@ PanelWindow {
                     }
                     MouseArea {
                         id: pMouse; anchors.fill: parent; hoverEnabled: true
-                        onClicked: { executor.run([cmd]); popup.active = false }
+                        onClicked: { executor.run(["bash", "-c", cmd]); popup.active = false }
                     }
                 }
 
