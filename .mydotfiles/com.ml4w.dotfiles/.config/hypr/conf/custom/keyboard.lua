@@ -7,7 +7,6 @@ hl.config({
             scroll_factor = 1.0,
             middle_button_emulation = false,
             clickfinger_behavior = false,
-            ["tap-to-click"] = true,
             drag_lock = false,
         },
         touchdevice = {
