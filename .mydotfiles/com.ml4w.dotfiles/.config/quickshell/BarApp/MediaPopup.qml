@@ -81,7 +81,11 @@ PanelWindow {
             anchors.fill: parent
             hoverEnabled: true
             onClicked: {
-                executor.run(["hyprctl", "dispatch", "exec", cmd])
+                executor.run([
+                    "hyprctl",
+                    "dispatch",
+                    "hl.dsp.exec_cmd(\"" + cmd + "\")"
+                ])
                 popup.active = false
             }
         }

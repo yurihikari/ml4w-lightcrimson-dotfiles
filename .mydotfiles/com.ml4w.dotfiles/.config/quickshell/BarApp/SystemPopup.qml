@@ -154,15 +154,7 @@ PanelWindow {
     Process {
         id: gamemodeExec
         function apply(enable) {
-            let blur     = enable ? "0" : "1"
-            let anim     = enable ? "0" : "1"
-            let rounding = enable ? "0" : "12"
-            command = ["bash", "-c",
-                "hyprctl keyword decoration:blur:enabled "      + blur     + "\n" +
-                "hyprctl keyword animations:enabled "           + anim     + "\n" +
-                "hyprctl keyword decoration:rounding "          + rounding + "\n" +
-                "hyprctl keyword decoration:drop_shadow "       + blur     + "\n"
-            ]
+            command = ["bash", "-c", "$HOME/.mydotfiles/com.ml4w.dotfiles/.config/hypr/scripts/gamemode.sh"]
             running = true
         }
     }
@@ -1251,7 +1243,14 @@ PanelWindow {
                                 MouseArea { 
                                     id: tuxMouse
                                     anchors.fill: parent; hoverEnabled: true
-                                    onClicked: { localExec.run(["hyprctl","dispatch","exec","tuxedo-control-center"]); popup.active=false } 
+                                    onClicked: {
+                                        localExec.run([
+                                            "hyprctl",
+                                            "dispatch",
+                                            "hl.dsp.exec({ \"tuxedo-control-center\" })"
+                                        ])
+                                        popup.active = false
+                                    }
                                 }
                             }
                         }

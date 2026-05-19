@@ -278,7 +278,11 @@ PanelWindow {
                                 id: wsMouse
                                 anchors.fill: parent
                                 hoverEnabled: true
-                                onClicked: executor.run(["hyprctl", "dispatch", "workspace", modelData.name])
+                                onClicked: executor.run([
+                                    "hyprctl",
+                                    "dispatch",
+                                    "hl.dsp.focus({ workspace = \"" + modelData.name + "\" })"
+                                ])
                             }
                         }
                     }

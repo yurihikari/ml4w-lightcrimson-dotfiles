@@ -9,6 +9,8 @@ import "../CustomTheme"
 PanelWindow {
     id: root
     property bool active: false
+
+    
     
     // 1. Keep window alive while the exit animation is running
     property bool isAnimating: false
@@ -114,7 +116,7 @@ PanelWindow {
             anchors.fill: parent; anchors.margins: 30; spacing: 15
             PowerButton { icon: "󰌾"; label: "Lock"; action: ["hyprlock"] }
             PowerButton { icon: "󰤄"; label: "Suspend"; action: ["systemctl", "suspend"] }
-            PowerButton { icon: "󰍃"; label: "Log Out"; action: ["hyprctl", "dispatch", "exit"] }
+            PowerButton { icon: "󰍃"; label: "Log Out"; action: ["hyprctl", "dispatch", "hl.dsp.exit()"] }
             PowerButton { icon: "󰑓"; label: "Reboot"; action: ["systemctl", "reboot"] }
             PowerButton { icon: "󰐥"; label: "Shutdown"; action: ["systemctl", "poweroff"] }
         }

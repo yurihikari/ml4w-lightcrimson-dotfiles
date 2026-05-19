@@ -401,7 +401,7 @@ PanelWindow {
                 }
 
                 SessionButton { btnIcon: "󰌾"; cmd: "hyprlock" }
-                SessionButton { btnIcon: "󰍃"; cmd: "hyprctl dispatch exit" }
+                SessionButton { btnIcon: "󰍃"; cmd: "hyprctl dispatch 'hl.dsp.exit()'" }
                 SessionButton { btnIcon: "󰤄"; cmd: "systemctl suspend" }
                 SessionButton { btnIcon: "󰜉"; cmd: "systemctl reboot" }
                 SessionButton { btnIcon: "󰐥"; cmd: "systemctl poweroff"; hoverColor: "#ff5555" } // Red hover for shutdown
