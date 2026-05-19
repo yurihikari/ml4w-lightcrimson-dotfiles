@@ -395,6 +395,7 @@ PanelWindow {
                     }
                     MouseArea {
                         id: pMouse; anchors.fill: parent; hoverEnabled: true
+                        // FIX: Wrapped command in bash invocation
                         onClicked: { executor.run(["bash", "-c", cmd]); popup.active = false }
                     }
                 }

@@ -10,12 +10,13 @@ import "CustomTheme"
 import "CavaApp"
 import "BarApp"
 import "RadialMenuApp"
+import "DisplayManagerApp"
 
 ShellRoot {
     // Test IPC tools: qs ipc show
 
     IpcHandler {
-        target: "theme-manager" 
+        target: "theme-manager"
         function reload(): void {
             Theme.reloadTheme()
         }
@@ -39,6 +40,7 @@ ShellRoot {
     CalendarWindow {}
     WallpaperWindow {}
     RadialMenuPopup {}
+    DisplayManagerWindow { id: displayManager }
     // Variants {
     //     model: Quickshell.screens
     //     delegate: Component {
