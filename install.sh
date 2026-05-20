@@ -51,6 +51,7 @@ cp -f "$REPO_ROOT/.config/ml4w/settings/darkmode" "$TARGET_STORAGE/.config/ml4w/
 # Edited screenshot and colorpicker scripts
 cp -f "$REPO_ROOT/.config/hypr/scripts/screenshot.sh" "$TARGET_STORAGE/.config/hypr/scripts/screenshot.sh"
 cp -f "$REPO_ROOT/.config/hypr/scripts/colorpicker.sh" "$TARGET_STORAGE/.config/hypr/scripts/colorpicker.sh"
+cp -f "$REPO_ROOT/.config/hypr/scripts/gamemode.sh" "$TARGET_STORAGE/.config/hypr/scripts/gamemode.sh"
 # Added custom keybindings
 cp -f "$REPO_ROOT/.config/hypr/conf/keybindings/default.conf" "$TARGET_STORAGE/.config/hypr/conf/keybindings/default.conf"
 # Fastfetch
