@@ -39,6 +39,14 @@ fi
 cd "$INSTALLER_DIR"
 make install
 ~/.local/bin/ml4w-dotfiles-installer --install "$PROFILE_URL"
+# SELECTIVE COPY BACK TO STORAGE (to preserve your custom edits)
+echo "🔄 Updating .config in storage after ml4w installation..."
+if [ -d "$REPO_ROOT/.config" ]; then
+    # -L follows the links in your repo and turns them into REAL files in storage
+    # This kills the circular loop "Too many levels" error.
+    cp -rL "$REPO_ROOT/.config/"* "$TARGET_STORAGE/.config/"
+fi
+echo "✅ .config updated in storage."
 echo "✅ ML4W Dotfiles installed."
 
 # 5. RESTORE YOUR CUSTOMIZATIONS INTO STORAGE
