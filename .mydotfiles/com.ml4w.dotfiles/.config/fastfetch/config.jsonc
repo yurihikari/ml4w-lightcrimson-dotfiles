@@ -69,7 +69,7 @@
             "showPeCoreCount": true
         },
         {
-            "key": "│ {#33}󰯦 gpu     {#keys}│",
+            "key": "│ {#34}󰯦 gpu     {#keys}│",
             "type": "gpu",
             "format": "{name} ",
             "detectionMethod": "auto"
