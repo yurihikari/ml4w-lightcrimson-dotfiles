@@ -59,6 +59,7 @@ send_notification() {
     local title="$1"
     local message="$2"
     if [ "$NOTIFICATIONS" = true ]; then
+        # You can adjust the icon or app name here
         notify-send -a "ml4w-wallpaper" -i "preferences-desktop-wallpaper-symbolic" "$title" "$message"
     fi
 }
@@ -67,6 +68,7 @@ send_notification() {
 # Parameter Parsing
 # ==========================================
 
+# If no arguments are passed, show help
 if [[ $# -eq 0 ]]; then
     show_help
     exit 1
@@ -74,22 +76,33 @@ fi
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --skip) SKIP=true; shift 1 ;;
-        --effect) EFFECT="$2"; shift 2 ;;
+        --skip)
+            SKIP=true
+            shift 1
+            ;;
+        --effect)
+            EFFECT="$2"
+            shift 2
+            ;;
         --random)
             if [[ -n "$2" && "$2" != -* ]]; then
                 RANDOM_FOLDER="$2"
                 shift 2
             else
+                # Default folder if none is provided
                 RAW_FOLDER=$(cat "$SETTINGS_WALLPAPER_FOLDER")
+                # Safely expand $HOME and ~
                 RANDOM_FOLDER="${RAW_FOLDER//\$HOME/$HOME}"
                 RANDOM_FOLDER="${RANDOM_FOLDER//\~/$HOME}"                
                 shift 1
             fi
+
             if [[ -d "$RANDOM_FOLDER" ]]; then
+                # Select a random image from the resolved folder
                 IMAGE_PATH=$(find "$RANDOM_FOLDER" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" \) | shuf -n 1)
+
                 if [[ -z "$IMAGE_PATH" ]]; then
-                    error "No valid images found in -> $RANDOM_FOLDER"
+                    error "No valid images (jpg, jpeg, png) found in -> $RANDOM_FOLDER"
                     exit 1
                 fi
                 info "Random wallpaper selected: $IMAGE_PATH"
@@ -99,38 +112,79 @@ while [[ $# -gt 0 ]]; do
             fi
             ;;
         --notifications)
-            if [[ "$2" == "false" ]]; then NOTIFICATIONS=false; fi
+            if [[ "$2" == "false" ]]; then
+                NOTIFICATIONS=false
+            fi
             shift 2
             ;;
-        --help) show_help; exit 0 ;;
+        --help)
+            show_help
+            exit 0
+            ;;
+        -*)
+            warn "Unknown option $1"
+            show_help
+            exit 1
+            ;;
         *)
-            if [[ -z "$IMAGE_PATH" ]]; then IMAGE_PATH="$1"; else exit 1; fi
+            # If it's not a flag, we assume it's the image path
+            if [[ -z "$IMAGE_PATH" ]]; then
+                IMAGE_PATH="$1"
+            else
+                error "Multiple image paths provided or unknown argument -> $1"
+                exit 1
+            fi
             shift
             ;;
     esac
 done
 
+# ==========================================
 # Validation
-if [[ -z "$IMAGE_PATH" ]]; then IMAGE_PATH="$DEFAULT_WALLPAPER"; fi
-if [[ ! -f "$IMAGE_PATH" ]]; then exit 1; fi
+# ==========================================
+
+if [[ -z "$IMAGE_PATH" ]]; then
+    info "Setting wallpaper with default image -> $DEFAULT_WALLPAPER"
+    IMAGE_PATH="$DEFAULT_WALLPAPER"
+fi
+
+if [[ ! -f "$IMAGE_PATH" ]]; then
+    error "Image file does not exist at -> $IMAGE_PATH"
+    exit 1
+fi
+
+# ==========================================
+# Core Logic
+# ==========================================
 
 # Create cache folder
-mkdir -p $CACHE_FOLDER
+if [ ! -d $CACHE_FOLDER ]; then
+    mkdir -p $CACHE_FOLDER
+fi
 
 # Ensure awww-daemon is running
 if ! pgrep -x "awww-daemon" > /dev/null; then
     mkdir -p "$HOME/.cache/awww"
+    info "Starting awww-daemon..."
     awww-daemon &
-    sleep 1 
+
+    # Give the daemon a brief moment to initialize before sending commands
+    sleep 1
 fi
 
+# Write image path to cache file
+if [ ! -f "$CACHE_FILE" ]; then
+    touch "$CACHE_FILE"
+fi
 echo "$IMAGE_PATH" > "$CACHE_FILE"
+info "Cache file written with $IMAGE_PATH"
 
 # Process image with wallpaper effect
 if [ -f "$SETTINGS_WALLPAPER_EFFECT" ]; then
     EFFECT=$(cat "$SETTINGS_WALLPAPER_EFFECT")
     if [ ! "$EFFECT" == "off" ]; then
         info "Applying Wallpaper Effect $EFFECT"
+        # Check if processed image already exists
         if [ -f "$CACHE_FOLDER/$EFFECT-$(basename "$IMAGE_PATH")" ]; then
             IMAGE_PATH="$CACHE_FOLDER/$EFFECT-$(basename "$IMAGE_PATH")"
         else
@@ -145,6 +199,8 @@ fi
 if [ "$SKIP" = true ]; then
     info "Setting wallpaper skipped"
 else
+    info "Setting wallpaper: $IMAGE_PATH"
+    info "Using wallpaper effect $SETTINGS_TRANSITION_EFFECT"
     awww img "$IMAGE_PATH" --transition-type $SETTINGS_TRANSITION_EFFECT
 fi
 
@@ -174,39 +230,64 @@ MATUGEN_BIN="matugen"
 
 info "Applying Matugen in $MATUGEN_MODE mode"
 $MATUGEN_BIN image "$IMAGE_PATH" --source-color-index 0 -m "$MATUGEN_MODE"
+info "Matugen updated"
 
 # Update Quickshell theme
 qs ipc call theme-manager reload
+info "Quickshell Theme updated"
+
+# Update ML4W Dotfiles Settings theme
 qs -p $HOME/.local/share/ml4w-dotfiles-settings/quickshell ipc call theme-manager reload
+info "ML4W Dotfiles Settings Theme updated"
 
 # Reload Waybar
-if pgrep -x "waybar" > /dev/null; then
+if pgrep -x "waybar" > /dev/null
+then
+    info "Waybar is currently running."
     pkill -SIGUSR2 waybar
 else
+    info "Waybar is not running."
     nohup bash -c "$HOME/.config/waybar/launch.sh" > /dev/null 2>&1 &
     disown
 fi
+info "Waybar reloaded"
 
 # Reload nwg-dock-hyprland
 nohup bash -c "$HOME/.config/nwg-dock-hyprland/launch.sh" > /dev/null 2>&1 &
 disown
+info "nwg-dock-hyprland reloaded"
 
 # Update Pywalfox
 if type pywalfox >/dev/null 2>&1; then
     pywalfox update
+    info "pywalfox updated"
 fi
 
 # Update SwayNC
 sleep 0.1
 swaync-client -rs
+info "SwayNC refreshed"
 
-# Create blurred/square images for UI
+# Create blurred image
 magick "$IMAGE_PATH" -resize 75% "$BLURRED_WALLPAPER"
+info "$(basename "$IMAGE_PATH") resized to 75% -> $(basename "$BLURRED_WALLPAPER")"
 if [ ! "$BLUR" == "0x0" ]; then
     magick "$BLURRED_WALLPAPER" -blur $BLUR "$BLURRED_WALLPAPER"
+    info "$(basename "$BLURRED_WALLPAPER") blurred with $BLUR"
 fi
-magick "$IMAGE_PATH" -gravity Center -extent 1:1 "$SQUARE_WALLPAPER"
-echo "* { current-image: url(\"$BLURRED_WALLPAPER\", height); }" > "$RASI_FILE"
 
+# Create square image
+magick "$IMAGE_PATH" -gravity Center -extent 1:1 "$SQUARE_WALLPAPER"
+info "$(basename "$SQUARE_WALLPAPER") created"
+
+# Create rasi file
+if [ ! -f $RASI_FILE ]; then
+    touch $RASI_FILE
+fi
+echo "* { current-image: url(\"$BLURRED_WALLPAPER\", height); }" > "$RASI_FILE"
+info "$(basename "$RASI_FILE") written with $(basename "$BLURRED_WALLPAPER")"
+
+# Notification
 send_notification "Wallpaper Update Completed" "Mode: $MATUGEN_MODE | Image: $(basename "$IMAGE_PATH")"
+info "Wallpaper Updated: Successfully set $(basename "$IMAGE_PATH") in $MATUGEN_MODE mode"
 exit 0
