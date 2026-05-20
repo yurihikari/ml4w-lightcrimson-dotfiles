@@ -52,8 +52,6 @@ cp -f "$REPO_ROOT/.config/ml4w/settings/darkmode" "$TARGET_STORAGE/.config/ml4w/
 cp -f "$REPO_ROOT/.config/hypr/scripts/screenshot.sh" "$TARGET_STORAGE/.config/hypr/scripts/screenshot.sh"
 cp -f "$REPO_ROOT/.config/hypr/scripts/colorpicker.sh" "$TARGET_STORAGE/.config/hypr/scripts/colorpicker.sh"
 cp -f "$REPO_ROOT/.config/hypr/scripts/gamemode.sh" "$TARGET_STORAGE/.config/hypr/scripts/gamemode.sh"
-# Added custom keybindings
-cp -f "$REPO_ROOT/.config/hypr/conf/keybindings/default.conf" "$TARGET_STORAGE/.config/hypr/conf/keybindings/default.conf"
 # Fastfetch
 cp -f "$REPO_ROOT/.config/fastfetch/config.jsonc" "$TARGET_STORAGE/.config/fastfetch/config.jsonc"
 # Fix for zsh plugins, having a different path because arch package installs them in a different location when using the AUR version vs the git clone version. This is needed to avoid breaking zsh plugins for users who installed them using the AUR package.
