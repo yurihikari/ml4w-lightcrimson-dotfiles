@@ -105,6 +105,8 @@ PanelWindow {
         id: cavaConfigWriter
         command: ["bash", "-c",
             "cat > /tmp/qs_cava_bar.ini << 'EOF'\n" +
+            "[general]\nsensitivity=250\n" +
+            "[smoothing]\nmonstercat=1\n" +
             "[output]\nmethod=raw\ndata_format=ascii\nascii_max_range=200\nbar_delimiter=32\nbars=100\nEOF"
         ]
         running: true
