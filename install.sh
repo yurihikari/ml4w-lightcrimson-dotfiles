@@ -42,30 +42,12 @@ make install
 # SELECTIVE COPY BACK TO STORAGE (to preserve your custom edits)
 echo "🔄 Updating .config in storage after ml4w installation..."
 if [ -d "$REPO_ROOT/.config" ]; then
-    # -L follows the links in your repo and turns them into REAL files in storage
-    # This kills the circular loop "Too many levels" error.
     cp -rL "$REPO_ROOT/.config/"* "$TARGET_STORAGE/.config/"
 fi
 echo "✅ .config updated in storage."
 echo "✅ ML4W Dotfiles installed."
 
 # 5. RESTORE YOUR CUSTOMIZATIONS INTO STORAGE
-echo "🎨 Restoring custom edits..."
-# This specifically puts your edited files into the storage folder
-# It uses the Repo as the source.
-cp -f "$REPO_ROOT/.config/ml4w/scripts/ml4w-toggle-theme" "$TARGET_STORAGE/.config/ml4w/scripts/ml4w-toggle-theme"
-cp -f "$REPO_ROOT/.config/ml4w/scripts/ml4w-wallpaper" "$TARGET_STORAGE/.config/ml4w/scripts/ml4w-wallpaper"
-cp -f "$REPO_ROOT/.config/ml4w/settings/darkmode" "$TARGET_STORAGE/.config/ml4w/settings/darkmode"
-# Edited screenshot and colorpicker scripts
-cp -f "$REPO_ROOT/.config/hypr/scripts/screenshot.sh" "$TARGET_STORAGE/.config/hypr/scripts/screenshot.sh"
-cp -f "$REPO_ROOT/.config/hypr/scripts/colorpicker.sh" "$TARGET_STORAGE/.config/hypr/scripts/colorpicker.sh"
-cp -f "$REPO_ROOT/.config/hypr/scripts/gamemode.sh" "$TARGET_STORAGE/.config/hypr/scripts/gamemode.sh"
-# Fastfetch
-cp -f "$REPO_ROOT/.config/fastfetch/config.jsonc" "$TARGET_STORAGE/.config/fastfetch/config.jsonc"
-# Fix for zsh plugins, having a different path because arch package installs them in a different location when using the AUR version vs the git clone version. This is needed to avoid breaking zsh plugins for users who installed them using the AUR package.
-cp -f "$REPO_ROOT/.config/zshrc/00-init" "$TARGET_STORAGE/.config/zshrc/00-init"
-cp -f "$REPO_ROOT/.config/zshrc/20-customization" "$TARGET_STORAGE/.config/zshrc/20-customization"
-echo "✅ Custom edits installed."
 # Quickshell settings
 cp -f "$REPO_ROOT/.config/quickshell/shell.qml" "$TARGET_STORAGE/.config/quickshell/shell.qml"
 
