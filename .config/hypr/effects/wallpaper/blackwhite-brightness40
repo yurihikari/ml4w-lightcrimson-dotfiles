@@ -1,0 +1,2 @@
+magick $IMAGE_PATH -set colorspace Gray -separate -average $IMAGE_PATH
+magick $IMAGE_PATH -brightness-contrast -60% $IMAGE_PATH

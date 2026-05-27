@@ -1,0 +1,2 @@
+magick $IMAGE_PATH -blur "50x30" $IMAGE_PATH
+magick $IMAGE_PATH -brightness-contrast -60% $IMAGE_PATH

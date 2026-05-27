@@ -1,0 +1,2 @@
+magick $IMAGE_PATH -set colorspace Gray -separate -average $IMAGE_PATH
+magick $IMAGE_PATH -blur "50x30" $IMAGE_PATH

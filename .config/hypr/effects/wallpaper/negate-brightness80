@@ -1,0 +1,2 @@
+magick $IMAGE_PATH -negate $IMAGE_PATH
+magick $IMAGE_PATH -brightness-contrast -20% $IMAGE_PATH
