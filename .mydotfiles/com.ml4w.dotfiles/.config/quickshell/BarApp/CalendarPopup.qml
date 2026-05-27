@@ -16,12 +16,22 @@ PanelWindow {
     anchors { top: true; bottom: true; left: true; right: true }
     WlrLayershell.layer: WlrLayer.Overlay
     exclusionMode: WlrLayershell.Ignore
-    WlrLayershell.keyboardFocus: WlrLayershell.OnDemand
+    WlrLayershell.keyboardFocus: WlrLayershell.Exclusive
     color: "transparent"
 
     MouseArea { 
         anchors.fill: parent
         onClicked: root.active = false 
+    }
+
+    // Keyboard focus handler for ESC (when no text input is focused)
+    FocusScope {
+        anchors.fill: parent
+        focus: root.active && !cityField.activeFocus && !wcCityField.activeFocus
+        Keys.onEscapePressed: {
+            if (root.showWorldClock) root.showWorldClock = false
+            else root.active = false
+        }
     }
 
     // ─── Global Time State (Robust & Always Accessible) ─────────────────────
@@ -613,7 +623,13 @@ PanelWindow {
                                     root.cityInput = text
                                     loadCity(text) 
                                 }
-                                Keys.onEscapePressed: root.active = false 
+                                Keys.onEscapePressed: {
+                                    if (text.length > 0) {
+                                        text = ""
+                                    } else {
+                                        root.active = false
+                                    }
+                                }
                             }
                         }
 

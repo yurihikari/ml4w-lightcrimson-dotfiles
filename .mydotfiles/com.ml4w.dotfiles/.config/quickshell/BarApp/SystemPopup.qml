@@ -18,10 +18,20 @@ PanelWindow {
     anchors { top: true; bottom: true; left: true; right: true }
     WlrLayershell.layer: WlrLayer.Overlay
     exclusionMode: WlrLayershell.Ignore
-    WlrLayershell.keyboardFocus: WlrLayershell.OnDemand
+    WlrLayershell.keyboardFocus: WlrLayershell.Exclusive
     color: "transparent"
 
     MouseArea { anchors.fill: parent; onClicked: popup.active = false }
+
+    // Keyboard focus handler for ESC
+    FocusScope {
+        anchors.fill: parent
+        focus: popup.active
+        Keys.onEscapePressed: {
+            if (popup.showPasswordFor) popup.showPasswordFor = false
+            else popup.active = false
+        }
+    }
 
     // ─── WiFi ──────────────────────────────────────────────────────────────
     property var wifiNetworks: []
@@ -313,6 +323,7 @@ PanelWindow {
     onActiveChanged: {
         if (active) {
             isAnimating = true // Start entrance animation
+            forceActiveFocus()
             if (currentTab === "Network")     { popup._wifiBuf=""; popup.wifiScanning=true; wifiScanner.running=true }
             if (currentTab === "Bluetooth")   { popup._btBuf="";   popup.btScanning=true;   btScanner.running=true }
             if (currentTab === "Performance") { powerProfileReader.running=true }

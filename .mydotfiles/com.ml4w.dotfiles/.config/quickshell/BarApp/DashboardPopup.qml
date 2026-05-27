@@ -26,11 +26,17 @@ PanelWindow {
     anchors { top: true; bottom: true; left: true; right: true }
     WlrLayershell.layer: WlrLayer.Overlay
     exclusionMode: WlrLayershell.Ignore
-    WlrLayershell.keyboardFocus: active ? WlrLayershell.OnDemand : WlrLayershell.None
+    WlrLayershell.keyboardFocus: WlrLayershell.Exclusive
     color: "transparent"
 
     // Backdrop — click to close
     MouseArea { anchors.fill: parent; onClicked: popup.active = false }
+    // Keyboard focus handler for ESC
+    FocusScope {
+        anchors.fill: parent
+        focus: popup.active
+        Keys.onEscapePressed: popup.active = false
+    }
 
     // ─── State (filled by Processes below) ────────────────────────────────
     property string osName:     ""

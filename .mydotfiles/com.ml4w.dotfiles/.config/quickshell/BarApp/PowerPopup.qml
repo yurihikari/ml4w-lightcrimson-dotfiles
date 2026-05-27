@@ -20,12 +20,19 @@ PanelWindow {
     anchors { top: true; bottom: true; left: true; right: true }
     WlrLayershell.layer: WlrLayer.Overlay
     exclusionMode: WlrLayershell.Ignore
-    WlrLayershell.keyboardFocus: WlrLayershell.None
+    WlrLayershell.keyboardFocus: WlrLayershell.Exclusive
     color: "transparent"
 
     MouseArea {
         anchors.fill: parent
         onClicked: root.active = false
+    }
+
+    // Keyboard focus handler for ESC
+    FocusScope {
+        anchors.fill: parent
+        focus: root.active
+        Keys.onEscapePressed: root.active = false
     }
 
     Process {
@@ -123,5 +130,10 @@ PanelWindow {
     }
     
     // Trigger animation tracker
-    onActiveChanged: if (active) isAnimating = true
+    onActiveChanged: {
+        if (active) {
+            isAnimating = true
+            forceActiveFocus()
+        }
+    }
 }

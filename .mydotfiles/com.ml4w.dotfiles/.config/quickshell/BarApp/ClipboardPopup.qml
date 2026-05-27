@@ -24,7 +24,7 @@ PanelWindow {
     
     WlrLayershell.layer: WlrLayer.Overlay
     exclusionMode: WlrLayershell.Ignore
-    WlrLayershell.keyboardFocus: active ? WlrLayershell.OnDemand : WlrLayershell.None
+    WlrLayershell.keyboardFocus: WlrLayershell.Exclusive
     color: "transparent"
 
     // Background click-to-close area
@@ -409,6 +409,13 @@ PanelWindow {
                                 placeholderTextColor: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.35)
                                 color: Theme.primary; font.pixelSize: 14; background: Item {}
                                 onTextChanged: { root.searchText = text; searchDelay.restart() }
+                                Keys.onEscapePressed: {
+                                    if (root.searchText !== "") {
+                                        searchField.text = ""
+                                    } else {
+                                        root.active = false
+                                    }
+                                }
                             }
                             
                             Text {
@@ -445,7 +452,7 @@ PanelWindow {
                                 id: itemCard
                                 width: listView.width; height: 56; radius: 16
                                 
-                                color: copyMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.08) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.02)
+                                color: copyMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.02) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
                                 scale: copyMouse.pressed ? 0.98 : 1.0
                                 
                                 Behavior on color { ColorAnimation { duration: 150 } }

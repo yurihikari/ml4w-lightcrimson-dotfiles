@@ -25,7 +25,7 @@ PanelWindow {
     }
     WlrLayershell.layer: WlrLayer.Overlay
     exclusionMode: WlrLayershell.Ignore
-    WlrLayershell.keyboardFocus: WlrLayershell.None
+    WlrLayershell.keyboardFocus: WlrLayershell.OnDemand
     color: "transparent"
 
     property var p: bar.activePlayer
@@ -87,6 +87,16 @@ PanelWindow {
                     "hl.dsp.exec_cmd(\"" + cmd + "\")"
                 ])
                 popup.active = false
+            }
+        }
+
+        // Keyboard focus handler for ESC
+        FocusScope {
+            anchors.fill: parent
+            focus: popup.active
+            Keys.onEscapePressed: {
+                if (popup.selectingSink) popup.selectingSink = false
+                else popup.active = false
             }
         }
 
@@ -174,7 +184,12 @@ PanelWindow {
     }
 
     // 2. Track animation state
-    onActiveChanged: if (active) isAnimating = true
+    onActiveChanged: {
+        if (active) {
+            isAnimating = true
+            forceActiveFocus()
+        }
+    }
 
     // Click outside to close
     MouseArea { 
