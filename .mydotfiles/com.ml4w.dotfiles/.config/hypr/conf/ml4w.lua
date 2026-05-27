@@ -121,6 +121,15 @@ hl.window_rule({
     size = "800 700"
 })
 
+-- Hyprmod
+hl.window_rule({
+    name = "io.github.bluemancz.hyprmod",
+    match = {class = "io.github.bluemancz.hyprmod"},
+    float = true,
+    center = true,
+    size = "1000 700"
+})
+
 -- ML4W Floating
 hl.window_rule({
     name = "dotfiles-floating",
@@ -150,10 +159,6 @@ hl.env("XDG_SESSION_TYPE", "wayland")
 hl.env("QT_QPA_PLATFORM", "wayland")
 hl.env("QT_QPA_PLATFORMTHEME", "qt6ct")
 hl.env("QT_WAYLAND_DISABLE_WINDOWDECORATION", "1")
-
--- PATHS
--- hl.env("PATH", "$PATH:$HOME/.cargo/bin")
--- hl.env("PATH", "$PATH:$HOME/.local/bin")
 
 -- XDG Desktop Portal
 hl.env("XDG_CURRENT_DESKTOP", "Hyprland")

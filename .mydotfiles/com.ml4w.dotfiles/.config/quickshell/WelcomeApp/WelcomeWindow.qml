@@ -24,7 +24,7 @@ FloatingWindow {
 
     // --- Check if flatpak is installed when window opens ---
     Process {
-        command: ["bash", "-c", Quickshell.env("HOME") + "/.config/ml4w/scripts/ml4w-flatpak-installed com.ml4w.hyprlandsettings"]
+        command: ["bash", "-c", Quickshell.env("HOME") + "/.config/ml4w/scripts/ml4w-command-exists hyprmod"]
         running: root.visible
         
         stdout: StdioCollector {
@@ -110,8 +110,8 @@ FloatingWindow {
                 ML4WMenuItem { 
                     text: qsTr("Monitors");
                     onClicked: { 
-                        Quickshell.execDetached(["gnome-text-editor", Quickshell.env("HOME") + "/.config/hypr/monitors.lua"])
-                        // Quickshell.execDetached(["nwg-displays"])
+                        // Quickshell.execDetached(["gnome-text-editor", Quickshell.env("HOME") + "/.config/hypr/monitors.lua"])
+                        Quickshell.execDetached(["nwg-displays"]) 
                     }
                 }
                 ML4WMenuItem { 
@@ -152,12 +152,12 @@ FloatingWindow {
                     }
                 }
                 ML4WMenuItem { 
-                    text: root.isHyprlandSettingsInstalled ? qsTr("Hyprland Settings") : qsTr("Install Hyprland Settings")
+                    text: root.isHyprlandSettingsInstalled ? qsTr("HyprMod") : qsTr("Install HyprMod")
                     onClicked: { 
                         if (root.isHyprlandSettingsInstalled) {
-                            Quickshell.execDetached(["bash","-c","flatpak run com.ml4w.hyprlandsettings"])
+                            Quickshell.execDetached(["hyprmod"])
                         } else {
-                            Quickshell.execDetached(["kitty", "--class", "dotfiles-floating", "-e", Quickshell.env("HOME") + "/.config/ml4w/scripts/ml4w-install-hyprlandsettings"])
+                            Quickshell.execDetached(["kitty", "--class", "dotfiles-floating", "-e", Quickshell.env("HOME") + "/.config/ml4w/scripts/ml4w-install-hyprmod"])
                         }
                     }
                 }
@@ -201,7 +201,7 @@ FloatingWindow {
                 ML4WMenuItem { 
                     text: qsTr("System Info") 
                     onClicked: { 
-                        Quickshell.execDetached(["kitty", "--class", "dotfiles-floating", "-e", Quickshell.env("HOME") + "/.config/hypr/scripts/systeminfo.sh"])
+                        Quickshell.execDetached(["bash", "-c", Quickshell.env("HOME") + "/.config/ml4w/scripts/ml4w-hyprsysteminfo"])
                     }
                 }
                 ML4WMenuSeparator {}
@@ -332,7 +332,7 @@ FloatingWindow {
 
                     Text {
                         Layout.alignment: Qt.AlignHCenter
-                        text: "Version 2.12.3"
+                        text: "Version 2.13.0"
                         font.family: Theme.fontFamily
                         font.pixelSize: 16
                         color: Theme.on_background
@@ -364,11 +364,11 @@ FloatingWindow {
 
                         // --- VISIBILITY BOUND TO GUARD PROPERTY ---
                         Button {
-                            text: "Hyprland Settings"
+                            text: "HyprMod"
                             visible: root.isHyprlandSettingsInstalled 
                             
                             onClicked: {
-                                Quickshell.execDetached(["flatpak", "run", "com.ml4w.hyprlandsettings"])
+                                Quickshell.execDetached(["hyprmod"])
                             }
                             background: Rectangle {
                                 color: "transparent"

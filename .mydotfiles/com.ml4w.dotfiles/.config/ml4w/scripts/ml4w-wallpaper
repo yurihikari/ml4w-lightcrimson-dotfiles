@@ -100,7 +100,7 @@ while [[ $# -gt 0 ]]; do
             if [[ -d "$RANDOM_FOLDER" ]]; then
                 # Select a random image from the resolved folder
                 IMAGE_PATH=$(find "$RANDOM_FOLDER" -maxdepth 1 -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" \) | shuf -n 1)
-
+                
                 if [[ -z "$IMAGE_PATH" ]]; then
                     error "No valid images (jpg, jpeg, png) found in -> $RANDOM_FOLDER"
                     exit 1
@@ -122,7 +122,7 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         -*)
-            warn "Unknown option $1"
+            echo "Error: Unknown option $1"
             show_help
             exit 1
             ;;
@@ -131,7 +131,7 @@ while [[ $# -gt 0 ]]; do
             if [[ -z "$IMAGE_PATH" ]]; then
                 IMAGE_PATH="$1"
             else
-                error "Multiple image paths provided or unknown argument -> $1"
+                echo "Error: Multiple image paths provided or unknown argument -> $1"
                 exit 1
             fi
             shift
@@ -167,9 +167,9 @@ if ! pgrep -x "awww-daemon" > /dev/null; then
     mkdir -p "$HOME/.cache/awww"
     info "Starting awww-daemon..."
     awww-daemon &
-
+    
     # Give the daemon a brief moment to initialize before sending commands
-    sleep 1
+    sleep 1 
 fi
 
 # Write image path to cache file
@@ -204,30 +204,36 @@ else
     awww img "$IMAGE_PATH" --transition-type $SETTINGS_TRANSITION_EFFECT
 fi
 
-# Detect Theme Mode (Dark or Light)
+# Detect Theme
 MATUGEN_MODE="dark" # Default safety
 
 # 1. Check ML4W Settings File first (Most reliable)
 if [ -f "$ML4W_DARKMODE_SETTING" ]; then
     IS_DARK=$(cat "$ML4W_DARKMODE_SETTING")
-    if [ "$IS_DARK" -eq 0 ]; then
+    # Use string comparison (=) to avoid errors if file is empty
+    if [ "$IS_DARK" = "0" ]; then
         MATUGEN_MODE="light"
-    else
-        MATUGEN_MODE="dark"
     fi
 # 2. Fallback to GTK Settings
 else
     SETTINGS_FILE="$HOME/.config/gtk-3.0/settings.ini"
-    THEME_PREF=$(grep -E '^gtk-application-prefer-dark-theme=' "$SETTINGS_FILE" | awk -F'=' '{print $2}')
-    if [ "$THEME_PREF" -eq 0 ]; then
-        MATUGEN_MODE="light"
+    if [ -f "$SETTINGS_FILE" ]; then
+        THEME_PREF=$(grep -E '^gtk-application-prefer-dark-theme=' "$SETTINGS_FILE" | awk -F'=' '{print $2}')
+        if [ "$THEME_PREF" = "0" ]; then
+            MATUGEN_MODE="light"
+        fi
     fi
 fi
 
-# Execute matugen with determined mode
+# Determine matugen binary path (Includes ~/.local/bin like ML4W does)
 MATUGEN_BIN="matugen"
-[ -f "$HOME/.cargo/bin/matugen" ] && MATUGEN_BIN="$HOME/.cargo/bin/matugen"
+if [ -f "$HOME/.cargo/bin/matugen" ]; then
+    MATUGEN_BIN="$HOME/.cargo/bin/matugen"
+elif [ -f "$HOME/.local/bin/matugen" ]; then
+    MATUGEN_BIN="$HOME/.local/bin/matugen"
+fi
 
+# Execute matugen with determined mode
 info "Applying Matugen in $MATUGEN_MODE mode"
 $MATUGEN_BIN image "$IMAGE_PATH" --source-color-index 0 -m "$MATUGEN_MODE"
 info "Matugen updated"
@@ -287,7 +293,13 @@ fi
 echo "* { current-image: url(\"$BLURRED_WALLPAPER\", height); }" > "$RASI_FILE"
 info "$(basename "$RASI_FILE") written with $(basename "$BLURRED_WALLPAPER")"
 
+# Apply Effects (Placeholder for your specific effect logic)
+# if [[ -n "$EFFECT" ]]; then
+#     info "Applying effect: $EFFECT"
+#     send_notification "Wallpaper Effect" "Applying $EFFECT to $(basename "$IMAGE_PATH")"
+# fi
+
 # Notification
-send_notification "Wallpaper Update Completed" "Mode: $MATUGEN_MODE | Image: $(basename "$IMAGE_PATH")"
-info "Wallpaper Updated: Successfully set $(basename "$IMAGE_PATH") in $MATUGEN_MODE mode"
+send_notification "Wallpaper Update Completed" "Successfully set and processed $(basename "$IMAGE_PATH")"
+info "Wallpaper Updated: Successfully set $(basename "$IMAGE_PATH")"
 exit 0

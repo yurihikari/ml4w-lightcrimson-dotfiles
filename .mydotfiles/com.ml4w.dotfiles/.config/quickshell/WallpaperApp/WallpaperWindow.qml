@@ -75,30 +75,78 @@ PanelWindow {
         function close(): void { root.isOpen = false } 
     }
 
-    // Default fallback folder just in case the file doesn't exist
-    property string wallpaperFolder: "file://" + Quickshell.env("HOME") + "/.config/ml4w/wallpapers"
+    property string defaultWallpaperFolder: Quickshell.env("HOME") + "/.config/ml4w/wallpapers"
+    property string wallpaperSettingFile: Quickshell.env("HOME") + "/.config/ml4w/settings/wallpaper-folder"
 
-    Process {
-        id: folderLoader
-        // Call cat directly and pass the path as the second array item
-        command: ["cat", Quickshell.env("HOME") + "/.config/ml4w/settings/wallpaper-folder"]
-        running: true
-        
-        stdout: StdioCollector {
-            onStreamFinished: {
-                let rawPath = this.text.trim();
-                
-                if (rawPath !== "") {
-                    rawPath = rawPath.replace("$HOME", Quickshell.env("HOME"));
-                    rawPath = rawPath.replace("~", Quickshell.env("HOME"));
-                    // Ensure the path starts with file:// for the FolderListModel
-                    let newPath = rawPath.startsWith("file://") ? rawPath : "file://" + rawPath;
-                    if (root.wallpaperFolder === newPath) {
-                        root.wallpaperFolder = "";
-                    }
-                    root.wallpaperFolder = newPath;
-                }
-            }
+    // Start as default in case file does not exist
+    property string wallpaperFolder: defaultWallpaperFolder
+
+    FileView {
+        id: wallpaperDirSettingFileHandler
+        path: Qt.url(root.wallpaperSettingFile)
+        blockLoading: true
+        watchChanges: true
+        onFileChanged: {
+            this.reload();
+            const settingValue = this.text().trim()
+            console.log("Wallpaper directory setting changed on disk; attempting to load directory \"" + settingValue + "\"")
+            updateWallpaperFolder(settingValue)
+        }
+        onLoaded: {
+            const settingValue = this.text().trim()
+            console.log("Loading wallpaper directory \"" + settingValue + "\"")
+            updateWallpaperFolder(settingValue)
+        }
+        onSaved: {
+            const settingValue = this.text().trim()
+            console.log("Wallpaper directory setting saved successfully; reloading from directory \"" + settingValue + "\"")
+            updateWallpaperFolder(this.text().trim())
+        }
+    }
+
+    property string defaultTransitionEffect: "simple"
+    property string transitionEffectSettingFile: Quickshell.env("HOME") + "/.config/ml4w/settings/wallpaper-transition-effect"
+    property var transitionEffects: ["simple", "left", "right", "top", "bottom", "center", "any", "random", "none"]
+    property string transitionEffect: defaultTransitionEffect
+
+    FileView {
+        id: transitionEffectSettingFileHandler
+        path: Qt.url(root.transitionEffectSettingFile)
+        blockLoading: true
+        watchChanges: true
+        onFileChanged: {
+            this.reload();
+            const settingValue = this.text().trim()
+            console.log("Transition effect setting changed on disk; attempting to update to \"" + settingValue + "\"")
+            updateTransitionEffect(settingValue)
+        }
+        onLoaded: {
+            const settingValue = this.text().trim()
+            console.log("Loading transition effect \"" + settingValue + "\"")
+            updateTransitionEffect(settingValue)
+        }
+        onSaved: {
+            const settingValue = this.text().trim()
+            console.log("Transition effect setting saved successfully; updating to \"" + settingValue + "\"")
+            updateTransitionEffect(this.text().trim())
+        }
+    }
+
+    function advancedSettingsLabel(): string {
+        const actionText = advancedOptions.visible ? "Hide" : "Show"
+        return actionText + " Advanced Options"
+    }
+
+    function updateWallpaperFolder(dirString): void {
+        root.wallpaperFolder = dirString.replace(/~|\$HOME/g, Quickshell.env("HOME"))
+    }
+
+    function updateTransitionEffect(effectString): void {
+        const cleaned = effectString.trim();
+        if (root.transitionEffects.indexOf(cleaned) !== -1) {
+            root.transitionEffect = cleaned;
+        } else {
+            root.transitionEffect = "simple";
         }
     }
 
@@ -226,6 +274,180 @@ PanelWindow {
                             } 
                         }
 
+                        ML4WMenuItem {
+                            text: advancedSettingsLabel()
+                            onClicked: {
+                                advancedOptions.visible = !advancedOptions.visible
+                            }
+                        }
+
+                    }
+                }
+            }
+
+            // --- ADVANCED OPTIONS ---
+            ColumnLayout {
+                id: advancedOptions
+                Layout.fillWidth: true
+                Layout.topMargin: 5
+                spacing: 10
+                visible: false
+
+                // --- WALLPAPER DIRECTORY SETTING ---
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Label {
+                        id: wallpaperDirInputLabel
+                        color: Theme.primary
+                        font.family: Theme.fontFamily
+
+                        text: "Wallpaper Folder"
+
+                        Accessible.name: text
+                        Accessible.role: Accessible.StaticText
+                    }
+
+                    TextField {
+                        id: wallpaperDirInput
+                        color: Theme.primary
+                        font.pixelSize: 14
+                        padding: 8
+                        Layout.fillWidth: true
+                        horizontalAlignment: TextInput.AlignHCenter
+
+                        Accessible.name: wallpaperDirInputLabel.text
+                        Accessible.description: qsTr("Enter the full path to your wallpaper folder")
+                        Accessible.role: Accessible.EditableText
+
+                        placeholderText: "Specify wallpaper directory"
+                        text: wallpaperDirSettingFileHandler.text().trim()
+
+                        onAccepted: {
+                            console.log("Updating wallpaper directory to \"" + this.text + "\"")
+                            wallpaperDirSettingFileHandler.setText(this.text)
+                        }
+
+                        background: Rectangle {
+                            anchors.fill: parent
+                            color: Theme.background
+                            radius: 10
+                            border.color: Theme.primary
+                            border.width: 1
+                        }
+                    }
+                }
+
+                // --- WALLPAPER TRANSITION EFFECT SETTING ---
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Label {
+                        id: transitionEffectInputLabel
+                        color: Theme.primary
+                        font.family: Theme.fontFamily
+
+                        text: "Transition Effect"
+
+                        Accessible.name: text
+                        Accessible.role: Accessible.StaticText
+                    }
+
+                    ComboBox {
+                        id: transitionEffectComboBox
+                        model: root.transitionEffects
+                        currentIndex: root.transitionEffects.indexOf(root.transitionEffect)
+                        Layout.fillWidth: true
+
+                        onActivated: {
+                            const selectedEffect = root.transitionEffects[index];
+                            console.log("Updating wallpaper transition effect to \"" + selectedEffect + "\"")
+                            transitionEffectSettingFileHandler.setText(selectedEffect)
+                        }
+
+                        delegate: ItemDelegate {
+                            id: itemDelegate
+                            width: transitionEffectComboBox.width
+                            contentItem: Text {
+                                text: modelData
+                                color: itemDelegate.highlighted ? Theme.background : Theme.primary
+                                font.family: Theme.fontFamily
+                                font.pixelSize: 14
+                                elide: Text.ElideRight
+                                verticalAlignment: Text.AlignVCenter
+                                horizontalAlignment: Text.AlignHCenter
+                            }
+                            background: Rectangle {
+                                color: itemDelegate.highlighted ? Theme.primary : "transparent"
+                                radius: 4
+                            }
+                            highlighted: transitionEffectComboBox.highlightedIndex === index
+                        }
+
+                        indicator: Canvas {
+                            id: canvas
+                            x: transitionEffectComboBox.width - width - 12
+                            y: (transitionEffectComboBox.height - height) / 2
+                            width: 12
+                            height: 8
+                            contextType: "2d"
+
+                            onPaint: {
+                                context.reset();
+                                context.moveTo(0, 0);
+                                context.lineTo(width, 0);
+                                context.lineTo(width / 2, height);
+                                context.closePath();
+                                context.fillStyle = Theme.primary;
+                                context.fill();
+                            }
+
+                            Connections {
+                                target: transitionEffectComboBox
+                                function onPressedChanged() { canvas.requestPaint(); }
+                            }
+                        }
+
+                        contentItem: Text {
+                            leftPadding: 12
+                            rightPadding: transitionEffectComboBox.indicator.width + 12
+                            text: transitionEffectComboBox.displayText
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 14
+                            color: Theme.primary
+                            verticalAlignment: Text.AlignVCenter
+                            horizontalAlignment: Text.AlignHCenter
+                            elide: Text.ElideRight
+                        }
+
+                        background: Rectangle {
+                            implicitHeight: 36
+                            color: Theme.background
+                            border.color: Theme.primary
+                            border.width: 1
+                            radius: 10
+                        }
+
+                        popup: Popup {
+                            y: transitionEffectComboBox.height + 2
+                            width: transitionEffectComboBox.width
+                            implicitHeight: contentItem.contentHeight > 250 ? 250 : contentItem.contentHeight
+                            padding: 4
+
+                            contentItem: ListView {
+                                clip: true
+                                implicitHeight: contentHeight
+                                model: transitionEffectComboBox.popup.visible ? transitionEffectComboBox.delegateModel : null
+                                currentIndex: transitionEffectComboBox.highlightedIndex
+
+                                ScrollIndicator.vertical: ScrollIndicator { }
+                            }
+
+                            background: Rectangle {
+                                color: Theme.background
+                                border.color: Theme.primary
+                                border.width: 1
+                                radius: 8
+                            }
+                        }
                     }
                 }
             }
@@ -237,6 +459,20 @@ PanelWindow {
                 opacity: 0.3 
             }
 
+            // --- ERROR MSG FOR EMPTY OR INVALID DIRECTORY ---
+            Text {
+                id: emptyWallpaperDirectoryMsg
+                visible: true
+
+                Layout.fillWidth: true
+                color: Theme.primary
+                font.family: Theme.fontFamily
+                wrapMode: Text.WordWrap
+                Layout.alignment: Qt.AlignHCenter
+                horizontalAlignment: Text.AlignHCenter
+
+                text: "Wallpaper folder is either empty or invalid."
+            }
             // --- IMAGE GRID ---
             GridView {
                 id: grid
@@ -256,7 +492,7 @@ PanelWindow {
                 }
 
                 model: FolderListModel {
-                    folder: root.wallpaperFolder
+                    folder: "file://" + root.wallpaperFolder
                     showDirs: false
                     caseSensitive: false
                     
@@ -268,6 +504,10 @@ PanelWindow {
                             return ["*.jpg", "*.jpeg", "*.png"];
                         }
                         return ["*" + s + "*.jpg", "*" + s + "*.jpeg", "*" + s + "*.png"];
+                    }
+
+                    onCountChanged: {
+                        emptyWallpaperDirectoryMsg.visible = (count === 0 && this.status === FolderListModel.Ready)
                     }
                 }
 

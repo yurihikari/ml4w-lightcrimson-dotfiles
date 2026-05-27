@@ -1,8 +1,8 @@
 # DO NOT EDIT! This file will be overwritten by nwg-look.
 # Any customization should be done in ~/.gtkrc-2.0.mine instead.
 
-include "/home/lightcrimson/.gtkrc-2.0.mine"
-gtk-theme-name="catppuccin-latte-blue-standard+default"
+include "/home/raabe/.gtkrc-2.0.mine"
+gtk-theme-name="Adwaita"
 gtk-icon-theme-name="kora"
 gtk-font-name="Fira Sans Semi-Bold 11"
 gtk-cursor-theme-name="Bibata-Modern-Ice"
