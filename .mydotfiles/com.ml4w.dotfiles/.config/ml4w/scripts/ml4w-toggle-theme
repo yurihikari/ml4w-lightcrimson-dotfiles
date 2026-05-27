@@ -4,6 +4,7 @@
 GTK3_SETTINGS_FILE="$HOME/.config/gtk-3.0/settings.ini"
 GTK4_SETTINGS_FILE="$HOME/.config/gtk-4.0/settings.ini"
 ML4W_DARKMODE_FILE="$HOME/.config/ml4w/settings/darkmode"
+CACHE_FILE="$HOME/.cache/ml4w/hyprland-dotfiles/current_wallpaper"
 
 # Ensure the ML4W settings directory exists
 mkdir -p "$(dirname "$ML4W_DARKMODE_FILE")"
@@ -25,6 +26,7 @@ if grep -q "gtk-application-prefer-dark-theme=1" "$GTK3_SETTINGS_FILE"; then
     
     # Update ML4W setting to Light
     echo "0" > "$ML4W_DARKMODE_FILE"
+    MATUGEN_MODE="light"
     echo "Switched to light theme."
 else
     # Switch to dark theme
@@ -36,5 +38,46 @@ else
     
     # Update ML4W setting to Dark
     echo "1" > "$ML4W_DARKMODE_FILE"
+    MATUGEN_MODE="dark"
     echo "Switched to dark theme."
 fi
+
+# ==========================================
+# Update UI Colors (Matugen & QuickShell)
+# ==========================================
+
+# 1. Get the current wallpaper from the cache file (created by your wallpaper script)
+if [ -f "$CACHE_FILE" ]; then
+    IMAGE_PATH=$(cat "$CACHE_FILE")
+else
+    echo "Warning: No current wallpaper found at $CACHE_FILE to generate colors."
+    exit 1
+fi
+
+# 2. Determine matugen binary path
+MATUGEN_BIN="matugen"
+if [ -f "$HOME/.cargo/bin/matugen" ]; then
+    MATUGEN_BIN="$HOME/.cargo/bin/matugen"
+elif [ -f "$HOME/.local/bin/matugen" ]; then
+    MATUGEN_BIN="$HOME/.local/bin/matugen"
+fi
+
+# 3. Execute matugen with the newly toggled mode
+echo "Generating colors with Matugen in $MATUGEN_MODE mode..."
+$MATUGEN_BIN image "$IMAGE_PATH" --source-color-index 0 -m "$MATUGEN_MODE"
+
+# 4. Reload Quickshell
+echo "Reloading QuickShell..."
+qs ipc call theme-manager reload
+qs -p $HOME/.local/share/ml4w-dotfiles-settings/quickshell ipc call theme-manager reload
+
+# 5. Reload Waybar & SwayNC so the whole system changes instantly
+if pgrep -x "waybar" > /dev/null; then
+    pkill -SIGUSR2 waybar
+fi
+
+if type swaync-client >/dev/null 2>&1; then
+    swaync-client -rs
+fi
+
+echo "Theme toggle complete!"
