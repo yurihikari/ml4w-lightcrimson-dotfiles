@@ -17,6 +17,9 @@ SETTINGS_BLUR="$HOME/.config/ml4w/settings/blur.sh"
 SETTINGS_WALLPAPER_FOLDER="$HOME/.config/ml4w/settings/wallpaper-folder"
 SETTINGS_WALLPAPER_EFFECT="$HOME/.config/ml4w/settings/wallpaper-effect"
 SETTINGS_TRANSITION_EFFECT=$(cat $HOME/.config/ml4w/settings/wallpaper-transition-effect)
+# ML4W Darkmode setting (0 for light, 1 for dark)
+ML4W_DARKMODE_SETTING="$HOME/.config/ml4w/settings/darkmode"
+
 # Blur
 BLUR="50x30"
 BLUR=$(cat $SETTINGS_BLUR)
@@ -202,24 +205,37 @@ else
 fi
 
 # Detect Theme
-SETTINGS_FILE="$HOME/.config/gtk-3.0/settings.ini"
-THEME_PREF=$(grep -E '^gtk-application-prefer-dark-theme=' "$SETTINGS_FILE" | awk -F'=' '{print $2}')
+MATUGEN_MODE="dark" # Default safety
 
-# Determine matugen binary path
-if [ -f $HOME/.cargo/bin/matugen ]; then
+# 1. Check ML4W Settings File first (Most reliable)
+if [ -f "$ML4W_DARKMODE_SETTING" ]; then
+    IS_DARK=$(cat "$ML4W_DARKMODE_SETTING")
+    # Use string comparison (=) to avoid errors if file is empty
+    if [ "$IS_DARK" = "0" ]; then
+        MATUGEN_MODE="light"
+    fi
+# 2. Fallback to GTK Settings
+else
+    SETTINGS_FILE="$HOME/.config/gtk-3.0/settings.ini"
+    if [ -f "$SETTINGS_FILE" ]; then
+        THEME_PREF=$(grep -E '^gtk-application-prefer-dark-theme=' "$SETTINGS_FILE" | awk -F'=' '{print $2}')
+        if [ "$THEME_PREF" = "0" ]; then
+            MATUGEN_MODE="light"
+        fi
+    fi
+fi
+
+# Determine matugen binary path (Includes ~/.local/bin like ML4W does)
+MATUGEN_BIN="matugen"
+if [ -f "$HOME/.cargo/bin/matugen" ]; then
     MATUGEN_BIN="$HOME/.cargo/bin/matugen"
-elif [ -f $HOME/.local/bin/matugen ]; then
+elif [ -f "$HOME/.local/bin/matugen" ]; then
     MATUGEN_BIN="$HOME/.local/bin/matugen"
-else
-    MATUGEN_BIN="matugen"
 fi
 
-# Execute matugen
-if [ "$THEME_PREF" -eq 1 ]; then
-    $MATUGEN_BIN image "$IMAGE_PATH" -m "dark"
-else
-    $MATUGEN_BIN image "$IMAGE_PATH" -m "light"
-fi
+# Execute matugen with determined mode
+info "Applying Matugen in $MATUGEN_MODE mode"
+$MATUGEN_BIN image "$IMAGE_PATH" --source-color-index 0 -m "$MATUGEN_MODE"
 info "Matugen updated"
 
 # Update Quickshell theme
