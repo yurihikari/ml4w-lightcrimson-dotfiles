@@ -1,0 +1,1 @@
+magick $IMAGE_PATH -set colorspace Gray -separate -average $IMAGE_PATH
