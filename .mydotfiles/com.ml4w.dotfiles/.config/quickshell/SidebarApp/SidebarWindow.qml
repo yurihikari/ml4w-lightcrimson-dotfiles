@@ -27,7 +27,7 @@ PanelWindow {
     }
 
     margins { 
-        top: 87
+        top: 60
         bottom: 20
     }
 
@@ -183,8 +183,8 @@ PanelWindow {
             color: Theme.background
             border.color: Theme.primary
             border.width: 2
-            radius: 10
-            opacity: 0.95 // Only the background is transparent
+            radius: 30
+            opacity: 0.8 // Only the background is transparent
         }
 
         ColumnLayout {
