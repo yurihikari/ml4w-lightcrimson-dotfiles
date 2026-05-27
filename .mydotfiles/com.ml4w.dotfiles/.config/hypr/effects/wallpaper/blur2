@@ -1,1 +1,0 @@
-magick $IMAGE_PATH -blur "10x30" $IMAGE_PATH
