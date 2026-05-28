@@ -1258,7 +1258,7 @@ PanelWindow {
                                         localExec.run([
                                             "hyprctl",
                                             "dispatch",
-                                            "hl.dsp.exec({ \"tuxedo-control-center\" })"
+                                            "hl.dsp.exec_cmd(\"tuxedo-control-center\")"
                                         ])
                                         popup.active = false
                                     }
