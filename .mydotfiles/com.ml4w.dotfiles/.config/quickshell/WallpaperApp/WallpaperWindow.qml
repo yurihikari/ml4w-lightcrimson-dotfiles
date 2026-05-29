@@ -192,7 +192,7 @@ PanelWindow {
             color: Theme.background
             border.color: Theme.primary
             border.width: 2
-            radius: 10
+            radius: 30
             opacity: 0.8
             clip: true
         
