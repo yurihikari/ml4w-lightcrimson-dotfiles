@@ -623,4 +623,3 @@ PanelWindow {
     }
 }
 }
-}
