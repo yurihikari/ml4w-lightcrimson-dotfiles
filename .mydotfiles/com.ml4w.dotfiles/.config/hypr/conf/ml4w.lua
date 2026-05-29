@@ -112,6 +112,15 @@ hl.window_rule({
     size = "600 400"
 })
 
+-- GTK File and Folder Picker
+hl.window_rule({
+    name = "xdg-desktop-portal-gtk",
+    match = {class = "xdg-desktop-portal-gtk"},
+    float = true,
+    center = false,
+    size = "800 600"
+})
+
 -- nm-connection-editor
 hl.window_rule({
     name = "nm-connection-editor",
@@ -176,6 +185,7 @@ hl.env("CLUTTER_BACKEND", "wayland")
 hl.env("MOZ_ENABLE_WAYLAND", "1")
 
 -- Set the cursor size for xcursor
+-- hl.env("XCURSOR_THEME", "Bibata-Modern-Ice")
 hl.env("XCURSOR_SIZE", "24")
 hl.env("HYPRCURSOR_SIZE", "24")
 
