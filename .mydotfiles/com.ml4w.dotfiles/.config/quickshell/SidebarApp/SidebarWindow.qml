@@ -179,14 +179,6 @@ PanelWindow {
         anchors.fill: parent
         anchors.margins: 20
 
-        RectangularShadow {
-            id: shadow
-            anchors.fill: mainBgRect
-            radius: mainBgRect.radius
-            blur: 15
-            color: Qt.rgba(Theme.shadow.r, Theme.shadow.g, Theme.shadow.b, 0.4)
-        }
-
         Rectangle {
             id: mainBgRect
             anchors.fill: parent
