@@ -12,8 +12,8 @@ function activate_gamemode()
             rounding = 0
         },
         general = {
-            gaps_in = 0,
-            gaps_out = 0,
+            gaps_in = 10,
+            gaps_out = 20,
             border_size = 1
         }
     })
