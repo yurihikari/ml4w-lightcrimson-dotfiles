@@ -234,12 +234,8 @@ elif [ -f "$HOME/.local/bin/matugen" ]; then
 fi
 
 # Execute matugen
-if [ "$THEME_PREF" -eq 1 ]; then
-    $MATUGEN_BIN image "$IMAGE_PATH" --source-color-index 0 -m "dark"
-else
-    $MATUGEN_BIN image "$IMAGE_PATH" --source-color-index 0 -m "light"
-fi
-info "Matugen updated"
+$MATUGEN_BIN image "$IMAGE_PATH" --source-color-index 0 -m "$MATUGEN_MODE"
+info "Matugen updated with mode: $MATUGEN_MODE"
 
 # Update Quickshell theme
 qs ipc call theme-manager reload
