@@ -621,14 +621,14 @@ PanelWindow {
                 // Advanced Network Settings Button
                 Rectangle {
                     Layout.fillWidth: true; height: 34; radius: 10
-                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.3); border.width: 1; color: "transparent"
+                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.3); border.width: 1; color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 1)
                     
                     scale: advNetMouse.pressed ? 0.98 : (advNetMouse.containsMouse ? 1.02 : 1.0)
-                    opacity: advNetMouse.containsMouse ? 1.0 : 0.7
+                    opacity: advNetMouse.containsMouse ? 0.8 : 1.0
                     Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
                     Behavior on opacity { NumberAnimation { duration: 150 } }
 
-                    Text { anchors.centerIn: parent; text: "󰖟  Advanced Network Settings"; color: Theme.primary; font.pixelSize: 11 }
+                    Text { anchors.centerIn: parent; text: "󰖟  Advanced Network Settings"; color: Theme.background; font.pixelSize: 11 }
                     MouseArea { 
                         id: advNetMouse
                         anchors.fill: parent; hoverEnabled: true
@@ -739,14 +739,14 @@ PanelWindow {
                 // BT Manager Button
                 Rectangle {
                     Layout.fillWidth: true; height: 34; radius: 10
-                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.3); border.width: 1; color: "transparent"
+                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.3); border.width: 1; color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 1)
                     
                     scale: btManMouse.pressed ? 0.98 : (btManMouse.containsMouse ? 1.02 : 1.0)
-                    opacity: btManMouse.containsMouse ? 1.0 : 0.7
+                    opacity: btManMouse.containsMouse ? 0.8 : 1.0
                     Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
                     Behavior on opacity { NumberAnimation { duration: 150 } }
 
-                    Text { anchors.centerIn: parent; text: "󰂱  Bluetooth Manager"; color: Theme.primary; font.pixelSize: 11 }
+                    Text { anchors.centerIn: parent; text: "󰂱  Bluetooth Manager"; color: Theme.background; font.pixelSize: 11 }
                     MouseArea { 
                         id: btManMouse
                         anchors.fill: parent; hoverEnabled: true
