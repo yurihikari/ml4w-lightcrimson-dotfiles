@@ -1,155 +1,102 @@
 @import '../../colors.css';
 
 /* === Derived dynamic colors === */
-@define-color base alpha(@surface, 0.8);                      /* translucent blurred base */
-@define-color surface_custom alpha(@surface_container_high,0.8);
-@define-color hovercolor alpha(@surface_container_high,0.8);
+@define-color base alpha(@surface, 0.85); /* translucent blurred glass */
+@define-color surface_custom alpha(@surface_container_high, 0.05);
+@define-color hovercolor alpha(@primary, 0.1);
 @define-color activecolor @primary_container;
 
-@define-color buttoncolor alpha(@inverse_primary,0.3);
-@define-color hoverbutton alpha(@inverse_primary,0.5);
-@define-color activebutton @inverse_primary;
+@define-color buttoncolor alpha(@primary, 0.05);
+@define-color hoverbutton alpha(@primary, 0.15);
+@define-color activebutton @primary;
 
-@define-color bordercolor @primary;
+@define-color bordercolor alpha(@primary, 0.15);
 @define-color fontcolor @on_surface;
 @define-color text @on_surface;
 
-
+/* === Global Reset === */
 * {
   font-size: 1rem;
-  font-weight: 900;
+  font-weight: 600;
   all: unset;
   font-family: "Fira Sans Semibold", "Font Awesome 7 Free", "Font Awesome 7 Brands", "Font Awesome 6 Free", "Font Awesome 6 Brands", FontAwesome, Roboto, Helvetica, Arial, sans-serif;
-  transition: 200ms;
+  transition: all 0.25s cubic-bezier(0.25, 1, 0.5, 1);
 }
 
 .widget-mpris {
   all: unset;
 }
 
-
-
+/* === Main Toast Card (Glass Style) === */
 .floating-notifications.background .notification-row .notification-background .notification {
-    background-color: @surface;
-    border-radius: 12px;
-    background: radial-gradient(circle at 55% -80%, alpha(@primary, 1), alpha(black,0.6)) padding-box, linear-gradient(transparent, alpha(white, 0.5)) padding-box;
-    border: 1px solid @on_surface;
-    opacity:1.0;
-    margin:10px;
-    margin-right:18px;
-    box-shadow: 1 1 5 1px @shadow;
+    background-color: alpha(@background, 0.8);
+    border-radius: 24px;
+    border: 2px solid alpha(@primary, 0.6);
+    color: @primary;
+    padding: 12px;
+    margin: 10px;
+    margin-right: 18px;
+    /* box-shadow: 0px 8px 20px 0px rgba(0, 0, 0, 0.15); */
 }
 
+/* Critical Toast */
 .floating-notifications.background .notification-row .notification-background .notification.critical {
-    background-color: @surface;
-    border-radius: 12px;
-    background: radial-gradient(circle at 55% -80%, alpha(@primary, 1), alpha(black,0.6)) padding-box, linear-gradient(transparent, alpha(red, 0.5)) padding-box;
-    border: 1px solid @on_surface;
-    opacity:1.0;
-    margin:10px;
-    margin-right:18px;
-    box-shadow: 1 1 5 1px @shadow;
+    background-color: alpha(#ff6b6b, 0.15);
+    border: 2px solid #ff6b6b;
 }
 
-/*This is the margin for the floating notifications on desktop only!*/
-
-.floating-notifications.background
-  .notification-row
-  .notification-background
-  .notification
-  .notification-content {
-  margin: 0rem;
+/* Spacing Reset */
+.floating-notifications.background .notification-row .notification-background .notification .notification-content {
+    margin: 0rem;
 }
 
-.floating-notifications.background
-  .notification-row
-  .notification-background
-  .notification
-  > *:last-child
-  > * {
-  min-height: 1.5em;
+.floating-notifications.background .notification-row .notification-background .notification > *:last-child > * {
+    min-height: 1.5em;
 }
 
-.floating-notifications.background
-  .notification-row
-  .notification-background
-  .notification
-  > *:last-child
-  > *
-  .notification-action {
-  border-radius: 0.5rem;
-  background-color: alpha(@crust, 0.95);
-  margin: 0.4rem;
-  border: 1px solid transparent;
+/* === Action Buttons (Interactive Glass Pills) === */
+.floating-notifications.background .notification-row .notification-background .notification > *:last-child > * .notification-action {
+    background-color: @surface_custom;
+    color: @primary;
+    border-radius: 14px;
+    margin: 6px;
+    padding: 8px 16px;
+    border: 1px solid @bordercolor;
 }
 
-.floating-notifications.background
-  .notification-row
-  .notification-background
-  .notification
-  > *:last-child
-  > *
-  .notification-action:hover {
-  background-color: @hover;
-  border: 1px solid @primary;
+.floating-notifications.background .notification-row .notification-background .notification > *:last-child > * .notification-action:hover {
+    background-color: @hovercolor;
+    border-radius: 18px;
 }
 
-.floating-notifications.background
-  .notification-row
-  .notification-background
-  .notification
-  > *:last-child
-  > *
-  .notification-action:active {
-  background-color: @primary;
-  color: @text;
+.floating-notifications.background .notification-row .notification-background .notification > *:last-child > * .notification-action:active {
+    background-color: alpha(@primary, 0.2);
 }
 
-
+/* === Typography === */
 .summary {
-  font-weight: 800;
-  font-size: 1.15rem;
-  padding: 5px 15px;
+    color: @primary;
+    font-weight: 900;
+    font-size: 1.2rem;
+    padding: 5px 15px;
 }
 
 .body {
-  padding: 5px 15px;
-  font-size: 0.8rem;
+    color: @primary;
+    background: transparent;
+    opacity: 0.8;
+    padding: 5px 15px;
+    font-size: 0.95rem;
 }
 
-.floating-notifications.background
-  .notification-row
-  .notification-background
-  .close-button {
-  background: transparent;
-  border-radius: 7px;
-  color: @text;
-  background-color: alpha(#fff, 0.5);
-  margin: 0px;
-  padding: 2px;
+/* === Close Button === */
+.floating-notifications.background .notification-row .notification-background .close-button {
+    background-color: alpha(@primary, 0.1);
+    border-radius: 12px;
+    color: @primary;
+    margin: 8px;
+    padding: 6px;
 }
 
-.floating-notifications.background
-  .notification-row
-  .notification-background
-  .close-button:hover {
-  background-color: @primary;
-  border-radius: 12px;
-}
-
-.floating-notifications.background
-  .notification-row
-  .notification-background
-  .close-button:active {
-  background-color: @primary;
-  color: @text;
-}
-
-.notification.critical progress {
-  background-color: @primary;
-}
-
-.notification.low progress,
-.notification.normal progress {
-  background-color: @primary;
-}
+.floating-notifications.background .notification-row .notification-background .close-button:hover {
+    background-color: alpha(#ff6b6b,

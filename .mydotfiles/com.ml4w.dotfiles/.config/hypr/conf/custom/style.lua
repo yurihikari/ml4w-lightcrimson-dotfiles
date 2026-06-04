@@ -20,6 +20,15 @@ hl.layer_rule({
     ignore_alpha = 0.79
 })
 
+hl.layer_rule({
+    match = {
+        namespace = "swaync-notification-window"
+    },
+    blur_popups = true,
+    blur = true,
+    xray = true,
+    ignore_alpha = 0.79
+})
 
 -- unscale XWayland
 hl.config({

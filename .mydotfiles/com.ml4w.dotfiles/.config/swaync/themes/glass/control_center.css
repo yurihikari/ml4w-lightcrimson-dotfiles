@@ -3,308 +3,299 @@
 @import '../../colors.css';
 
 /* === Derived dynamic colors === */
-@define-color base alpha(@surface, 0.5);
-@define-color surface_custom alpha(@surface_container_high,1);
-@define-color hovercolor alpha(@surface_container_high,1);
+@define-color base alpha(@surface, 0.85);
+@define-color surface_custom alpha(@surface_container_high, 0.05);
+@define-color hovercolor alpha(@primary, 0.1);
 @define-color activecolor @primary_container;
 
-@define-color buttoncolor alpha(@inverse_primary,0.5);
-@define-color hoverbutton alpha(@inverse_primary,0.7);
-@define-color activebutton @inverse_primary;
+@define-color buttoncolor alpha(@primary, 0.05);
+@define-color hoverbutton alpha(@primary, 0.15);
+@define-color activebutton @primary;
 
-@define-color bordercolor @primary;
+@define-color bordercolor alpha(@primary, 0.15);
 @define-color fontcolor @on_surface;
 @define-color text @on_surface;
 
 /* === Global Reset === */
 * {
-  color: @text;
+  color: @primary;
   font-size: 1rem;
-  font-weight: 900;
-  font-family: "Fira Sans Semibold", "Font Awesome 7 Free",
-  "Font Awesome 7 Brands", "Font Awesome 6 Free", "Font Awesome 6 Brands",
-  FontAwesome;
-  transition: 250ms;
+  font-family: "Fira Sans Semibold", "Font Awesome 7 Free", "Font Awesome 7 Brands", "Font Awesome 6 Free", "Font Awesome 6 Brands", FontAwesome;
+  transition: all 0.25s cubic-bezier(0.25, 1, 0.5, 1);
 }
 
 #window {
-    padding:40px;
-
+    padding: 20px;
 }
 
 /* === Control Center Container === */
 .control-center {
-    background-color: @surface;
-    border-radius: 12px;
-    background: radial-gradient(circle at 50% 250%, @surface, @surface_dim) padding-box,
-        linear-gradient(#FFFFFF,@on_primary) border-box;
-    border: 1px solid transparent;	
-    opacity:0.9;
-    margin:10px;
-    margin-right:18px;
-    box-shadow: 0 1px 10px 1px rgba(0, 0, 0, 0.3), 0 1px 10px 1px rgba(0, 0, 0, 0.7),
-      0 2px 10px 2px rgba(0, 0, 0, 0.3);}
+    background-color: @base;
+    border-radius: 30px;
+    border: 2px solid alpha(@primary, 0.8);
+    margin: 8px;
+    margin-right: 18px;
+}
 
 /* === Buttons grid === */
 .widget-buttons-grid {
-  margin: 6px 6px 6px 6px;
-  border-radius: 0px;
+  margin: 12px;
+  border-radius: 20px;
+  background-color: alpha(@primary, 0.03);
+  border: 1px solid @bordercolor;
+  padding: 8px;
 }
 
 .widget-buttons-grid button {
-  margin: 7px 7px 7px 7px;
+  margin: 6px;
   padding: 1rem 1.9rem;
   background: @buttoncolor;
-  color: @on_primary_fixed;
-  border-radius: 8px;
-  border: 2px solid @bordercolor;
+  color: @primary;
+  border-radius: 16px;
+  border: 1px solid @bordercolor;
   font-size: 5em;
-  transition: all 0.2s ease-in-out;
 }
 
 .widget-buttons-grid button:hover {
   background: @hoverbutton;
-  color: @text;
   border-radius: 20px;
 }
 
 .widget-buttons-grid button.toggle:checked {
   background: @activebutton;
-  color: @on_primary;
-  border-radius: 15px;
+  color: @background;
+  border-radius: 20px;
 }
 
 .widget-buttons-grid label {
-  font-size: 19px;
-  transition: all 0.2s ease-in-out;
+  font-size: 18px;
+  font-weight: bold;
 }
 
 .widget-buttons-grid button:hover label {
-  transform: scale(0.8)
+  transform: scale(0.9);
 }
 
 .widget-buttons-grid button:checked label {
-  transform: scale(0.8)
+  color: @background;
 }
 
-/* === Brightness === */
-.widget-volume {
-  padding: 12px 16px;
-  margin: 0px 12px 20px 12px;
-  border-radius: 8px;
-  background: @surface_custom;
-}
-
-
+/* === Brightness & Volume (Glass Inputs) === */
+.widget-volume,
 .widget-backlight {
   padding: 12px 16px;
-  margin: 7px 12px 20px 12px;
-  border-radius: 8px;
+  margin: 8px 20px;
+  border-radius: 20px;
   background: @surface_custom;
+  border: 1px solid @bordercolor;
 }
 
 .widget-backlight trough,
 .widget-volume trough {
-  background: @surface_container_low;
+  background: alpha(@primary, 0.1);
   margin: 8px 8px;
-  border: 3px ;
+  border-radius: 10px;
+  min-height: 12px;
 }
 
 .widget-backlight trough highlight,
 .widget-volume trough highlight {
   background: @primary;
-  border: 2px solid @primary;
-  border-radius: 5px;
-}
-
-.widget-volume label {
-  font-size: 14px;
-}
-
-.widget-backlight label {
-  font-size: 20px;
-}
-
-/* === Music Player === */
-.widget-mpris {
   border-radius: 10px;
-  margin: 2px 12px 12px 12px;
-  align-items: center;
-  color: alpha(#000000, 0.8);
+}
+
+.widget-volume label,
+.widget-backlight label {
+  font-size: 18px;
+  opacity: 0.8;
+}
+
+/* === Music Player (Glass Card) === */
+.widget-mpris {
+  background: @surface_custom;
+  border: 1px solid @bordercolor;
+  border-radius: 24px;
+  margin: 12px 20px;
+  padding: 15px;
 }
 
 .widget-mpris button {
-  background: @surface_custom;
-  border-radius: 20px;
-  padding: 4px;
-  margin: 20px 2px;
-  color: alpha(#000000, 0.8);
+  background: transparent;
+  border-radius: 18px;
+  padding: 10px;
+  color: @primary;
+  opacity: 0.7;
 }
 
 .widget-mpris button:hover {
-  background: @hovercolor;
+  background: alpha(@primary, 0.1);
+  opacity: 1.0;
 }
 
 .widget-mpris-player {
-  border-radius: 10px;
+  border-radius: 24px;
   position: absolute;
   inset: 0;
   z-index: 0;
   overflow: hidden;
-  color: alpha(#000000, 0.8);
 }
 
 .widget-mpris-album-art {
-  border-radius: 1000px;
-  margin: 8px 0 0 8px;
+  border-radius: 16px;
+  margin: 10px;
 }
 
 .widget-mpris-title {
   font-weight: 900;
-  font-size: 2em;
-  margin: 10px 20px 0 0;
-  color: alpha(white, 0.9);
-  background-color: alpha(black, 0.6);
+  font-size: 1.4rem;
+  margin: 10px 10px 0 0;
+  color: @primary;
+  text-shadow: 0px 0px 8px @background;
 }
 
 .widget-mpris-subtitle {
-
-  font-weight: 900;
-  font-size: 0.8rem;
-  margin: 0px 20px 5px 0px;
-  color: alpha(white, 0.9);
-  background-color: alpha(black, 0.6);
+  font-weight: 600;
+  font-size: 1rem;
+  margin: 0px 10px 5px 0px;
+  color: @primary;
+  opacity: 0.6;
+  text-shadow: 0px 0px 8px @background;
 }
 
 
-/* === Notification Clear Button === */
-
+/* === Notification Title Row === */
 .widget-title {
-  font-size: 1.5rem;
-  margin: 0 12px 5px 12px;
+  font-size: 1.2rem;
+  margin: 15px 20px 5px 20px;
+  font-weight: bold;
+  opacity: 0.8;
 }
 
 .widget-title button {
   background: @surface_custom;
-  border-radius: 8px;
-  padding: 4px 16px;
+  border: 1px solid @bordercolor;
+  border-radius: 14px;
+  padding: 6px 16px;
+  font-size: 0.9rem;
 }
 
 .widget-title button:hover {
   background: @hovercolor;
-  background: alpha(@primary,0.3);
-  border-radius: 15px;
+  border-radius: 18px;
 }
 
-/* === Do Not Disturb === */
-
+/* === Do Not Disturb Switch === */
 .widget-dnd {
-  margin: 15px 15px 5px 12px;
+  margin: 15px 20px 5px 20px;
 }
 
 .widget-dnd > switch {
-  color: @text;
-  background: @hovercolor;
-  border-radius: 5px;
+  background: alpha(@primary, 0.1);
+  border-radius: 14px;
+  border: 1px solid @bordercolor;
   box-shadow: none;
 }
 
 .widget-dnd > switch:hover {
-  background: @buttoncolor;
-  border-radius: 10px;
+  background: alpha(@primary, 0.2);
 }
 
 .widget-dnd > switch:checked {
-  background: @buttoncolor;
-  color: @on_primary;
-  border-radius: 7px;
+  background: @primary;
+  border-color: @primary;
 }
 
 .widget-dnd > switch slider {
-  background: @bordercolor;
-  border-radius: 5px;
-  border: 2px solid @buttoncolor;
-}
-
-.widget-dnd > switch:hover slider {
+  background: @background;
   border-radius: 10px;
-  border: 2px solid @buttoncolor;
+  margin: 4px;
 }
 
-.widget-dnd > switch:checked slider {
-  background: @inverse_primary;
-  border-radius: 7px;
+/* === Notifications Cards === */
+.notification-row {
+  outline: none;
 }
 
-/* === Notifications === */
+.control-center .notification-row .notification-background .notification {
+  /* FIX: Highly opaque background to prevent text-bleed when stacked */
+  background-color: alpha(@surface, 0.95);
+  border-radius: 20px;
+  border: 1px solid @bordercolor;
+  margin: 8px 20px;
+  padding: 12px;
+}
 
 .control-center .notification-row .notification-background .notification.critical {
-  background-color: @surface_container;
-  border-radius: 10px;
-  margin: 5px 0px;
-  padding: 10px;
-  border: 2px solid red;
-  min-height: 2.5em;
+  /* FIX: Using solid theme error colors to prevent bleeding */
+  background-color: @error_container;
+  border: 1px solid @error;
+  color: @on_error_container;
 }
 
 .control-center .notification-row .notification-background .close-button {
-  background-color: alpha(@hoverbutton,0.5);
-  border-radius: 8px;
-  color: @text;
-  padding: 3px;
+  background-color: alpha(@primary, 0.1);
+  border-radius: 12px;
+  color: @primary;
+  padding: 4px;
+  margin: 6px;
 }
 
 .control-center .notification-row .notification-background .close-button:hover {
-  border-radius: 12px;
+  background-color: alpha(#ff6b6b, 0.8);
+  color: @background;
+  border-radius: 16px;
 }
 
 .control-center .notification-content .time {
-  font-size: 0.7em;
-  margin: 10px 15px;
+  font-size: 0.8em;
+  opacity: 0.5;
+  margin: 8px 15px;
 }
 
-/* === Progress Bars === */
+.control-center .notification-content .summary {
+  font-weight: bold;
+  font-size: 1.1rem;
+}
 
-trough highlight {
-  background: @primary;
-  border: 2px solid @primary_fixed;
-  border-radius: 20px;
+.control-center .notification-content .body {
+  opacity: 0.8;
+  font-size: 0.95rem;
 }
 
 /* === Notification Groups === */
-
 .notification-group {
-  margin: 4px 12px 4px 12px;
+  margin: 4px 0px;
 }
+
 .notification-group-headers {
   font-weight: 900;
-  font-size: 0
+  font-size: 0;
 }
 
 .notification-group-icon {
-  padding: 0px;
+  padding: 0px 10px;
 }
 
 .notification-group-collapse-button,
 .notification-group-close-all-button {
-  background: @surface_container;
-  border-radius: 5px;
-  padding: 5px;
+  background: @surface_custom;
+  border: 1px solid @bordercolor;
+  border-radius: 12px;
+  padding: 6px;
+  margin: 0px 20px;
 }
 
 .notification-group-collapse-button:hover,
 .notification-group-close-all-button:hover {
   background: @hovercolor;
+  border-radius: 16px;
 }
 
+/* Override standalone popup notifications to match the style */
 .notification {
-    background-color: @surface;
-    border-radius: 12px;
-    background: radial-gradient(circle at 50% 250%, @primary, @surface) padding-box,
-        linear-gradient(#FFFFFF,@on_primary) border-box;
-    border: 1px solid transparent;	
-    opacity:1.0;
-    padding:10px;
-    margin:10px 0px 0px 0px;
-    box-shadow: 1 1 5 1px @shadow;
+    background-color: @base;
+    border-radius: 24px;
+    border: 2px solid alpha(@primary, 0.8);
+    padding: 12px;
+    margin: 10px;
 }
