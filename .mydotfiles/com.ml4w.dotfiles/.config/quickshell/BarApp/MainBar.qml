@@ -329,7 +329,12 @@ PanelWindow {
                                 anchors.left: parent.left
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: modelData.active ? "󰮯" : "󰊠"
-                                color: modelData.active ? Theme.on_primary_container : Theme.primary
+                                
+                                // Explicitly bind both colors to prevent ternary loss on theme switch
+                                property color _primary: Theme.primary
+                                property color _onPrimary: Theme.on_primary_container
+                                color: modelData.active ? _onPrimary : _primary
+                                
                                 font.pixelSize: 16; verticalAlignment: Text.AlignVCenter
                                 Behavior on color { ColorAnimation { duration: 200 } }
                             }
@@ -470,6 +475,11 @@ PanelWindow {
                     scale: micMouse.pressed ? 0.85 : (micMouse.containsMouse ? 1.05 : 1.0)
                     Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
 
+                    // Explicit property definitions to track both branches consistently
+                    property color _primary: Theme.primary
+                    property color _accent: Theme.accent
+                    property color activeColor: sysInfo.isMicMuted ? _accent : _primary
+
                     Item {
                         id: micRing
                         width: 28; height: 28
@@ -478,13 +488,15 @@ PanelWindow {
                         
                         Rectangle {
                             anchors.fill: parent; radius: width / 2
-                            color: "transparent"; border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15); border.width: 2
+                            color: "transparent"
+                            border.color: Qt.rgba(micContainer._primary.r, micContainer._primary.g, micContainer._primary.b, 0.15)
+                            border.width: 2
                         }
 
                         Canvas {
                             anchors.fill: parent
                             property real value: sysInfo.micValue
-                            property color ringColor: sysInfo.isMicMuted ? Theme.accent : Theme.primary
+                            property color ringColor: micContainer.activeColor
                             onValueChanged: requestPaint(); onRingColorChanged: requestPaint()
                             onPaint: {
                                 var ctx = getContext("2d"); ctx.reset();
@@ -498,7 +510,7 @@ PanelWindow {
 
                         Text {
                             text: sysInfo.isMicMuted ? "󰍭" : "󰍬"
-                            color: sysInfo.isMicMuted ? Theme.accent : Theme.primary
+                            color: micContainer.activeColor
                             font.pixelSize: 14
                             anchors.centerIn: parent
                         }
@@ -507,7 +519,7 @@ PanelWindow {
                     Text {
                         id: micLabel
                         text: sysInfo.isMicMuted ? "Muted" : (Math.round(sysInfo.micValue * 100) + "%")
-                        color: Theme.primary
+                        color: micContainer._primary
                         font.pixelSize: 11; font.bold: true
                         anchors.left: micRing.right
                         anchors.leftMargin: 6
@@ -539,6 +551,8 @@ PanelWindow {
                     scale: briMouse.pressed ? 0.85 : (briMouse.containsMouse ? 1.05 : 1.0)
                     Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
 
+                    property color _primary: Theme.primary
+
                     Item {
                         id: briRing
                         width: 28; height: 28
@@ -547,13 +561,15 @@ PanelWindow {
                         
                         Rectangle {
                             anchors.fill: parent; radius: width / 2
-                            color: "transparent"; border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15); border.width: 2
+                            color: "transparent"
+                            border.color: Qt.rgba(briContainer._primary.r, briContainer._primary.g, briContainer._primary.b, 0.15)
+                            border.width: 2
                         }
 
                         Canvas {
                             anchors.fill: parent
                             property real value: sysInfo.briValue
-                            property color ringColor: Theme.primary
+                            property color ringColor: briContainer._primary
                             onValueChanged: requestPaint(); onRingColorChanged: requestPaint()
                             onPaint: {
                                 var ctx = getContext("2d"); ctx.reset();
@@ -567,7 +583,7 @@ PanelWindow {
 
                         Text {
                             text: sysInfo.briValue > 0.6 ? "󰃠" : (sysInfo.briValue > 0.3 ? "󰃟" : "󰃞")
-                            color: Theme.primary
+                            color: briContainer._primary
                             font.pixelSize: 14
                             anchors.centerIn: parent
                         }
@@ -576,7 +592,7 @@ PanelWindow {
                     Text {
                         id: briLabel
                         text: Math.round(sysInfo.briValue * 100) + "%"
-                        color: Theme.primary
+                        color: briContainer._primary
                         font.pixelSize: 11; font.bold: true
                         anchors.left: briRing.right
                         anchors.leftMargin: 6
@@ -605,6 +621,10 @@ PanelWindow {
                     scale: volIconMouse.pressed ? 0.85 : (volIconMouse.containsMouse ? 1.05 : 1.0)
                     Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
 
+                    property color _primary: Theme.primary
+                    property color _accent: Theme.accent
+                    property color activeColor: sysInfo.isMuted ? _accent : _primary
+
                     Item {
                         id: volRing
                         width: 28; height: 28
@@ -613,13 +633,15 @@ PanelWindow {
                         
                         Rectangle {
                             anchors.fill: parent; radius: width / 2
-                            color: "transparent"; border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15); border.width: 2
+                            color: "transparent"
+                            border.color: Qt.rgba(volContainer._primary.r, volContainer._primary.g, volContainer._primary.b, 0.15)
+                            border.width: 2
                         }
 
                         Canvas {
                             anchors.fill: parent
                             property real value: sysInfo.volValue
-                            property color ringColor: sysInfo.isMuted ? Theme.accent : Theme.primary
+                            property color ringColor: volContainer.activeColor
                             onValueChanged: requestPaint(); onRingColorChanged: requestPaint()
                             onPaint: {
                                 var ctx = getContext("2d"); ctx.reset();
@@ -633,7 +655,7 @@ PanelWindow {
 
                         Text {
                             text: sysInfo.isMuted ? "󰝟" : (sysInfo.volValue > 0.6 ? "󰕾" : (sysInfo.volValue > 0.2 ? "󰖀" : "󰕿"))
-                            color: sysInfo.isMuted ? Theme.accent : Theme.primary
+                            color: volContainer.activeColor
                             font.pixelSize: 14
                             anchors.centerIn: parent
                         }
@@ -642,7 +664,7 @@ PanelWindow {
                     Text {
                         id: volLabel
                         text: sysInfo.isMuted ? "Muted" : (Math.round(sysInfo.volValue * 100) + "%")
-                        color: Theme.primary
+                        color: volContainer._primary
                         font.pixelSize: 11; font.bold: true
                         anchors.left: volRing.right
                         anchors.leftMargin: 6
@@ -676,6 +698,8 @@ PanelWindow {
                     scale: kbMouse.pressed ? 0.95 : (kbMouse.containsMouse ? 1.05 : 1.0)
                     Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
 
+                    property color _primary: Theme.primary
+
                     Item {
                         id: kbIconWrapper
                         width: 28; height: 28
@@ -683,7 +707,7 @@ PanelWindow {
                         anchors.verticalCenter: parent.verticalCenter
                         Text {
                             text: "󰌌"
-                            color: Theme.primary
+                            color: kbContainer._primary
                             font.pixelSize: 16
                             anchors.centerIn: parent
                         }
@@ -692,7 +716,7 @@ PanelWindow {
                     Text {
                         id: kbLabel
                         text: sysInfo.kbLayout + (sysInfo.kbVariant !== "" ? " (" + sysInfo.kbVariant.split(",")[0].substring(0,2) + ")" : "")
-                        color: Theme.primary
+                        color: kbContainer._primary
                         font.pixelSize: 11
                         font.bold: true
                         anchors.left: kbIconWrapper.right
@@ -735,6 +759,8 @@ PanelWindow {
                 scale: notifMouse.pressed ? 0.85 : (notifMouse.containsMouse ? 1.05 : 1.0)
                 Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
 
+                property color _primary: Theme.primary
+
                 Item {
                     id: notifIconWrapper
                     width: 28; height: 28
@@ -742,7 +768,7 @@ PanelWindow {
                     anchors.verticalCenter: parent.verticalCenter
                     Text {
                         text: getNotificationIcon(bar.swayncState)
-                        color: Theme.primary
+                        color: notifContainer._primary
                         font.pixelSize: 18
                         anchors.centerIn: parent
                     }
@@ -751,7 +777,7 @@ PanelWindow {
                 Text {
                     id: notifLabel
                     text: bar.swayncState.includes("dnd") ? "DND" : (bar.swayncState.includes("notification") ? "New" : "Clear")
-                    color: Theme.primary
+                    color: notifContainer._primary
                     font.pixelSize: 11; font.bold: true
                     anchors.left: notifIconWrapper.right
                     anchors.leftMargin: 6
@@ -785,6 +811,7 @@ PanelWindow {
                 Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
 
                 property var time: new Date()
+                property color _primary: Theme.primary
                 Timer { interval: 1000; running: true; repeat: true; onTriggered: clockContainer.time = new Date() }
 
                 Column {
@@ -792,14 +819,14 @@ PanelWindow {
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: -2
-                    Text { text: Qt.formatDateTime(clockContainer.time, "HH:mm"); color: Theme.primary; font.pixelSize: 12; font.weight: Font.Black; horizontalAlignment: Text.AlignHCenter }
-                    Text { text: Qt.formatDateTime(clockContainer.time, "AP"); color: Theme.primary; font.pixelSize: 10; font.weight: Font.Bold; horizontalAlignment: Text.AlignHCenter }
+                    Text { text: Qt.formatDateTime(clockContainer.time, "HH:mm"); color: clockContainer._primary; font.pixelSize: 12; font.weight: Font.Black; horizontalAlignment: Text.AlignHCenter }
+                    Text { text: Qt.formatDateTime(clockContainer.time, "AP"); color: clockContainer._primary; font.pixelSize: 10; font.weight: Font.Bold; horizontalAlignment: Text.AlignHCenter }
                 }
 
                 Text {
                     id: dateLabel
                     text: Qt.formatDateTime(clockContainer.time, "ddd, MMM d")
-                    color: Theme.primary
+                    color: clockContainer._primary
                     font.pixelSize: 11; font.bold: true
                     anchors.left: clockCol.right
                     anchors.leftMargin: 6
