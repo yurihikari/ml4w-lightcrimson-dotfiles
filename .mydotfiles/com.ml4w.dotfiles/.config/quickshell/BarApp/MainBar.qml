@@ -271,7 +271,16 @@ PanelWindow {
 
         Row {
             id: centerRow; anchors.centerIn: parent; spacing: 8
-            Text { text: "󰎆"; color: Theme.primary; font.pixelSize: 14; verticalAlignment: Text.AlignVCenter }
+            
+            property color _primary: Theme.primary
+            property color _tertiary: Theme.tertiary
+            property bool isPlaying: bar.activePlayer && bar.activePlayer.playbackState === MprisPlaybackState.Playing
+
+            Text { 
+                text: "󰎆"
+                color: centerRow.isPlaying ? centerRow._tertiary : centerRow._primary 
+                font.pixelSize: 14; verticalAlignment: Text.AlignVCenter 
+            }
             Text { 
                 text: { let title = bar.activePlayer ? (bar.activePlayer.trackTitle || "No Media") : "No Media"; let artist = bar.activePlayer ? (bar.activePlayer.trackArtist || "") : ""; return title + (artist ? " - " + artist : "") }
                 color: Theme.primary; font.pixelSize: 14; font.weight: Font.Medium; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight; width: Math.min(implicitWidth, 350)
@@ -330,10 +339,10 @@ PanelWindow {
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: modelData.active ? "󰮯" : "󰊠"
                                 
-                                // Explicitly bind both colors to prevent ternary loss on theme switch
+                                // Make active workspace pop with tertiary color
                                 property color _primary: Theme.primary
-                                property color _onPrimary: Theme.on_primary_container
-                                color: modelData.active ? _onPrimary : _primary
+                                property color _tertiary: Theme.tertiary
+                                color: modelData.active ? _tertiary : _primary
                                 
                                 font.pixelSize: 16; verticalAlignment: Text.AlignVCenter
                                 Behavior on color { ColorAnimation { duration: 200 } }
@@ -354,7 +363,6 @@ PanelWindow {
                                         width: 14; height: 14
                                         anchors.verticalCenter: parent.verticalCenter
 
-                                        // Resolve a real icon path; "" means not found (no broken texture)
                                         property string resolvedIcon: {
                                             let cls = modelData.class || ""
                                             if (cls === "") return ""
@@ -375,7 +383,6 @@ PanelWindow {
                                             visible: parent.resolvedIcon !== ""
                                         }
 
-                                        // Fallback glyph when no icon found
                                         Text {
                                             anchors.centerIn: parent
                                             text: "󰣆"
@@ -475,10 +482,9 @@ PanelWindow {
                     scale: micMouse.pressed ? 0.85 : (micMouse.containsMouse ? 1.05 : 1.0)
                     Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
 
-                    // Explicit property definitions to track both branches consistently
                     property color _primary: Theme.primary
-                    property color _accent: Theme.accent
-                    property color activeColor: sysInfo.isMicMuted ? _accent : _primary
+                    property color _error: Theme.error
+                    property color activeColor: sysInfo.isMicMuted ? _error : _primary
 
                     Item {
                         id: micRing
@@ -519,7 +525,7 @@ PanelWindow {
                     Text {
                         id: micLabel
                         text: sysInfo.isMicMuted ? "Muted" : (Math.round(sysInfo.micValue * 100) + "%")
-                        color: micContainer._primary
+                        color: Theme.secondary // Differentiate value text from icon color
                         font.pixelSize: 11; font.bold: true
                         anchors.left: micRing.right
                         anchors.leftMargin: 6
@@ -592,7 +598,7 @@ PanelWindow {
                     Text {
                         id: briLabel
                         text: Math.round(sysInfo.briValue * 100) + "%"
-                        color: briContainer._primary
+                        color: Theme.secondary
                         font.pixelSize: 11; font.bold: true
                         anchors.left: briRing.right
                         anchors.leftMargin: 6
@@ -622,8 +628,8 @@ PanelWindow {
                     Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
 
                     property color _primary: Theme.primary
-                    property color _accent: Theme.accent
-                    property color activeColor: sysInfo.isMuted ? _accent : _primary
+                    property color _error: Theme.error
+                    property color activeColor: sysInfo.isMuted ? _error : _primary
 
                     Item {
                         id: volRing
@@ -664,7 +670,7 @@ PanelWindow {
                     Text {
                         id: volLabel
                         text: sysInfo.isMuted ? "Muted" : (Math.round(sysInfo.volValue * 100) + "%")
-                        color: volContainer._primary
+                        color: Theme.secondary
                         font.pixelSize: 11; font.bold: true
                         anchors.left: volRing.right
                         anchors.leftMargin: 6
@@ -716,7 +722,7 @@ PanelWindow {
                     Text {
                         id: kbLabel
                         text: sysInfo.kbLayout + (sysInfo.kbVariant !== "" ? " (" + sysInfo.kbVariant.split(",")[0].substring(0,2) + ")" : "")
-                        color: kbContainer._primary
+                        color: Theme.secondary
                         font.pixelSize: 11
                         font.bold: true
                         anchors.left: kbIconWrapper.right
@@ -760,6 +766,9 @@ PanelWindow {
                 Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
 
                 property color _primary: Theme.primary
+                property color _tertiary: Theme.tertiary
+                property color _outline: Theme.outline
+                property color activeColor: bar.swayncState.includes("notification") ? _tertiary : (bar.swayncState.includes("dnd") ? _outline : _primary)
 
                 Item {
                     id: notifIconWrapper
@@ -768,7 +777,7 @@ PanelWindow {
                     anchors.verticalCenter: parent.verticalCenter
                     Text {
                         text: getNotificationIcon(bar.swayncState)
-                        color: notifContainer._primary
+                        color: notifContainer.activeColor
                         font.pixelSize: 18
                         anchors.centerIn: parent
                     }
@@ -777,7 +786,7 @@ PanelWindow {
                 Text {
                     id: notifLabel
                     text: bar.swayncState.includes("dnd") ? "DND" : (bar.swayncState.includes("notification") ? "New" : "Clear")
-                    color: notifContainer._primary
+                    color: Theme.secondary
                     font.pixelSize: 11; font.bold: true
                     anchors.left: notifIconWrapper.right
                     anchors.leftMargin: 6
@@ -826,7 +835,7 @@ PanelWindow {
                 Text {
                     id: dateLabel
                     text: Qt.formatDateTime(clockContainer.time, "ddd, MMM d")
-                    color: clockContainer._primary
+                    color: Theme.secondary
                     font.pixelSize: 11; font.bold: true
                     anchors.left: clockCol.right
                     anchors.leftMargin: 6
@@ -859,13 +868,20 @@ PanelWindow {
                     Row { 
                         spacing: 4; Layout.alignment: Qt.AlignVCenter; visible: sysInfo.connType !== "none"
                         Text { text: sysInfo.connType === "ethernet" ? "󰈀" : "󰤨"; color: Theme.primary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
-                        Text { text: sysInfo.wifi; color: Theme.primary; font.pixelSize: 13; font.weight: Font.Bold; visible: sysInfo.connType === "wifi" && sysInfo.wifi !== ""; verticalAlignment: Text.AlignVCenter }
+                        Text { text: sysInfo.wifi; color: Theme.secondary; font.pixelSize: 13; font.weight: Font.Bold; visible: sysInfo.connType === "wifi" && sysInfo.wifi !== ""; verticalAlignment: Text.AlignVCenter }
                     }
-                    Text { text: "󰂯"; color: Theme.primary; font.pixelSize: 14; visible: sysInfo.bluetooth; Layout.alignment: Qt.AlignVCenter; verticalAlignment: Text.AlignVCenter }
+                    Text { text: "󰂯"; color: Theme.secondary; font.pixelSize: 14; visible: sysInfo.bluetooth; Layout.alignment: Qt.AlignVCenter; verticalAlignment: Text.AlignVCenter }
+                    
                     Row { 
                         spacing: 4; visible: sysInfo.hasBattery; Layout.alignment: Qt.AlignVCenter
-                        Text { text: getBatteryIcon(sysInfo.batLevel, sysInfo.batCharging); color: Theme.primary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
-                        Text { text: sysInfo.bat; color: Theme.primary; font.pixelSize: 13; font.weight: Font.Bold; verticalAlignment: Text.AlignVCenter }
+                        
+                        property color _primary: Theme.primary
+                        property color _tertiary: Theme.tertiary
+                        property color _error: Theme.error
+                        property color activeColor: sysInfo.batCharging ? _tertiary : (sysInfo.batLevel <= 20 ? _error : _primary)
+
+                        Text { text: getBatteryIcon(sysInfo.batLevel, sysInfo.batCharging); color: parent.activeColor; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
+                        Text { text: sysInfo.bat; color: parent.activeColor; font.pixelSize: 13; font.weight: Font.Bold; verticalAlignment: Text.AlignVCenter }
                     }
                 }
                 MouseArea { id: sysMouse; anchors.fill: parent; hoverEnabled: true; onClicked: systemPopup.active = !systemPopup.active }
@@ -1120,20 +1136,29 @@ PanelWindow {
 
                 RowLayout {
                     anchors.fill: parent; anchors.margins: 12; spacing: 10
-                    Text { text: sysInfo.activeOSD === "vol" ? "󰕾" : (sysInfo.activeOSD === "mic" ? "󰍬" : "󰃠"); color: Theme.primary; font.pixelSize: 18 }
+                    
+                    property color _primary: Theme.primary
+                    property color _error: Theme.error
+                    property color activeColor: {
+                        if (sysInfo.activeOSD === "vol" && sysInfo.isMuted) return _error;
+                        if (sysInfo.activeOSD === "mic" && sysInfo.isMicMuted) return _error;
+                        return _primary;
+                    }
+
+                    Text { text: sysInfo.activeOSD === "vol" ? "󰕾" : (sysInfo.activeOSD === "mic" ? "󰍬" : "󰃠"); color: parent.activeColor; font.pixelSize: 18 }
                     
                     Rectangle {
-                        Layout.fillWidth: true; height: 6; radius: 3; color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.2)
+                        Layout.fillWidth: true; height: 6; radius: 3; color: Qt.rgba(parent.activeColor.r, parent.activeColor.g, parent.activeColor.b, 0.2)
                         Rectangle {
                             width: parent.width * (sysInfo.activeOSD === "vol" ? sysInfo.volValue : (sysInfo.activeOSD === "mic" ? sysInfo.micValue : sysInfo.briValue))
-                            height: parent.height; radius: 3; color: Theme.primary
+                            height: parent.height; radius: 3; color: parent.parent.activeColor
                             Behavior on width { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
                         }
                     }
                     
                     Text {
                         text: Math.round((sysInfo.activeOSD === "vol" ? sysInfo.volValue : (sysInfo.activeOSD === "mic" ? sysInfo.micValue : sysInfo.briValue)) * 100) + "%"
-                        color: Theme.primary; font.pixelSize: 12; font.bold: true; Layout.preferredWidth: 35
+                        color: parent.activeColor; font.pixelSize: 12; font.bold: true; Layout.preferredWidth: 35
                     }
                 }
             }
