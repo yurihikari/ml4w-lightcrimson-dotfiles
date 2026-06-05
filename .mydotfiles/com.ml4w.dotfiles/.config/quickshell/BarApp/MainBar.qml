@@ -279,11 +279,15 @@ PanelWindow {
             Text { 
                 text: "󰎆"
                 color: centerRow.isPlaying ? centerRow._tertiary : centerRow._primary 
-                font.pixelSize: 14; verticalAlignment: Text.AlignVCenter 
+                font.pixelSize: 14
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.verticalCenterOffset: 0
             }
             Text { 
                 text: { let title = bar.activePlayer ? (bar.activePlayer.trackTitle || "No Media") : "No Media"; let artist = bar.activePlayer ? (bar.activePlayer.trackArtist || "") : ""; return title + (artist ? " - " + artist : "") }
-                color: Theme.primary; font.pixelSize: 14; font.weight: Font.Medium; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight; width: Math.min(implicitWidth, 350)
+                color: Theme.primary; font.pixelSize: 14; font.weight: Font.Medium; 
+                anchors.verticalCenter: parent.verticalCenter
+                elide: Text.ElideRight; width: Math.min(implicitWidth, 350)
             }
         }
         MouseArea { id: centerMouse; anchors.fill: parent; hoverEnabled: true; onClicked: mediaPopup.active = !mediaPopup.active }
@@ -405,9 +409,34 @@ PanelWindow {
 
             // System tray pill
             Rectangle {
+                id: trayPill
                 height: 30; width: trayRow.width + 20; radius: 15
-                color: Theme.background; anchors.verticalCenter: parent.verticalCenter
+                anchors.verticalCenter: parent.verticalCenter
                 visible: SystemTray.items.values.length > 0
+                
+                // Solid base so the gradient doesn't double-blend with the transparent bar background
+                color: Theme.background
+
+                // Gradient overlay using dynamic theme colors
+                Rectangle {
+                    id: trayGradient
+                    anchors.fill: parent
+                    radius: 15
+                    
+                    // Force rigorous bindings to avoid QML gradient theme loss
+                    property color gradStart: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.6)
+                    property color gradEnd: Qt.rgba(Theme.tertiary.r, Theme.tertiary.g, Theme.tertiary.b, 0.6)
+                    
+                    gradient: Gradient {
+                        orientation: Gradient.Horizontal
+                        GradientStop { position: 0.0; color: trayGradient.gradStart }
+                        GradientStop { position: 1.0; color: trayGradient.gradEnd }
+                    }
+                    
+                    // Subtle border to frame the gradient nicely
+                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.3)
+                    border.width: 1
+                }
 
                 Row {
                     id: trayRow; anchors.centerIn: parent; spacing: 10
