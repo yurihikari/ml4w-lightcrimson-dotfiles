@@ -696,18 +696,49 @@ PanelWindow {
 
             // CLOCK
             Item {
-                width: clockCol.implicitWidth; height: 32; anchors.verticalCenter: parent.verticalCenter
+                id: clockContainer
+                height: 32
+                width: clockCol.implicitWidth + (clockMouse.containsMouse ? dateLabel.implicitWidth + 6 : 0)
+                anchors.verticalCenter: parent.verticalCenter
+                Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+
                 opacity: 1; scale: clockMouse.pressed ? 0.95 : (clockMouse.containsMouse ? 1.05 : 1.0)
                 Behavior on opacity { NumberAnimation { duration: 150 } }
                 Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+
+                property var time: new Date()
+                Timer { interval: 1000; running: true; repeat: true; onTriggered: clockContainer.time = new Date() }
+
                 Column {
-                    id: clockCol; anchors.centerIn: parent; spacing: -2
-                    property var time: new Date()
-                    Timer { interval: 1000; running: true; repeat: true; onTriggered: clockCol.time = new Date() }
-                    Text { text: Qt.formatDateTime(clockCol.time, "HH:mm"); color: Theme.primary; font.pixelSize: 12; font.weight: Font.Black; horizontalAlignment: Text.AlignHCenter }
-                    Text { text: Qt.formatDateTime(clockCol.time, "AP"); color: Theme.primary; font.pixelSize: 10; font.weight: Font.Bold; horizontalAlignment: Text.AlignHCenter }
+                    id: clockCol
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: -2
+                    Text { text: Qt.formatDateTime(clockContainer.time, "HH:mm"); color: Theme.primary; font.pixelSize: 12; font.weight: Font.Black; horizontalAlignment: Text.AlignHCenter }
+                    Text { text: Qt.formatDateTime(clockContainer.time, "AP"); color: Theme.primary; font.pixelSize: 10; font.weight: Font.Bold; horizontalAlignment: Text.AlignHCenter }
                 }
-                MouseArea { id: clockMouse; anchors.fill: parent; hoverEnabled: true; onClicked: calendarPopup.active = !calendarPopup.active }
+
+                Text {
+                    id: dateLabel
+                    text: Qt.formatDateTime(clockContainer.time, "ddd, MMM d")
+                    color: Theme.primary
+                    font.pixelSize: 13; font.bold: true
+                    anchors.left: clockCol.right
+                    anchors.leftMargin: 6
+                    anchors.verticalCenter: parent.verticalCenter
+                    verticalAlignment: Text.AlignVCenter
+                    clip: true
+                    opacity: clockMouse.containsMouse ? 1.0 : 0.0
+                    Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                }
+
+                MouseArea {
+                    id: clockMouse
+                    anchors.fill: parent
+                    anchors.margins: -5
+                    hoverEnabled: true
+                    onClicked: calendarPopup.active = !calendarPopup.active
+                }
             }
 
             // SYSTEM PILL
