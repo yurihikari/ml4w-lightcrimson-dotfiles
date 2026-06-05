@@ -14,7 +14,6 @@ PanelWindow {
     property var modelData
     screen: modelData
     
-    // ── EXACT ORIGINAL BOUNDS AND LAYERING ──
     height: 60 
     WlrLayershell.layer: WlrLayer.Top
     exclusionMode: WlrLayershell.Exclusive
@@ -25,14 +24,12 @@ PanelWindow {
     // --- SYSTEM DATA ENGINE ---
     QtObject {
         id: sysInfo
-        // Audio & Brightness
         property real volValue: 0.0
         property bool isMuted: false
         property real micValue: 0.0
         property bool isMicMuted: false
         property real briValue: 0.0
         
-        // System
         property string bat: "0%"
         property int batLevel: 0
         property bool batCharging: false
@@ -45,10 +42,28 @@ PanelWindow {
         property real ramUsage: 0.0
         property real diskUsage: 0.0
         
-        // Keyboard & OSD State
         property string kbLayout: "US"
         property string kbVariant: ""
-        property string activeOSD: "" // "vol", "mic", "bri"
+        property string activeOSD: ""
+    }
+
+    // --- HYPRLAND CLIENTS (for workspace app icons) ---
+    property var hyprClients: []
+    property string _clientsBuf: ""
+
+    Process {
+        id: clientsGetter; running: true
+        command: ["hyprctl", "clients", "-j"]
+        stdout: SplitParser { onRead: bar._clientsBuf += data }
+        onRunningChanged: {
+            if (running) {
+                bar._clientsBuf = ""
+            } else {
+                try { bar.hyprClients = JSON.parse(bar._clientsBuf) }
+                catch(e) {}
+                bar._clientsBuf = ""
+            }
+        }
     }
 
     // --- PROCESSES ---
@@ -97,7 +112,7 @@ PanelWindow {
         }
     }
 
-    // Robust KB Getter (Extracts layout AND variant properly)
+    // KB Getter
     Process {
         id: kbGetter; running: true
         command: ["bash", "-c", "l=$(grep -E 'kb_layout\\s*=' ~/.config/hypr/input.lua | cut -d'\"' -f2 | head -1); v=$(grep -E 'kb_variant\\s*=' ~/.config/hypr/input.lua | cut -d'\"' -f2 | head -1); echo \"${l:-US}|${v}\""]
@@ -116,9 +131,8 @@ PanelWindow {
         stdout: SplitParser {
             onRead: {
                 let out = data.trim()
-                if (out === "none") {
-                    sysInfo.hasBattery = false
-                } else {
+                if (out === "none") { sysInfo.hasBattery = false }
+                else {
                     let parts = out.split("|")
                     sysInfo.batLevel = parseInt(parts[0]) || 0
                     sysInfo.bat = (parseInt(parts[0]) || 0) + "%"
@@ -166,8 +180,12 @@ PanelWindow {
         onTriggered: { 
             batGetter.running = true; wifiGetter.running = true; btGetter.running = true; perfGetter.running = true
             volGetter.running = true; micGetter.running = true; briGetter.running = true; kbGetter.running = true
+            clientsGetter.running = true
         }
     }
+
+    // Faster refresh for clients so workspace icons feel responsive
+    Timer { interval: 1500; running: true; repeat: true; onTriggered: clientsGetter.running = true }
 
     Timer { interval: 1000; running: true; repeat: true; onTriggered: wifiRadioGetter.running = true }
 
@@ -283,19 +301,91 @@ PanelWindow {
             Rectangle {
                 height: 30; width: wsRow.width + 20; radius: 15
                 color: Theme.background; anchors.verticalCenter: parent.verticalCenter
+                Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+
                 Row {
                     id: wsRow; anchors.centerIn: parent; spacing: 12
                     Repeater {
                         model: Hyprland.workspaces
                         Item {
-                            width: 16; height: 16
-                            scale: wsMouse.pressed ? 0.7 : (wsMouse.containsMouse ? 1.3 : 1.0)
-                            Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
-                            Text {
-                                anchors.centerIn: parent; text: modelData.active ? "󰮯" : "󰊠"; color: modelData.active ? Theme.on_primary_container : Theme.primary
-                                font.pixelSize: 16; verticalAlignment: Text.AlignVCenter; Behavior on color { ColorAnimation { duration: 200 } }
+                            id: wsItem
+                            property var wsClients: {
+                                let name = modelData.name
+                                return bar.hyprClients.filter(function(c) {
+                                    return c.workspace && c.workspace.name === name
+                                })
                             }
-                            MouseArea { id: wsMouse; anchors.fill: parent; hoverEnabled: true; onClicked: executor.run(["hyprctl", "dispatch", "hl.dsp.focus({ workspace = \"" + modelData.name + "\" })"]) }
+                            property bool showIcons: wsMouse.containsMouse && wsClients.length > 0
+
+                            width: 16 + (showIcons ? wsIconsRow.implicitWidth + 6 : 0)
+                            height: 16
+                            Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+
+                            scale: wsMouse.pressed ? 0.85 : 1.0
+                            Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+
+                            Text {
+                                id: wsText
+                                anchors.left: parent.left
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: modelData.active ? "󰮯" : "󰊠"
+                                color: modelData.active ? Theme.on_primary_container : Theme.primary
+                                font.pixelSize: 16; verticalAlignment: Text.AlignVCenter
+                                Behavior on color { ColorAnimation { duration: 200 } }
+                            }
+
+                            Row {
+                                id: wsIconsRow
+                                anchors.left: wsText.right
+                                anchors.leftMargin: 5
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 4
+                                opacity: wsItem.showIcons ? 1.0 : 0.0
+                                Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+
+                                Repeater {
+                                    model: wsItem.wsClients
+                                    delegate: Item {
+                                        width: 14; height: 14
+                                        anchors.verticalCenter: parent.verticalCenter
+
+                                        // Resolve a real icon path; "" means not found (no broken texture)
+                                        property string resolvedIcon: {
+                                            let cls = modelData.class || ""
+                                            if (cls === "") return ""
+                                            let candidates = [cls, cls.toLowerCase()]
+                                            for (let i = 0; i < candidates.length; i++) {
+                                                let p = Quickshell.iconPath(candidates[i], true)
+                                                if (p && p.length > 0 && !p.includes("image-missing")) return p
+                                            }
+                                            return ""
+                                        }
+
+                                        Image {
+                                            anchors.fill: parent
+                                            source: parent.resolvedIcon
+                                            sourceSize: Qt.size(14, 14)
+                                            fillMode: Image.PreserveAspectFit
+                                            asynchronous: true
+                                            visible: parent.resolvedIcon !== ""
+                                        }
+
+                                        // Fallback glyph when no icon found
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: "󰣆"
+                                            color: Theme.primary
+                                            font.pixelSize: 12
+                                            visible: parent.resolvedIcon === ""
+                                        }
+                                    }
+                                }
+                            }
+
+                            MouseArea {
+                                id: wsMouse; anchors.fill: parent; hoverEnabled: true
+                                onClicked: executor.run(["hyprctl", "dispatch", "hl.dsp.focus({ workspace = \"" + modelData.name + "\" })"])
+                            }
                         }
                     }
                 }
@@ -370,16 +460,44 @@ PanelWindow {
                 spacing: 12; anchors.verticalCenter: parent.verticalCenter
                 
                 // Mic
-                Text {
-                    text: sysInfo.isMicMuted ? "󰍭" : "󰍬"
-                    color: sysInfo.isMicMuted ? Theme.accent : Theme.primary
-                    font.pixelSize: 18; verticalAlignment: Text.AlignVCenter
-                    scale: micMouse.pressed ? 0.85 : (micMouse.containsMouse ? 1.15 : 1.0)
+                Item {
+                    id: micContainer
+                    height: 24
+                    width: micIcon.width + (micMouse.containsMouse ? micLabel.implicitWidth + 6 : 0)
+                    anchors.verticalCenter: parent.verticalCenter
+                    Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+
+                    scale: micMouse.pressed ? 0.85 : (micMouse.containsMouse ? 1.05 : 1.0)
                     Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+
+                    Text {
+                        id: micIcon
+                        text: sysInfo.isMicMuted ? "󰍭" : "󰍬"
+                        color: sysInfo.isMicMuted ? Theme.accent : Theme.primary
+                        font.pixelSize: 18
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    Text {
+                        id: micLabel
+                        text: sysInfo.isMicMuted ? "Muted" : (Math.round(sysInfo.micValue * 100) + "%")
+                        color: Theme.primary
+                        font.pixelSize: 13; font.bold: true
+                        anchors.left: micIcon.right
+                        anchors.leftMargin: 6
+                        anchors.verticalCenter: parent.verticalCenter
+                        verticalAlignment: Text.AlignVCenter
+                        clip: true
+                        opacity: micMouse.containsMouse ? 1.0 : 0.0
+                        Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                    }
+
                     MouseArea {
                         id: micMouse; anchors.fill: parent; anchors.margins: -5; hoverEnabled: true
                         onClicked: {
-                            sysInfo.isMicMuted = !sysInfo.isMicMuted 
+                            sysInfo.isMicMuted = !sysInfo.isMicMuted
                             executor.run(["bash", "-c", "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"])
                         }
                         onWheel: (wheel) => triggerOSD("mic", wheel.angleDelta.y > 0 ? 0.05 : -0.05)
@@ -387,30 +505,86 @@ PanelWindow {
                 }
 
                 // Brightness
-                Text {
-                    text: sysInfo.briValue > 0.6 ? "󰃠" : (sysInfo.briValue > 0.3 ? "󰃟" : "󰃞")
-                    color: Theme.primary
-                    font.pixelSize: 18; verticalAlignment: Text.AlignVCenter
-                    scale: briMouse.pressed ? 0.85 : (briMouse.containsMouse ? 1.15 : 1.0)
+                Item {
+                    id: briContainer
+                    height: 24
+                    width: briIcon.width + (briMouse.containsMouse ? briLabel.implicitWidth + 6 : 0)
+                    anchors.verticalCenter: parent.verticalCenter
+                    Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+
+                    scale: briMouse.pressed ? 0.85 : (briMouse.containsMouse ? 1.05 : 1.0)
                     Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+
+                    Text {
+                        id: briIcon
+                        text: sysInfo.briValue > 0.6 ? "󰃠" : (sysInfo.briValue > 0.3 ? "󰃟" : "󰃞")
+                        color: Theme.primary
+                        font.pixelSize: 18
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    Text {
+                        id: briLabel
+                        text: Math.round(sysInfo.briValue * 100) + "%"
+                        color: Theme.primary
+                        font.pixelSize: 13; font.bold: true
+                        anchors.left: briIcon.right
+                        anchors.leftMargin: 6
+                        anchors.verticalCenter: parent.verticalCenter
+                        verticalAlignment: Text.AlignVCenter
+                        clip: true
+                        opacity: briMouse.containsMouse ? 1.0 : 0.0
+                        Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                    }
+
                     MouseArea {
                         id: briMouse; anchors.fill: parent; anchors.margins: -5; hoverEnabled: true
-                        onClicked: triggerOSD("bri", 0) 
+                        onClicked: triggerOSD("bri", 0)
                         onWheel: (wheel) => triggerOSD("bri", wheel.angleDelta.y > 0 ? 0.05 : -0.05)
                     }
                 }
 
                 // Volume
-                Text { 
-                    text: sysInfo.isMuted ? "󰝟" : (sysInfo.volValue > 0.6 ? "󰕾" : (sysInfo.volValue > 0.2 ? "󰖀" : "󰕿"))
-                    color: sysInfo.isMuted ? Theme.accent : Theme.primary
-                    font.pixelSize: 18; verticalAlignment: Text.AlignVCenter 
-                    scale: volIconMouse.pressed ? 0.85 : (volIconMouse.containsMouse ? 1.15 : 1.0)
+                Item {
+                    id: volContainer
+                    height: 24
+                    width: volIcon.width + (volIconMouse.containsMouse ? volLabel.implicitWidth + 6 : 0)
+                    anchors.verticalCenter: parent.verticalCenter
+                    Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+
+                    scale: volIconMouse.pressed ? 0.85 : (volIconMouse.containsMouse ? 1.05 : 1.0)
                     Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+
+                    Text {
+                        id: volIcon
+                        text: sysInfo.isMuted ? "󰝟" : (sysInfo.volValue > 0.6 ? "󰕾" : (sysInfo.volValue > 0.2 ? "󰖀" : "󰕿"))
+                        color: sysInfo.isMuted ? Theme.accent : Theme.primary
+                        font.pixelSize: 18
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    Text {
+                        id: volLabel
+                        text: sysInfo.isMuted ? "Muted" : (Math.round(sysInfo.volValue * 100) + "%")
+                        color: Theme.primary
+                        font.pixelSize: 13; font.bold: true
+                        anchors.left: volIcon.right
+                        anchors.leftMargin: 6
+                        anchors.verticalCenter: parent.verticalCenter
+                        verticalAlignment: Text.AlignVCenter
+                        clip: true
+                        opacity: volIconMouse.containsMouse ? 1.0 : 0.0
+                        Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                    }
+
                     MouseArea {
                         id: volIconMouse; anchors.fill: parent; anchors.margins: -5; hoverEnabled: true
                         onClicked: {
-                            sysInfo.isMuted = !sysInfo.isMuted 
+                            sysInfo.isMuted = !sysInfo.isMuted
                             executor.run(["bash", "-c", "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"])
                         }
                         onWheel: (wheel) => triggerOSD("vol", wheel.angleDelta.y > 0 ? 0.05 : -0.05)
@@ -476,13 +650,48 @@ PanelWindow {
             }
 
             // NOTIFICATIONS
-            Text {
-                text: getNotificationIcon(bar.swayncState); color: Theme.primary; font.pixelSize: 20
-                anchors.verticalCenter: parent.verticalCenter; verticalAlignment: Text.AlignVCenter
-                opacity: 1; scale: notifMouse.pressed ? 0.85 : (notifMouse.containsMouse ? 1.15 : 1.0)
-                Behavior on opacity { NumberAnimation { duration: 150 } }
+            Item {
+                id: notifContainer
+                height: 24
+                width: notifIcon.width + (notifMouse.containsMouse ? notifLabel.implicitWidth + 6 : 0)
+                anchors.verticalCenter: parent.verticalCenter
+                Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+
+                scale: notifMouse.pressed ? 0.85 : (notifMouse.containsMouse ? 1.05 : 1.0)
                 Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
-                MouseArea { id: notifMouse; anchors.fill: parent; acceptedButtons: Qt.LeftButton | Qt.RightButton; hoverEnabled: true; onClicked: (mouse) => { if (mouse.button === Qt.LeftButton) executor.run(["swaync-client", "-t", "-sw"]); else executor.run(["swaync-client", "-d", "-sw"]) } }
+
+                Text {
+                    id: notifIcon
+                    text: getNotificationIcon(bar.swayncState)
+                    color: Theme.primary
+                    font.pixelSize: 20
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+
+                Text {
+                    id: notifLabel
+                    text: bar.swayncState.includes("dnd") ? "DND" : (bar.swayncState.includes("notification") ? "New" : "Clear")
+                    color: Theme.primary
+                    font.pixelSize: 13; font.bold: true
+                    anchors.left: notifIcon.right
+                    anchors.leftMargin: 6
+                    anchors.verticalCenter: parent.verticalCenter
+                    verticalAlignment: Text.AlignVCenter
+                    clip: true
+                    opacity: notifMouse.containsMouse ? 1.0 : 0.0
+                    Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                }
+
+                MouseArea {
+                    id: notifMouse; anchors.fill: parent; anchors.margins: -5; hoverEnabled: true
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    onClicked: (mouse) => {
+                        if (mouse.button === Qt.LeftButton) executor.run(["swaync-client", "-t", "-sw"])
+                        else executor.run(["swaync-client", "-d", "-sw"])
+                    }
+                }
             }
 
             // CLOCK
@@ -562,7 +771,6 @@ PanelWindow {
     // SYSTEM TRAY MENU (renders SNI DBusMenu with recursive submenus)
     // ══════════════════════════════════════════════════════════════════════════
 
-    // Recursive menu entry component (declared here so it can self-reference)
     Component {
         id: menuEntryComponent
 
@@ -573,7 +781,6 @@ PanelWindow {
             property bool expanded: false
             width: parent ? parent.width : 200
 
-            // Opens children of this entry (if any)
             QsMenuOpener {
                 id: subOpener
                 menu: entryRoot.entryData
@@ -585,12 +792,10 @@ PanelWindow {
             }
             property bool hasChildren: subItems.length > 0
 
-            // ── The entry row itself ──
             Item {
                 width: parent.width
                 height: entryRoot.entryData && entryRoot.entryData.isSeparator ? 9 : 32
 
-                // Separator
                 Rectangle {
                     visible: entryRoot.entryData && entryRoot.entryData.isSeparator
                     anchors.centerIn: parent
@@ -599,7 +804,6 @@ PanelWindow {
                     color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15)
                 }
 
-                // Normal entry
                 Rectangle {
                     visible: entryRoot.entryData && !entryRoot.entryData.isSeparator
                     anchors.fill: parent
@@ -651,7 +855,6 @@ PanelWindow {
                 }
             }
 
-            // ── Submenu children (recursive, accordion-style) ──
             Column {
                 visible: entryRoot.expanded && entryRoot.hasChildren
                 width: parent.width
@@ -679,7 +882,8 @@ PanelWindow {
         color: "transparent"
         visible: shown
         WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.keyboardFocus: shown ? WlrLayershell.OnDemand : WlrLayershell.None
+        // Exclusive so Escape key is always captured when menu is open
+        WlrLayershell.keyboardFocus: shown ? WlrLayershell.Exclusive : WlrLayershell.None
         exclusionMode: WlrLayershell.Ignore
 
         property bool shown: false
@@ -696,7 +900,6 @@ PanelWindow {
 
         QsMenuOpener { id: opener }
 
-        // Click-away to dismiss
         MouseArea { anchors.fill: parent; onClicked: trayMenu.shown = false }
 
         Rectangle {
@@ -719,7 +922,6 @@ PanelWindow {
             Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
             Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
 
-            // Eat clicks inside menu
             MouseArea { anchors.fill: parent }
 
             Flickable {
@@ -756,7 +958,7 @@ PanelWindow {
         screen: bar.screen
         anchors { top: true; right: true }
         margins { top: 45; right: 290 }
-        width: 220; height: 46
+        width: 230; height: 46
         color: "transparent"
         WlrLayershell.layer: WlrLayer.Overlay
         exclusionMode: WlrLayershell.Ignore
