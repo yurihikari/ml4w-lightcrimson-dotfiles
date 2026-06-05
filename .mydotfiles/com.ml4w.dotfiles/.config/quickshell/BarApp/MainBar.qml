@@ -462,30 +462,54 @@ PanelWindow {
                 // Mic
                 Item {
                     id: micContainer
-                    height: 24
-                    width: micIcon.width + (micMouse.containsMouse ? micLabel.implicitWidth + 6 : 0)
+                    height: 28
+                    width: 28 + (micMouse.containsMouse ? micLabel.implicitWidth + 6 : 0)
                     anchors.verticalCenter: parent.verticalCenter
                     Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
 
                     scale: micMouse.pressed ? 0.85 : (micMouse.containsMouse ? 1.05 : 1.0)
                     Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
 
-                    Text {
-                        id: micIcon
-                        text: sysInfo.isMicMuted ? "󰍭" : "󰍬"
-                        color: sysInfo.isMicMuted ? Theme.accent : Theme.primary
-                        font.pixelSize: 18
+                    Item {
+                        id: micRing
+                        width: 28; height: 28
                         anchors.left: parent.left
                         anchors.verticalCenter: parent.verticalCenter
-                        verticalAlignment: Text.AlignVCenter
+                        
+                        Rectangle {
+                            anchors.fill: parent; radius: width / 2
+                            color: "transparent"; border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15); border.width: 2
+                        }
+
+                        Canvas {
+                            anchors.fill: parent
+                            property real value: sysInfo.micValue
+                            property color ringColor: sysInfo.isMicMuted ? Theme.accent : Theme.primary
+                            onValueChanged: requestPaint(); onRingColorChanged: requestPaint()
+                            onPaint: {
+                                var ctx = getContext("2d"); ctx.reset();
+                                if (value > 0) {
+                                    ctx.beginPath();
+                                    ctx.arc(width/2, height/2, width/2 - 1, -Math.PI/2, -Math.PI/2 + (Math.min(1.0, value) * 2 * Math.PI));
+                                    ctx.lineWidth = 2; ctx.strokeStyle = ringColor; ctx.lineCap = "round"; ctx.stroke();
+                                }
+                            }
+                        }
+
+                        Text {
+                            text: sysInfo.isMicMuted ? "󰍭" : "󰍬"
+                            color: sysInfo.isMicMuted ? Theme.accent : Theme.primary
+                            font.pixelSize: 14
+                            anchors.centerIn: parent
+                        }
                     }
 
                     Text {
                         id: micLabel
                         text: sysInfo.isMicMuted ? "Muted" : (Math.round(sysInfo.micValue * 100) + "%")
                         color: Theme.primary
-                        font.pixelSize: 13; font.bold: true
-                        anchors.left: micIcon.right
+                        font.pixelSize: 11; font.bold: true
+                        anchors.left: micRing.right
                         anchors.leftMargin: 6
                         anchors.verticalCenter: parent.verticalCenter
                         verticalAlignment: Text.AlignVCenter
@@ -507,30 +531,54 @@ PanelWindow {
                 // Brightness
                 Item {
                     id: briContainer
-                    height: 24
-                    width: briIcon.width + (briMouse.containsMouse ? briLabel.implicitWidth + 6 : 0)
+                    height: 28
+                    width: 28 + (briMouse.containsMouse ? briLabel.implicitWidth + 6 : 0)
                     anchors.verticalCenter: parent.verticalCenter
                     Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
 
                     scale: briMouse.pressed ? 0.85 : (briMouse.containsMouse ? 1.05 : 1.0)
                     Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
 
-                    Text {
-                        id: briIcon
-                        text: sysInfo.briValue > 0.6 ? "󰃠" : (sysInfo.briValue > 0.3 ? "󰃟" : "󰃞")
-                        color: Theme.primary
-                        font.pixelSize: 18
+                    Item {
+                        id: briRing
+                        width: 28; height: 28
                         anchors.left: parent.left
                         anchors.verticalCenter: parent.verticalCenter
-                        verticalAlignment: Text.AlignVCenter
+                        
+                        Rectangle {
+                            anchors.fill: parent; radius: width / 2
+                            color: "transparent"; border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15); border.width: 2
+                        }
+
+                        Canvas {
+                            anchors.fill: parent
+                            property real value: sysInfo.briValue
+                            property color ringColor: Theme.primary
+                            onValueChanged: requestPaint(); onRingColorChanged: requestPaint()
+                            onPaint: {
+                                var ctx = getContext("2d"); ctx.reset();
+                                if (value > 0) {
+                                    ctx.beginPath();
+                                    ctx.arc(width/2, height/2, width/2 - 1, -Math.PI/2, -Math.PI/2 + (Math.min(1.0, value) * 2 * Math.PI));
+                                    ctx.lineWidth = 2; ctx.strokeStyle = ringColor; ctx.lineCap = "round"; ctx.stroke();
+                                }
+                            }
+                        }
+
+                        Text {
+                            text: sysInfo.briValue > 0.6 ? "󰃠" : (sysInfo.briValue > 0.3 ? "󰃟" : "󰃞")
+                            color: Theme.primary
+                            font.pixelSize: 14
+                            anchors.centerIn: parent
+                        }
                     }
 
                     Text {
                         id: briLabel
                         text: Math.round(sysInfo.briValue * 100) + "%"
                         color: Theme.primary
-                        font.pixelSize: 13; font.bold: true
-                        anchors.left: briIcon.right
+                        font.pixelSize: 11; font.bold: true
+                        anchors.left: briRing.right
                         anchors.leftMargin: 6
                         anchors.verticalCenter: parent.verticalCenter
                         verticalAlignment: Text.AlignVCenter
@@ -549,30 +597,54 @@ PanelWindow {
                 // Volume
                 Item {
                     id: volContainer
-                    height: 24
-                    width: volIcon.width + (volIconMouse.containsMouse ? volLabel.implicitWidth + 6 : 0)
+                    height: 28
+                    width: 28 + (volIconMouse.containsMouse ? volLabel.implicitWidth + 6 : 0)
                     anchors.verticalCenter: parent.verticalCenter
                     Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
 
                     scale: volIconMouse.pressed ? 0.85 : (volIconMouse.containsMouse ? 1.05 : 1.0)
                     Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
 
-                    Text {
-                        id: volIcon
-                        text: sysInfo.isMuted ? "󰝟" : (sysInfo.volValue > 0.6 ? "󰕾" : (sysInfo.volValue > 0.2 ? "󰖀" : "󰕿"))
-                        color: sysInfo.isMuted ? Theme.accent : Theme.primary
-                        font.pixelSize: 18
+                    Item {
+                        id: volRing
+                        width: 28; height: 28
                         anchors.left: parent.left
                         anchors.verticalCenter: parent.verticalCenter
-                        verticalAlignment: Text.AlignVCenter
+                        
+                        Rectangle {
+                            anchors.fill: parent; radius: width / 2
+                            color: "transparent"; border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15); border.width: 2
+                        }
+
+                        Canvas {
+                            anchors.fill: parent
+                            property real value: sysInfo.volValue
+                            property color ringColor: sysInfo.isMuted ? Theme.accent : Theme.primary
+                            onValueChanged: requestPaint(); onRingColorChanged: requestPaint()
+                            onPaint: {
+                                var ctx = getContext("2d"); ctx.reset();
+                                if (value > 0) {
+                                    ctx.beginPath();
+                                    ctx.arc(width/2, height/2, width/2 - 1, -Math.PI/2, -Math.PI/2 + (Math.min(1.0, value) * 2 * Math.PI));
+                                    ctx.lineWidth = 2; ctx.strokeStyle = ringColor; ctx.lineCap = "round"; ctx.stroke();
+                                }
+                            }
+                        }
+
+                        Text {
+                            text: sysInfo.isMuted ? "󰝟" : (sysInfo.volValue > 0.6 ? "󰕾" : (sysInfo.volValue > 0.2 ? "󰖀" : "󰕿"))
+                            color: sysInfo.isMuted ? Theme.accent : Theme.primary
+                            font.pixelSize: 14
+                            anchors.centerIn: parent
+                        }
                     }
 
                     Text {
                         id: volLabel
                         text: sysInfo.isMuted ? "Muted" : (Math.round(sysInfo.volValue * 100) + "%")
                         color: Theme.primary
-                        font.pixelSize: 13; font.bold: true
-                        anchors.left: volIcon.right
+                        font.pixelSize: 11; font.bold: true
+                        anchors.left: volRing.right
                         anchors.leftMargin: 6
                         anchors.verticalCenter: parent.verticalCenter
                         verticalAlignment: Text.AlignVCenter
@@ -596,31 +668,34 @@ PanelWindow {
                 // KB Layout
                 Item {
                     id: kbContainer
-                    height: 24
-                    width: kbIcon.width + (kbMouse.containsMouse ? kbLabel.implicitWidth + 6 : 0)
+                    height: 28
+                    width: 28 + (kbMouse.containsMouse ? kbLabel.implicitWidth + 6 : 0)
                     anchors.verticalCenter: parent.verticalCenter
                     Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
 
                     scale: kbMouse.pressed ? 0.95 : (kbMouse.containsMouse ? 1.05 : 1.0)
                     Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
 
-                    Text {
-                        id: kbIcon
-                        text: "󰌌"
-                        color: Theme.primary
-                        font.pixelSize: 18
+                    Item {
+                        id: kbIconWrapper
+                        width: 28; height: 28
                         anchors.left: parent.left
                         anchors.verticalCenter: parent.verticalCenter
-                        verticalAlignment: Text.AlignVCenter
+                        Text {
+                            text: "󰌌"
+                            color: Theme.primary
+                            font.pixelSize: 16
+                            anchors.centerIn: parent
+                        }
                     }
 
                     Text {
                         id: kbLabel
                         text: sysInfo.kbLayout + (sysInfo.kbVariant !== "" ? " (" + sysInfo.kbVariant.split(",")[0].substring(0,2) + ")" : "")
                         color: Theme.primary
-                        font.pixelSize: 13
+                        font.pixelSize: 11
                         font.bold: true
-                        anchors.left: kbIcon.right
+                        anchors.left: kbIconWrapper.right
                         anchors.leftMargin: 6
                         anchors.verticalCenter: parent.verticalCenter
                         verticalAlignment: Text.AlignVCenter
@@ -652,30 +727,33 @@ PanelWindow {
             // NOTIFICATIONS
             Item {
                 id: notifContainer
-                height: 24
-                width: notifIcon.width + (notifMouse.containsMouse ? notifLabel.implicitWidth + 6 : 0)
+                height: 28
+                width: 28 + (notifMouse.containsMouse ? notifLabel.implicitWidth + 6 : 0)
                 anchors.verticalCenter: parent.verticalCenter
                 Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
 
                 scale: notifMouse.pressed ? 0.85 : (notifMouse.containsMouse ? 1.05 : 1.0)
                 Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
 
-                Text {
-                    id: notifIcon
-                    text: getNotificationIcon(bar.swayncState)
-                    color: Theme.primary
-                    font.pixelSize: 20
+                Item {
+                    id: notifIconWrapper
+                    width: 28; height: 28
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
-                    verticalAlignment: Text.AlignVCenter
+                    Text {
+                        text: getNotificationIcon(bar.swayncState)
+                        color: Theme.primary
+                        font.pixelSize: 18
+                        anchors.centerIn: parent
+                    }
                 }
 
                 Text {
                     id: notifLabel
                     text: bar.swayncState.includes("dnd") ? "DND" : (bar.swayncState.includes("notification") ? "New" : "Clear")
                     color: Theme.primary
-                    font.pixelSize: 13; font.bold: true
-                    anchors.left: notifIcon.right
+                    font.pixelSize: 11; font.bold: true
+                    anchors.left: notifIconWrapper.right
                     anchors.leftMargin: 6
                     anchors.verticalCenter: parent.verticalCenter
                     verticalAlignment: Text.AlignVCenter
@@ -722,7 +800,7 @@ PanelWindow {
                     id: dateLabel
                     text: Qt.formatDateTime(clockContainer.time, "ddd, MMM d")
                     color: Theme.primary
-                    font.pixelSize: 13; font.bold: true
+                    font.pixelSize: 11; font.bold: true
                     anchors.left: clockCol.right
                     anchors.leftMargin: 6
                     anchors.verticalCenter: parent.verticalCenter
