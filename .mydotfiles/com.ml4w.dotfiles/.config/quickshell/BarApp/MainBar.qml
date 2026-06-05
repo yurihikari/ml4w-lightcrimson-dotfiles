@@ -3,6 +3,7 @@ import Quickshell.Wayland
 import Quickshell.Hyprland
 import Quickshell.Io 
 import Quickshell.Services.Mpris
+import Quickshell.Services.SystemTray
 import QtQuick
 import QtQuick.Layouts
 import "../CustomTheme"
@@ -24,6 +25,7 @@ PanelWindow {
     // --- SYSTEM DATA ENGINE ---
     QtObject {
         id: sysInfo
+        // Audio & Brightness
         property real volValue: 0.0
         property bool isMuted: false
         property real micValue: 0.0
@@ -95,7 +97,7 @@ PanelWindow {
         }
     }
 
-    // KB Getter
+    // Robust KB Getter (Extracts layout AND variant properly)
     Process {
         id: kbGetter; running: true
         command: ["bash", "-c", "l=$(grep -E 'kb_layout\\s*=' ~/.config/hypr/input.lua | cut -d'\"' -f2 | head -1); v=$(grep -E 'kb_variant\\s*=' ~/.config/hypr/input.lua | cut -d'\"' -f2 | head -1); echo \"${l:-US}|${v}\""]
@@ -196,8 +198,7 @@ PanelWindow {
 
     // --- BATTERY HELPER --- 
     function getBatteryIcon(level, charging) {
-        if (charging) return "󰂄"  // plugged in — your current lightning icon
-        // on battery: pick icon matching remaining charge
+        if (charging) return "󰂄"
         if (level >= 90) return "󰁹"
         if (level >= 80) return "󰂁"
         if (level >= 70) return "󰂀"
@@ -207,7 +208,7 @@ PanelWindow {
         if (level >= 30) return "󰁼"
         if (level >= 20) return "󰁻"
         if (level >= 10) return "󰁺"
-        return "󰂎"  // empty / critical
+        return "󰂎"
     }
 
     // ── INSTANT OSD HANDLER ──
@@ -219,15 +220,15 @@ PanelWindow {
         if (delta !== 0) {
             if (type === "vol") {
                 let nv = Math.max(0, Math.min(1, sysInfo.volValue + delta))
-                sysInfo.volValue = nv // Instant optimistic UI update
+                sysInfo.volValue = nv
                 executor.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", nv.toFixed(2)])
             } else if (type === "mic") {
                 let nv = Math.max(0, Math.min(1, sysInfo.micValue + delta))
-                sysInfo.micValue = nv // Instant optimistic UI update
+                sysInfo.micValue = nv
                 executor.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SOURCE@", nv.toFixed(2)])
             } else if (type === "bri") {
                 let nv = Math.max(0, Math.min(1, sysInfo.briValue + delta))
-                sysInfo.briValue = nv // Instant optimistic UI update
+                sysInfo.briValue = nv
                 let sign = delta > 0 ? "+" : "-"
                 executor.run(["bash", "-c", "brightnessctl s 5%" + sign])
             }
@@ -235,7 +236,7 @@ PanelWindow {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // UI LAYOUT (EXACT ORIGINAL STRUCTURE)
+    // UI LAYOUT
     // ══════════════════════════════════════════════════════════════════════════
     Rectangle { anchors.top: parent.top; width: parent.width; height: 40; color: Theme.background; opacity: 0.8 }
 
@@ -265,9 +266,11 @@ PanelWindow {
         anchors.top: parent.top; width: parent.width; height: 40
         anchors.leftMargin: 10; anchors.rightMargin: 10; spacing: 0
 
-        // Left: logo + workspaces
+        // ── LEFT: logo + workspaces + tray ──
         Row {
             Layout.alignment: Qt.AlignLeft; spacing: 8
+
+            // Logo
             Text { 
                 text: "   󰣇"; color: Theme.primary; font.pixelSize: 24; anchors.verticalCenter: parent.verticalCenter 
                 opacity: 1; scale: logoMouse.pressed ? 0.85 : (logoMouse.containsMouse ? 1.15 : 1.0)
@@ -275,6 +278,8 @@ PanelWindow {
                 Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
                 MouseArea { id: logoMouse; anchors.fill: parent; hoverEnabled: true; acceptedButtons: Qt.LeftButton | Qt.RightButton; onClicked: dashPopup.active = !dashPopup.active }
             }
+
+            // Workspaces pill
             Rectangle {
                 height: 30; width: wsRow.width + 20; radius: 15
                 color: Theme.background; anchors.verticalCenter: parent.verticalCenter
@@ -295,16 +300,72 @@ PanelWindow {
                     }
                 }
             }
+
+            // System tray pill
+            Rectangle {
+                height: 30; width: trayRow.width + 20; radius: 15
+                color: Theme.background; anchors.verticalCenter: parent.verticalCenter
+                visible: SystemTray.items.values.length > 0
+
+                Row {
+                    id: trayRow; anchors.centerIn: parent; spacing: 10
+
+                    Repeater {
+                        model: SystemTray.items.values
+
+                        delegate: Item {
+                            id: trayItem
+                            required property var modelData
+                            width: 16; height: 16
+                            anchors.verticalCenter: parent.verticalCenter
+
+                            scale: trayMouse.pressed ? 0.85 : (trayMouse.containsMouse ? 1.15 : 1.0)
+                            Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+
+                            Image {
+                                anchors.fill: parent
+                                source: trayItem.modelData.icon
+                                sourceSize.width: 16
+                                sourceSize.height: 16
+                                fillMode: Image.PreserveAspectFit
+                                smooth: true
+                            }
+
+                            MouseArea {
+                                id: trayMouse
+                                anchors.fill: parent
+                                anchors.margins: -4
+                                hoverEnabled: true
+                                acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
+                                onClicked: (mouse) => {
+                                    let item = trayItem.modelData
+                                    if (mouse.button === Qt.LeftButton) {
+                                        if (item.onlyMenu) {
+                                            trayMenu.openFor(trayItem, item)
+                                        } else {
+                                            item.activate()
+                                        }
+                                    } else if (mouse.button === Qt.MiddleButton) {
+                                        item.secondaryActivate()
+                                    } else if (mouse.button === Qt.RightButton) {
+                                        if (item.hasMenu) trayMenu.openFor(trayItem, item)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         Item { Layout.fillWidth: true }
 
-        // Right Row (Exact original spacing)
+        // ── RIGHT: controls + status ──
         Row {
             Layout.alignment: Qt.AlignRight; spacing: 15
             anchors.verticalCenter: parent.verticalCenter
 
-            // 1. Compact Cluster (Mic, Brightness, Volume, Layout)
+            // Compact Cluster (Mic, Brightness, Volume, Layout)
             Row {
                 spacing: 12; anchors.verticalCenter: parent.verticalCenter
                 
@@ -498,6 +559,196 @@ PanelWindow {
     KbLayoutPopup { id: keyboardPopup; screen: bar.screen }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // SYSTEM TRAY MENU (renders SNI DBusMenu with recursive submenus)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // Recursive menu entry component (declared here so it can self-reference)
+    Component {
+        id: menuEntryComponent
+
+        Column {
+            id: entryRoot
+            property var entryData
+            property int depth: 0
+            property bool expanded: false
+            width: parent ? parent.width : 200
+
+            // Opens children of this entry (if any)
+            QsMenuOpener {
+                id: subOpener
+                menu: entryRoot.entryData
+            }
+
+            property var subItems: {
+                try { return subOpener.children ? subOpener.children.values : [] }
+                catch(e) { return [] }
+            }
+            property bool hasChildren: subItems.length > 0
+
+            // ── The entry row itself ──
+            Item {
+                width: parent.width
+                height: entryRoot.entryData && entryRoot.entryData.isSeparator ? 9 : 32
+
+                // Separator
+                Rectangle {
+                    visible: entryRoot.entryData && entryRoot.entryData.isSeparator
+                    anchors.centerIn: parent
+                    width: parent.width - 12 - entryRoot.depth * 14
+                    height: 1
+                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15)
+                }
+
+                // Normal entry
+                Rectangle {
+                    visible: entryRoot.entryData && !entryRoot.entryData.isSeparator
+                    anchors.fill: parent
+                    anchors.leftMargin: 2; anchors.rightMargin: 2
+                    radius: 8
+                    color: eMouse.containsMouse
+                           ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15)
+                           : "transparent"
+                    Behavior on color { ColorAnimation { duration: 100 } }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 10 + entryRoot.depth * 14
+                        anchors.rightMargin: 10
+                        spacing: 6
+
+                        Text {
+                            text: (entryRoot.entryData ? entryRoot.entryData.text : "") || ""
+                            color: Theme.primary
+                            opacity: (entryRoot.entryData && entryRoot.entryData.enabled) ? 1.0 : 0.4
+                            font.pixelSize: 13
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                            verticalAlignment: Text.AlignVCenter
+                        }
+
+                        Text {
+                            visible: entryRoot.hasChildren
+                            text: entryRoot.expanded ? "󰅃" : "󰅀"
+                            color: Theme.primary; opacity: 0.4
+                            font.pixelSize: 10
+                        }
+                    }
+
+                    MouseArea {
+                        id: eMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        enabled: entryRoot.entryData && entryRoot.entryData.enabled && !entryRoot.entryData.isSeparator
+                        onClicked: {
+                            if (entryRoot.hasChildren) {
+                                entryRoot.expanded = !entryRoot.expanded
+                            } else {
+                                entryRoot.entryData.triggered()
+                                trayMenu.shown = false
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Submenu children (recursive, accordion-style) ──
+            Column {
+                visible: entryRoot.expanded && entryRoot.hasChildren
+                width: parent.width
+                spacing: 0
+
+                Repeater {
+                    model: entryRoot.expanded ? entryRoot.subItems : []
+                    delegate: Loader {
+                        width: parent ? parent.width : 200
+                        sourceComponent: menuEntryComponent
+                        onLoaded: {
+                            item.entryData = modelData
+                            item.depth = entryRoot.depth + 1
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    PanelWindow {
+        id: trayMenu
+        screen: bar.screen
+        anchors { top: true; left: true; right: true; bottom: true }
+        color: "transparent"
+        visible: shown
+        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.keyboardFocus: shown ? WlrLayershell.OnDemand : WlrLayershell.None
+        exclusionMode: WlrLayershell.Ignore
+
+        property bool shown: false
+        property real anchorX: 0
+
+        function openFor(itemUi, item) {
+            opener.menu = item.menu
+            let pos = itemUi.mapToItem(null, 0, 0)
+            anchorX = pos.x + itemUi.width / 2
+            shown = true
+        }
+
+        Shortcut { sequence: "Escape"; onActivated: trayMenu.shown = false }
+
+        QsMenuOpener { id: opener }
+
+        // Click-away to dismiss
+        MouseArea { anchors.fill: parent; onClicked: trayMenu.shown = false }
+
+        Rectangle {
+            id: menuBox
+            x: Math.min(Math.max(10, trayMenu.anchorX - width / 2), parent.width - width - 10)
+            y: 46
+            width: 250
+            height: Math.min(menuCol.implicitHeight + 16, parent.height - 60)
+            radius: 16
+            clip: true
+
+            color: Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.8)
+            border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.8)
+            border.width: 2
+
+            opacity: trayMenu.shown ? 1.0 : 0.0
+            scale: trayMenu.shown ? 1.0 : 0.95
+            transformOrigin: Item.Top
+            Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+            Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+            Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+
+            // Eat clicks inside menu
+            MouseArea { anchors.fill: parent }
+
+            Flickable {
+                anchors.fill: parent; anchors.margins: 8
+                clip: true; boundsBehavior: Flickable.StopAtBounds
+                contentWidth: width; contentHeight: menuCol.implicitHeight
+
+                Column {
+                    id: menuCol
+                    width: parent.width
+                    spacing: 0
+
+                    Repeater {
+                        model: opener.children ? opener.children.values : []
+                        delegate: Loader {
+                            width: menuCol.width
+                            sourceComponent: menuEntryComponent
+                            onLoaded: {
+                                item.entryData = modelData
+                                item.depth = 0
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // OSD OVERLAY
     // ══════════════════════════════════════════════════════════════════════════
     PanelWindow {
@@ -524,7 +775,6 @@ PanelWindow {
             Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic; onRunningChanged: if(!running && !osdPopup.active) osdPopup.isAnimating = false } }
             Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
 
-            // FIX: Only background is transparent.
             Rectangle {
                 anchors.fill: parent; radius: 23
                 color: Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.8)
