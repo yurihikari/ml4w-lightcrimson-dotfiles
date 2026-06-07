@@ -189,6 +189,14 @@ PanelWindow {
     }
 
     Process {
+        id: gamemodeReader
+        command: ["bash", "-c", "test -f ~/.config/ml4w/settings/gamemode-enabled && echo 1 || echo 0"]
+        stdout: SplitParser {
+            onRead: { popup.gamemodeActive = (data.trim() === "1") }
+        }
+    }
+
+    Process {
         id: tuxedoDetector
         running: true
         command: ["bash", "-c", "command -v tuxedo-control-center &>/dev/null && echo yes || echo no"]
@@ -318,6 +326,7 @@ PanelWindow {
         triggeredOnStart: true
     }
 
+    Timer { id: gamemodeRepoll; interval: 100; repeat: true; onTriggered: gamemodeReader.running=true }
     Timer { id: repollTimer; interval: 800; repeat: false; onTriggered: { wifiScanner.running=true; btScanner.running=true } }
 
     onActiveChanged: {
@@ -326,14 +335,14 @@ PanelWindow {
             forceActiveFocus()
             if (currentTab === "Network")     { popup._wifiBuf=""; popup.wifiScanning=true; wifiScanner.running=true }
             if (currentTab === "Bluetooth")   { popup._btBuf="";   popup.btScanning=true;   btScanner.running=true }
-            if (currentTab === "Performance") { powerProfileReader.running=true }
+            if (currentTab === "Performance") { powerProfileReader.running=true; gamemodeReader.running=true }
         }
     }
     onCurrentTabChanged: {
         if (!active) return
         if (currentTab === "Network")     { popup._wifiBuf=""; popup.wifiScanning=true; wifiScanner.running=true }
         if (currentTab === "Bluetooth")   { popup._btBuf="";   popup.btScanning=true;   btScanner.running=true }
-        if (currentTab === "Performance") { powerProfileReader.running=true }
+        if (currentTab === "Performance") { powerProfileReader.running=true; gamemodeReader.running=true }
     }
 
     function signalIcon(sig) {
@@ -1214,8 +1223,8 @@ PanelWindow {
                                 MouseArea {
                                     anchors.fill: parent
                                     onClicked: {
-                                        popup.gamemodeActive = !popup.gamemodeActive
-                                        gamemodeExec.apply(popup.gamemodeActive)
+                                        gamemodeExec.apply(!popup.gamemodeActive)
+                                        gamemodeRepoll.restart()
                                     }
                                 }
                             }
