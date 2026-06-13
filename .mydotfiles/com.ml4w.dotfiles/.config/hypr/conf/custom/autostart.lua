@@ -7,4 +7,6 @@ hl.on("hyprland.start", function ()
 --    hl.exec_cmd("tuxedo-control-center --tray")
     -- Start network manager applet
     hl.exec_cmd("nm-applet --indicator")
+    -- Start per-workspace wallpaper manager after ML4W wallpaper init
+    hl.exec_cmd("bash -c 'sleep 2; setsid nohup ~/.config/hypr/conf/custom/workspace-wallpapers.sh >> ~/.cache/workspace-wallpapers.log 2>&1 &'")
 end)
