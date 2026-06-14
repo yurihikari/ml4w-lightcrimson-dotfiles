@@ -6,6 +6,7 @@ import "PowerApp"
 import "SidebarApp"
 import "CalendarApp"
 import "WallpaperApp"
+import "WorkspaceWallpaperAPP"
 import "CustomTheme"
 import "CavaApp"
 import "BarApp"
@@ -39,6 +40,7 @@ ShellRoot {
     SidebarWindow {}
     CalendarWindow {}
     WallpaperWindow {}
+    WorkspaceWallpaperWindow {}
     RadialMenuPopup {}
     DisplayManagerWindow { id: displayManager }
     // Variants {

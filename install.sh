@@ -108,6 +108,9 @@ echo "
 🖼️ Per-Workspace Wallpapers
    • workspace-wallpapers.sh: Different wallpaper per Hyprland workspace
      → Autostarted via ~/.config/hypr/conf/custom/autostart.lua
+   • WorkspaceWallpaperAPP: Separate Quickshell app to select wallpapers per workspace
+     → Open with SHIFT + SUPER + E
+     → Saves assignments to ~/.config/hypr/conf/custom/workspace-wallpapers.json
 
 📱 Quickshell
    • Made a custom bar, replacing waybar. 
