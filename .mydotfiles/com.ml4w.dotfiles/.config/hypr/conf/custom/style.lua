@@ -29,10 +29,3 @@ hl.layer_rule({
     xray = true,
     ignore_alpha = 0.79
 })
-
--- unscale XWayland
-hl.config({
-  xwayland = {
-    force_zero_scaling = true
-  }
-})
