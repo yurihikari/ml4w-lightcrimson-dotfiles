@@ -23,6 +23,25 @@ This dotfiles only install the default profile of ML4W, and then apply some of m
 
 ## Features 👍
 
+### 🐚 Custom Quickshell Bar (replaces Waybar)
+A fully custom [Quickshell](https://quickshell.outfoxxed.me/) desktop shell, built from scratch and used instead of ML4W's Waybar.
+
+   - **Top bar (MainBar):** workspaces with live app icons, system tray with full menu support, a center media pill, mic/brightness/volume ring controls (scroll to adjust), keyboard-layout indicator, notification (SwayNC) toggle, clock, and a system pill (network / Wi-Fi / Bluetooth / battery)
+   - **Instant OSD** overlay for volume, mic and brightness changes
+   - **Rounded screen frame** drawing soft corners around every monitor
+   - **Multi-monitor aware** — popups open on the monitor where your mouse currently is
+
+#### Quickshell popups (toggle by keybinding or click)
+   - **Media** (`META+M`) — MPRIS player with album art, a circular Cava audio visualizer, multi-player switching, audio output/sink switcher and volume control
+   - **Calendar** (`META+C`) — month calendar with week numbers, live weather (Open-Meteo) and a world-clock lookup
+   - **System / Network** (`META+N`) — Wi-Fi scanning & connection, Bluetooth and network controls
+   - **Dashboard** (`META+I`) — system info at a glance (kernel, resources, mounted disks & drives)
+   - **Dock** (`META+A`) — app launcher with fuzzy search + full keyboard navigation, plus quick notes, a to-do list and a screenshot tool with thumbnails
+   - **Clipboard** (`META+SHIFT+V`) — clipboard history (cliphist)
+   - **Keyboard Layout** (`META+SHIFT+K`) — switch keyboard layout / variant
+   - **Power** (`META+X`) — power menu (lock / suspend / log out / reboot / shutdown) with keyboard selection
+   - **Radial Menu** (`META+R`) and **Display Manager** (`META+ALT+M`)
+
 ### 🎨 ML4W Theme & Wallpaper Customizations
    - ml4w-toggle-theme: Added 'Save' theme mode variable
      - Theme stays consistent after waybar/matugen changes
@@ -36,18 +55,19 @@ This dotfiles only install the default profile of ML4W, and then apply some of m
    - colorpicker.sh: Added hyprpicker integration
      - Press META+P to pick colors
 
-### ⌨️ Custom Keybindings Added
-   - META+X - Powermenu
-   - META+P - Colorpicker (hyprpicker)
-   - META+D - Application launcher
+### ⌨️ Custom Keybindings
+   - META+D — Application launcher
+   - META+P — Colorpicker (hyprpicker)
+   - META+R — Radial menu
+   - META+ALT+M — Display manager
+   - Quickshell popups: META+M (media), META+C (calendar), META+N (network/system),
+     META+I (dashboard), META+A (dock), META+SHIFT+V (clipboard),
+     META+SHIFT+K (keyboard layout), META+X (power menu)
    - Plus other custom overrides in default.conf
 
 ### 🖥️ Fastfetch Customization
    - Custom logo image added (you can replace it with your own)
    - GPU information display enabled
-
-### 🐚 QUICKSHELL 
-   - A brand new bar, to use instead of waybar :)
 
 ### 🐚 Shell Configuration Fixes
    - zsh plugins: Fixed path issue for AUR vs git clone

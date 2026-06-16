@@ -95,6 +95,22 @@ echo "
         ✅ CUSTOM DOTFILES CHANGES SUMMARY
 ============================================================
 
+🐚 Custom Quickshell Bar (replaces Waybar)
+   • Top bar: workspaces w/ app icons, system tray, media pill,
+     mic/brightness/volume ring controls, kb layout, notifications,
+     clock, network/bluetooth/battery pill, instant OSD + screen frame
+   • Multi-monitor aware — popups open on the monitor under your mouse
+   • Popups (keybinding or click):
+     → Media (META+M): MPRIS player, Cava visualizer, sink switcher
+     → Calendar (META+C): calendar + weather + world clock
+     → System/Network (META+N): Wi-Fi, Bluetooth, network
+     → Dashboard (META+I): system info, mounted disks & drives
+     → Dock (META+A): app launcher w/ keyboard nav, notes, todo, screenshots
+     → Clipboard (META+SHIFT+V): clipboard history (cliphist)
+     → Keyboard Layout (META+SHIFT+K): switch layout/variant
+     → Power (META+X): power menu with keyboard selection
+     → Radial Menu (META+R) + Display Manager (META+ALT+M)
+
 🎨 ML4W Theme & Wallpaper Customizations
    • ml4w-toggle-theme: Added 'Save' theme mode variable
      → Theme stays consistent after waybar/matugen changes
@@ -102,19 +118,20 @@ echo "
    • ml4w-wallpaper: Added darkmode variable
      → Matugen won't override darkmode unless desired
 
-📱 Quickshell
-   • Made a custom bar, replacing waybar. 
-
 📸 Screenshot & Colorpicker Enhancements
    • screenshot.sh: Screenshots now copied to clipboard
      + saved to file (dual functionality)
    • colorpicker.sh: Added hyprpicker integration
      → Press META+P to pick colors
 
-⌨️ Custom Keybindings Added
-   • META+X → Powermenu
-   • META+P → Colorpicker (hyprpicker)
+⌨️ Custom Keybindings
    • META+D → Application launcher
+   • META+P → Colorpicker (hyprpicker)
+   • META+R → Radial menu
+   • META+ALT+M → Display manager
+   • Quickshell popups: META+M (media), META+C (calendar),
+     META+N (network/system), META+I (dashboard), META+A (dock),
+     META+SHIFT+V (clipboard), META+SHIFT+K (keyboard), META+X (power)
    • Plus other custom overrides in default.conf
 
 🖥️ Fastfetch Customization
