@@ -842,13 +842,13 @@ PanelWindow {
     }
 
     // --- NATIVE WINDOWS ---
-    MediaPopup { id: mediaPopup; screen: bar.screen }
+    MediaPopup { id: mediaPopup }
     SystemPopup { id: systemPopup }
     CalendarPopup { id: calendarPopup }
-    ClipboardPopup { id: clipboardPopup; screen: bar.screen }
-    PowerPopup { id: powerPopup; screen: bar.screen }
-    DashboardPopup { id: dashPopup; screen: bar.screen }
-    KbLayoutPopup { id: keyboardPopup; screen: bar.screen }
+    ClipboardPopup { id: clipboardPopup }
+    PowerPopup { id: powerPopup }
+    DashboardPopup { id: dashPopup }
+    KbLayoutPopup { id: keyboardPopup }
 
     // ══════════════════════════════════════════════════════════════════════════
     // SYSTEM TRAY MENU (renders SNI DBusMenu with recursive submenus)

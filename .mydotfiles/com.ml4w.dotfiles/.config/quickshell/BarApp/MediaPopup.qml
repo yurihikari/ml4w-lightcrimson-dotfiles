@@ -15,11 +15,8 @@ PanelWindow {
     // 1. Wayland-safe exit animation state
     property bool isAnimating: false
     visible: active || isAnimating
-    
-    property var modelData
-    screen: modelData
 
-    anchors { 
+    anchors {
         top: true; bottom: true
         left: true; right: true 
     }

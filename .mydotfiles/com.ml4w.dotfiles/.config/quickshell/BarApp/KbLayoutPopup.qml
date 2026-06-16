@@ -12,9 +12,6 @@ PanelWindow {
     property bool isAnimating: false
     visible: active || isAnimating
 
-    property var modelData
-    screen: modelData
-
     anchors { top: true; bottom: true; left: true; right: true }
     WlrLayershell.layer: WlrLayer.Overlay
     exclusionMode: WlrLayershell.Ignore
