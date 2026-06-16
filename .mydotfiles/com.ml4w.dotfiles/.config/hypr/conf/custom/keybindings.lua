@@ -1,6 +1,15 @@
 local mainMod = "SUPER"
 hl.bind(mainMod .. " + D", hl.dsp.exec_cmd("~/.config/hypr/scripts/launcher.sh"), { description = "Open application launcher" })
 hl.bind(mainMod .. " + R", hl.dsp.exec_cmd("qs ipc call radialMenu open"), { description = "Open radial menu" })
-hl.bind(mainMod .. " + X", hl.dsp.exec_cmd("qs ipc call power toggle"), { description = "Start Power Menu" })
 hl.bind(mainMod .. " + P", hl.dsp.exec_cmd("~/.config/hypr/scripts/colorpicker.sh"), { description = "Open the color Picker" })
 hl.bind(mainMod .. " + ALT + M", hl.dsp.exec_cmd("qs ipc call display toggle"), { description = "Toggle DisplayManager" })
+
+-- Bar popup toggles (Quickshell IPC)
+hl.bind(mainMod .. " + M", hl.dsp.exec_cmd("qs ipc call bar-media toggle"), { description = "Toggle media popup" })
+hl.bind(mainMod .. " + C", hl.dsp.exec_cmd("qs ipc call bar-calendar toggle"), { description = "Toggle calendar popup" })
+hl.bind(mainMod .. " + SHIFT + V", hl.dsp.exec_cmd("qs ipc call bar-clipboard toggle"), { description = "Toggle clipboard popup" })
+hl.bind(mainMod .. " + I", hl.dsp.exec_cmd("qs ipc call bar-dashboard toggle"), { description = "Toggle system info popup" })
+hl.bind(mainMod .. " + N", hl.dsp.exec_cmd("qs ipc call bar-system toggle"), { description = "Toggle network/system popup" })
+hl.bind(mainMod .. " + SHIFT + K", hl.dsp.exec_cmd("qs ipc call bar-keyboard toggle"), { description = "Toggle keyboard layout popup" })
+hl.bind(mainMod .. " + A", hl.dsp.exec_cmd("qs ipc call dock toggle"), { description = "Toggle dock" })
+hl.bind(mainMod .. " + X", hl.dsp.exec_cmd("qs ipc call bar-power toggle"), { description = "Toggle power menu" })
