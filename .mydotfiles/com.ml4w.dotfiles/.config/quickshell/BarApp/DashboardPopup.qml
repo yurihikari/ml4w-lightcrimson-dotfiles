@@ -63,12 +63,9 @@ PanelWindow {
     property string musicDir: ""
 
     // New Data State
-    property int    rootPct:    0
-    property string rootUsed:   "0G"
-    property string rootTotal:  "0G"
-    property int    homePct:    0
-    property string homeUsed:   "0G"
-    property string homeTotal:  "0G"
+    // Mounted disks: root + anything under /mnt, /media, /run/media (USB keys, etc.)
+    // Each entry: { label, pct, used, total, mount }
+    property var    disks:      []
     property string updates:    "0"
 
     Process { id: executor; function run(args) { command = args; running = true } }
@@ -112,13 +109,16 @@ PanelWindow {
             "  echo \"vids=$HOME/Videos\"; echo \"music=$HOME/Music\"\n" +
             "fi\n" +
 
-            "# Disk Usage\n" +
-            "echo \"rootpct=$(df / | awk 'NR==2 {print $5}' | tr -d '%')\"\n" +
-            "echo \"rootused=$(df -h / | awk 'NR==2 {print $3}')\"\n" +
-            "echo \"roottot=$(df -h / | awk 'NR==2 {print $2}')\"\n" +
-            "echo \"homepct=$(df /home | awk 'NR==2 {print $5}' | tr -d '%')\"\n" +
-            "echo \"homeused=$(df -h /home | awk 'NR==2 {print $3}')\"\n" +
-            "echo \"hometot=$(df -h /home | awk 'NR==2 {print $2}')\"\n" +
+            "# Disk Usage — root + real disks mounted under /mnt, /media, /run/media (USB keys, etc.)\n" +
+            "df -h --output=target,pcent,used,size,source 2>/dev/null | tail -n +2 | while read -r tgt pct used size src; do\n" +
+            "  case \"$src\" in /dev/*) ;; *) continue;; esac\n" +
+            "  case \"$tgt\" in\n" +
+            "    /)                        lbl='Root (/)';;\n" +
+            "    /mnt/*|/media/*|/run/media/*) lbl=\"$(basename \"$tgt\")\";;\n" +
+            "    *) continue;;\n" +
+            "  esac\n" +
+            "  echo \"disk=${lbl}|${pct%\\%}|${used}|${size}|${tgt}\"\n" +
+            "done\n" +
 
             "# Updates (Fast cross-distro check)\n" +
             "pkgs=$((checkupdates 2>/dev/null || apt list --upgradable 2>/dev/null | grep -v Listing || dnf check-update -q 2>/dev/null) | wc -l)\n" +
@@ -128,6 +128,7 @@ PanelWindow {
         onRunningChanged: {
             if (running) return
             let lines = infoLoader._buf.trim().split("\n"); infoLoader._buf = ""
+            let disksArr = []
             for (let l of lines) {
                 let i = l.indexOf("="); if (i < 1) continue
                 let k = l.substring(0, i); let v = l.substring(i + 1).trim()
@@ -138,12 +139,16 @@ PanelWindow {
                     case "osage": popup.osAge = v; break;       case "uptime": popup.uptimeStr = v; break
                     case "home": popup.homeDir = v; break;      case "docs": popup.docsDir = v; break
                     case "pics": popup.picsDir = v; break;      case "vids": popup.vidsDir = v; break
-                    case "music": popup.musicDir = v; break;    case "rootpct": popup.rootPct = parseInt(v)||0; break
-                    case "rootused": popup.rootUsed = v; break; case "roottot": popup.rootTotal = v; break
-                    case "homepct": popup.homePct = parseInt(v)||0; break; case "homeused": popup.homeUsed = v; break
-                    case "hometot": popup.homeTotal = v; break; case "updates": popup.updates = v; break
+                    case "music": popup.musicDir = v; break;    case "updates": popup.updates = v; break
+                    case "disk": {
+                        let p = v.split("|")
+                        disksArr.push({ label: p[0] || "?", pct: parseInt(p[1]) || 0,
+                                        used: p[2] || "0", total: p[3] || "0", mount: p[4] || "" })
+                        break
+                    }
                 }
             }
+            popup.disks = disksArr
             if (popup.osIconHint !== "") logoResolver.start(popup.osIconHint)
         }
     }
@@ -295,28 +300,29 @@ PanelWindow {
                     
                     Text { text: "STORAGE"; color: Theme.primary; opacity: 0.45; font.pixelSize: 10; font.bold: true }
 
-                    // Root Disk
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Text { text: "Root (/)"; color: Theme.primary; font.pixelSize: 12; font.bold: true; Layout.preferredWidth: 60 }
-                        Rectangle {
-                            Layout.fillWidth: true; height: 8; radius: 4
-                            color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
-                            Rectangle { width: parent.width * (popup.rootPct/100); height: parent.height; radius: 4; color: popup.rootPct > 90 ? "#ff5555" : Theme.primary }
+                    // One row per mounted disk (root + /mnt, /media, /run/media)
+                    Repeater {
+                        model: popup.disks
+                        delegate: RowLayout {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            Text {
+                                text: modelData.label; color: Theme.primary; font.pixelSize: 12; font.bold: true
+                                Layout.preferredWidth: 60; elide: Text.ElideRight
+                            }
+                            Rectangle {
+                                Layout.fillWidth: true; height: 8; radius: 4
+                                color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+                                Rectangle { width: parent.width * (modelData.pct/100); height: parent.height; radius: 4; color: modelData.pct > 90 ? "#ff5555" : Theme.primary }
+                            }
+                            Text { text: modelData.used + " / " + modelData.total; color: Theme.primary; opacity: 0.6; font.pixelSize: 11; Layout.preferredWidth: 65; horizontalAlignment: Text.AlignRight }
                         }
-                        Text { text: popup.rootUsed + " / " + popup.rootTotal; color: Theme.primary; opacity: 0.6; font.pixelSize: 11; Layout.preferredWidth: 65; horizontalAlignment: Text.AlignRight }
                     }
-                    
-                    // Home Disk
-                    RowLayout {
-                        Layout.fillWidth: true
-                        Text { text: "Home"; color: Theme.primary; font.pixelSize: 12; font.bold: true; Layout.preferredWidth: 60 }
-                        Rectangle {
-                            Layout.fillWidth: true; height: 8; radius: 4
-                            color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
-                            Rectangle { width: parent.width * (popup.homePct/100); height: parent.height; radius: 4; color: popup.homePct > 90 ? "#ff5555" : Theme.primary }
-                        }
-                        Text { text: popup.homeUsed + " / " + popup.homeTotal; color: Theme.primary; opacity: 0.6; font.pixelSize: 11; Layout.preferredWidth: 65; horizontalAlignment: Text.AlignRight }
+
+                    // Fallback when no disks were detected
+                    Text {
+                        visible: popup.disks.length === 0
+                        text: "No disks mounted"; color: Theme.primary; opacity: 0.5; font.pixelSize: 12
                     }
                 }
 
