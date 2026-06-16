@@ -205,6 +205,7 @@ PanelWindow {
 
     onSearchTextChanged: {
         rebuildFilteredApps()
+        appGrid.currentIndex = 0   // keep keyboard highlight on the top match
         let q = searchText.trim()
         isCommandMode = q.length > 0 && (
             q.startsWith("/") || q.includes(" ") ||
@@ -474,45 +475,76 @@ PanelWindow {
         ColumnLayout {
             anchors.fill: parent; anchors.margins: 20; spacing: 14
 
-            // ── TAB BAR ──────────────────────────────────────────────────────
-            Row {
-                Layout.alignment: Qt.AlignHCenter; spacing: 8
-                Repeater {
-                    model: [
-                        { label: "󰍉  Apps",        idx: 0 },
-                        { label: "󰎚  Notes",       idx: 1 },
-                        { label: "󰄳  Todo",        idx: 2 },
-                        { label: "󰄀  Screenshot",  idx: 3 }
-                    ]
-                    delegate: Rectangle {
-                        required property var modelData
-                        property bool sel: popup.activeTab === modelData.idx
-                        width: tabLbl.implicitWidth + 28; height: 32; radius: 16
-                        
-                        // Smooth tactile tab selection
-                        color: sel ? Theme.primary : (tabMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : "transparent")
-                        border.color: Theme.primary; border.width: sel ? 0 : 1
-                        
-                        scale: tabMouse.pressed ? 0.95 : (tabMouse.containsMouse && !sel ? 1.05 : 1.0)
-                        Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
-                        Behavior on color { ColorAnimation { duration: 150 } }
+            // ── TAB BAR (segmented control) ───────────────────────────────────
+            Rectangle {
+                Layout.alignment: Qt.AlignHCenter
+                implicitWidth: tabRow.implicitWidth + 10
+                implicitHeight: 46
+                radius: height / 2
+                // Subtle inset "track" the active segment slides over
+                color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.06)
+                border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.12)
+                border.width: 1
 
-                        Text {
-                            id: tabLbl; anchors.centerIn: parent
-                            text: modelData.label
-                            color: sel ? Theme.background : Theme.primary
-                            font.pixelSize: 12; font.bold: sel
-                        }
-                        MouseArea {
-                            id: tabMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            onClicked: {
-                                popup.activeTab = modelData.idx
-                                if (modelData.idx === 0) searchField.forceActiveFocus()
-                                if (modelData.idx === 1) notesEdit.forceActiveFocus()
-                                if (modelData.idx === 2) todoInput.forceActiveFocus()
-                                if (modelData.idx === 3) popup.loadScreenshots()
+                Row {
+                    id: tabRow
+                    anchors.centerIn: parent
+                    spacing: 4
+                    Repeater {
+                        model: [
+                            { icon: "󰍉", label: "Apps",       idx: 0 },
+                            { icon: "󰎚", label: "Notes",      idx: 1 },
+                            { icon: "󰄳", label: "Todo",       idx: 2 },
+                            { icon: "󰄀", label: "Screenshot", idx: 3 }
+                        ]
+                        delegate: Rectangle {
+                            required property var modelData
+                            property bool sel: popup.activeTab === modelData.idx
+                            width: tabContent.implicitWidth + 32
+                            height: 38
+                            radius: height / 2
+
+                            color: sel ? Theme.primary
+                                       : (tabMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.10) : "transparent")
+                            Behavior on color { ColorAnimation { duration: 180 } }
+
+                            scale: tabMouse.pressed ? 0.96 : 1.0
+                            Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+
+                            Row {
+                                id: tabContent
+                                anchors.centerIn: parent
+                                spacing: 8
+                                Text {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: modelData.icon
+                                    color: sel ? Theme.background : Theme.primary
+                                    opacity: sel ? 1.0 : 0.85
+                                    font.pixelSize: 15
+                                    Behavior on color { ColorAnimation { duration: 180 } }
+                                }
+                                Text {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: modelData.label
+                                    color: sel ? Theme.background : Theme.primary
+                                    opacity: sel ? 1.0 : 0.85
+                                    font.pixelSize: 13
+                                    font.weight: sel ? Font.Bold : Font.Medium
+                                    Behavior on color { ColorAnimation { duration: 180 } }
+                                }
+                            }
+                            MouseArea {
+                                id: tabMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    popup.activeTab = modelData.idx
+                                    if (modelData.idx === 0) searchField.forceActiveFocus()
+                                    if (modelData.idx === 1) notesEdit.forceActiveFocus()
+                                    if (modelData.idx === 2) todoInput.forceActiveFocus()
+                                    if (modelData.idx === 3) popup.loadScreenshots()
+                                }
                             }
                         }
                     }
@@ -521,11 +553,15 @@ PanelWindow {
 
             // ── SEARCH BAR ────────────────────────────────────────────────────
             Rectangle {
-                Layout.fillWidth: true; height: 44; radius: 14
-                color: Theme.background; border.color: Theme.primary; border.width: 1
+                Layout.fillWidth: true; height: 48; radius: 16
+                color: Theme.background
+                // Softer resting border that lights up on focus — feels more modern
+                border.color: searchField.activeFocus ? Theme.primary : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.25)
+                border.width: 1
+                Behavior on border.color { ColorAnimation { duration: 150 } }
                 visible: popup.activeTab === 0
                 RowLayout {
-                    anchors.fill: parent; anchors.leftMargin: 14; anchors.rightMargin: 14; spacing: 10
+                    anchors.fill: parent; anchors.leftMargin: 16; anchors.rightMargin: 14; spacing: 10
                     Text {
                         text: popup.isCommandMode ? "󰆍" : "󰍉"
                         color: popup.isCommandMode ? Theme.accent : Theme.primary
@@ -542,11 +578,37 @@ PanelWindow {
                             if (popup.isCommandMode)
                                 executor.run(["kitty", "--", "bash", "-c",
                                     searchField.text + "; echo; read -rsp 'Press any key…' -n1"])
-                            else if (popup.filteredApps.length > 0)
-                                executor.run(["bash", "-c", popup.filteredApps[0].appExec])
+                            else if (popup.filteredApps.length > 0) {
+                                let i = appGrid.currentIndex >= 0 ? appGrid.currentIndex : 0
+                                executor.run(["bash", "-c", popup.filteredApps[i].appExec])
+                            }
                             popup.active = false
                         }
                         Keys.onEscapePressed: popup.active = false
+
+                        // ── Keyboard navigation over the app grid ──
+                        // Arrow keys move the highlight; in command mode left/right
+                        // are released so the text caret still works.
+                        Keys.onDownPressed: (event) => {
+                            if (!popup.isCommandMode) { appGrid.moveCurrentIndexDown(); event.accepted = true }
+                        }
+                        Keys.onUpPressed: (event) => {
+                            if (!popup.isCommandMode) { appGrid.moveCurrentIndexUp(); event.accepted = true }
+                        }
+                        Keys.onRightPressed: (event) => {
+                            if (!popup.isCommandMode) { appGrid.moveCurrentIndexRight(); event.accepted = true }
+                            else event.accepted = false
+                        }
+                        Keys.onLeftPressed: (event) => {
+                            if (!popup.isCommandMode) { appGrid.moveCurrentIndexLeft(); event.accepted = true }
+                            else event.accepted = false
+                        }
+                        Keys.onTabPressed: (event) => {
+                            if (!popup.isCommandMode && popup.filteredApps.length > 0) {
+                                appGrid.currentIndex = (appGrid.currentIndex + 1) % popup.filteredApps.length
+                                event.accepted = true
+                            }
+                        }
                         Text {
                             anchors.fill: parent
                             text: "Search apps or type a command\u2026"
@@ -665,36 +727,42 @@ PanelWindow {
 
                         GridView {
                             id: appGrid
-                            property int cols: Math.max(1, Math.floor(parent.width / 118))
-                            width: cols * 118; height: parent.height
+                            property int cols: Math.max(1, Math.floor(parent.width / 120))
+                            width: cols * 120; height: parent.height
                             anchors.horizontalCenter: parent.horizontalCenter
                             clip: true
                             visible: popup.filteredApps.length > 0 || appModel.count === 0
-                            cellWidth: 118; cellHeight: 118
+                            cellWidth: 120; cellHeight: 120
                             model: popup.filteredApps.length
+                            keyNavigationWraps: false
+                            highlightMoveDuration: 0
 
                             delegate: Item {
+                                id: appCell
                                 width: appGrid.cellWidth; height: appGrid.cellHeight
                                 property var app: popup.filteredApps[index] || {}
+                                // Highlighted by mouse hover OR keyboard selection
+                                property bool highlighted: appMouse.containsMouse || GridView.isCurrentItem
 
                                 // Tactile App Icon
                                 Rectangle {
-                                    anchors.centerIn: parent; width: 108; height: 108; radius: 20
-                                    
-                                    color: appMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.08) : Theme.background
-                                    border.color: appMouse.containsMouse ? Theme.primary : Theme.background
+                                    anchors.centerIn: parent; width: 110; height: 110; radius: 24
+
+                                    // Float on the container at rest; only the active card lifts
+                                    color: appCell.highlighted ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.10) : "transparent"
+                                    border.color: appCell.highlighted ? Theme.primary : "transparent"
                                     border.width: 1
-                                    
-                                    scale: appMouse.pressed ? 0.92 : (appMouse.containsMouse ? 1.05 : 1.0)
-                                    
+
+                                    scale: appMouse.pressed ? 0.92 : (appCell.highlighted ? 1.06 : 1.0)
+
                                     Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
                                     Behavior on color { ColorAnimation { duration: 150 } }
                                     Behavior on border.color { ColorAnimation { duration: 150 } }
 
                                     ColumnLayout {
-                                        anchors.fill: parent; anchors.margins: 10; spacing: 6
+                                        anchors.fill: parent; anchors.margins: 12; spacing: 8
                                         Item {
-                                            Layout.alignment: Qt.AlignHCenter; width: 44; height: 44
+                                            Layout.alignment: Qt.AlignHCenter; width: 46; height: 46
                                             IconImage {
                                                 id: icon
                                                 anchors.fill: parent
@@ -702,13 +770,14 @@ PanelWindow {
                                             }
                                             Text {
                                                 anchors.centerIn: parent; text: "󰣆"
-                                                color: Theme.primary; font.pixelSize: 30; opacity: 0.28
+                                                color: Theme.primary; font.pixelSize: 32; opacity: 0.28
                                                 visible: !icon.ready
                                             }
                                         }
                                         Text {
                                             Layout.fillWidth: true; text: app.appName || ""
-                                            color: Theme.primary; font.pixelSize: 11; font.bold: true
+                                            color: Theme.primary; font.pixelSize: 11
+                                            font.weight: appCell.highlighted ? Font.Bold : Font.Medium
                                             horizontalAlignment: Text.AlignHCenter
                                             elide: Text.ElideRight; wrapMode: Text.WordWrap; maximumLineCount: 2
                                         }
@@ -716,6 +785,9 @@ PanelWindow {
                                     MouseArea {
                                         id: appMouse
                                         anchors.fill: parent; hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        // Keep keyboard highlight in sync with the mouse
+                                        onContainsMouseChanged: if (containsMouse) appGrid.currentIndex = index
                                         onClicked: { executor.run(["bash", "-c", app.appExec]); popup.active = false }
                                     }
                                 }
