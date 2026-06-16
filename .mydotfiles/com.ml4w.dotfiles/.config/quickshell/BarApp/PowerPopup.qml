@@ -14,6 +14,21 @@ PanelWindow {
     property bool isAnimating: false
     visible: active || isAnimating
 
+    // Keyboard selection state
+    property int selectedIndex: 0
+    property var powerActions: [
+        { icon: "󰌾", label: "Lock",     action: ["hyprlock"] },
+        { icon: "󰤄", label: "Suspend",  action: ["systemctl", "suspend"] },
+        { icon: "󰍃", label: "Log Out",  action: ["hyprctl", "dispatch", "hl.dsp.exit()"] },
+        { icon: "󰑓", label: "Reboot",   action: ["systemctl", "reboot"] },
+        { icon: "󰐥", label: "Shutdown", action: ["systemctl", "poweroff"] }
+    ]
+
+    function activate(i) {
+        powerExec.run(root.powerActions[i].action)
+        root.active = false
+    }
+
     anchors { top: true; bottom: true; left: true; right: true }
     WlrLayershell.layer: WlrLayer.Overlay
     exclusionMode: WlrLayershell.Ignore
@@ -32,11 +47,22 @@ PanelWindow {
         onClicked: root.active = false
     }
 
-    // Keyboard focus handler for ESC
+    // Keyboard navigation + activation
     FocusScope {
         anchors.fill: parent
         focus: root.active
-        Keys.onEscapePressed: root.active = false
+        Keys.onPressed: (event) => {
+            let n = root.powerActions.length
+            if (event.key === Qt.Key_Escape) {
+                root.active = false; event.accepted = true
+            } else if (event.key === Qt.Key_Left || event.key === Qt.Key_H) {
+                root.selectedIndex = (root.selectedIndex - 1 + n) % n; event.accepted = true
+            } else if (event.key === Qt.Key_Right || event.key === Qt.Key_L || event.key === Qt.Key_Tab) {
+                root.selectedIndex = (root.selectedIndex + 1) % n; event.accepted = true
+            } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                root.activate(root.selectedIndex); event.accepted = true
+            }
+        }
     }
 
     Process {
@@ -59,19 +85,22 @@ PanelWindow {
         property string icon: ""
         property string label: ""
         property var action: []
+        property int idx: 0
+        // Highlighted by either mouse hover or keyboard selection
+        property bool highlighted: mouseArea.containsMouse || root.selectedIndex === idx
 
         Layout.preferredWidth: 110
         Layout.preferredHeight: 120
         radius: 20
-        
+
         // 3. Smooth color transitions
-        color: mouseArea.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : Theme.surface_container_high
-        border.color: mouseArea.containsMouse ? Theme.primary : "transparent"
+        color: highlighted ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : Theme.surface_container_high
+        border.color: highlighted ? Theme.primary : "transparent"
         border.width: 1
 
         // 4. Tactile click & hover scale
-        scale: mouseArea.pressed ? 0.92 : (mouseArea.containsMouse ? 1.05 : 1.0)
-        
+        scale: mouseArea.pressed ? 0.92 : (highlighted ? 1.05 : 1.0)
+
         Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
         Behavior on color { ColorAnimation { duration: 200 } }
         Behavior on border.color { ColorAnimation { duration: 200 } }
@@ -86,10 +115,9 @@ PanelWindow {
             id: mouseArea
             anchors.fill: parent
             hoverEnabled: true
-            onClicked: {
-                powerExec.run(btn.action)
-                root.active = false
-            }
+            // Keep keyboard selection in sync when hovering with the mouse
+            onContainsMouseChanged: if (containsMouse) root.selectedIndex = btn.idx
+            onClicked: root.activate(btn.idx)
         }
     }
 
@@ -125,17 +153,24 @@ PanelWindow {
 
         RowLayout {
             anchors.fill: parent; anchors.margins: 30; spacing: 15
-            PowerButton { icon: "󰌾"; label: "Lock"; action: ["hyprlock"] }
-            PowerButton { icon: "󰤄"; label: "Suspend"; action: ["systemctl", "suspend"] }
-            PowerButton { icon: "󰍃"; label: "Log Out"; action: ["hyprctl", "dispatch", "hl.dsp.exit()"] }
-            PowerButton { icon: "󰑓"; label: "Reboot"; action: ["systemctl", "reboot"] }
-            PowerButton { icon: "󰐥"; label: "Shutdown"; action: ["systemctl", "poweroff"] }
+            Repeater {
+                model: root.powerActions
+                PowerButton {
+                    required property int index
+                    required property var modelData
+                    idx: index
+                    icon: modelData.icon
+                    label: modelData.label
+                    action: modelData.action
+                }
+            }
         }
     }
     
     // Trigger animation tracker
     onActiveChanged: {
         if (active) {
+            selectedIndex = 0
             isAnimating = true
             forceActiveFocus()
         }
