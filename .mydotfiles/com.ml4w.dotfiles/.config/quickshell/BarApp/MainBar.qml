@@ -253,6 +253,86 @@ PanelWindow {
         }
     }
 
+    // ── RING CONTROL COMPONENT (reused for mic, brightness, volume) ───────────
+    component BarRingControl: Item {
+        id: ctrl
+
+        property color ringColor: Theme.primary
+        property real value: 0.0
+        property string icon: ""
+        property string labelText: ""
+        signal clicked()
+        signal scrolled(real delta)
+
+        height: 28
+        width: 28 + (ctrlMouse.containsMouse ? ctrlLabel.implicitWidth + 6 : 0)
+        anchors.verticalCenter: parent.verticalCenter
+        Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+
+        scale: ctrlMouse.pressed ? 0.85 : (ctrlMouse.containsMouse ? 1.05 : 1.0)
+        Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+
+        Item {
+            id: ctrlRing
+            width: 28; height: 28
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+
+            Rectangle {
+                anchors.fill: parent; radius: width / 2
+                color: "transparent"
+                border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15)
+                border.width: 2
+            }
+
+            Canvas {
+                anchors.fill: parent
+                property real arcValue: ctrl.value
+                property color arcColor: ctrl.ringColor
+                onArcValueChanged: requestPaint()
+                onArcColorChanged: requestPaint()
+                onPaint: {
+                    var ctx = getContext("2d"); ctx.reset()
+                    if (arcValue > 0) {
+                        ctx.beginPath()
+                        ctx.arc(width/2, height/2, width/2 - 1, -Math.PI/2, -Math.PI/2 + (Math.min(1.0, arcValue) * 2 * Math.PI))
+                        ctx.lineWidth = 2; ctx.strokeStyle = arcColor; ctx.lineCap = "round"; ctx.stroke()
+                    }
+                }
+            }
+
+            Text {
+                text: ctrl.icon
+                color: ctrl.ringColor
+                font.pixelSize: 14
+                anchors.centerIn: parent
+            }
+        }
+
+        Text {
+            id: ctrlLabel
+            text: ctrl.labelText
+            color: Theme.secondary
+            font.pixelSize: 11; font.bold: true
+            anchors.left: ctrlRing.right
+            anchors.leftMargin: 6
+            anchors.verticalCenter: parent.verticalCenter
+            verticalAlignment: Text.AlignVCenter
+            clip: true
+            opacity: ctrlMouse.containsMouse ? 1.0 : 0.0
+            Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+        }
+
+        MouseArea {
+            id: ctrlMouse
+            anchors.fill: parent
+            anchors.margins: -5
+            hoverEnabled: true
+            onClicked: ctrl.clicked()
+            onWheel: (wheel) => ctrl.scrolled(wheel.angleDelta.y > 0 ? 0.05 : -0.05)
+        }
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     // UI LAYOUT
     // ══════════════════════════════════════════════════════════════════════════
@@ -281,7 +361,6 @@ PanelWindow {
                 color: centerRow.isPlaying ? centerRow._tertiary : centerRow._primary 
                 font.pixelSize: 14
                 anchors.verticalCenter: parent.verticalCenter
-                anchors.verticalCenterOffset: 0
             }
             Text { 
                 text: { let title = bar.activePlayer ? (bar.activePlayer.trackTitle || "No Media") : "No Media"; let artist = bar.activePlayer ? (bar.activePlayer.trackArtist || "") : ""; return title + (artist ? " - " + artist : "") }
@@ -501,223 +580,44 @@ PanelWindow {
                 spacing: 12; anchors.verticalCenter: parent.verticalCenter
                 
                 // Mic
-                Item {
-                    id: micContainer
-                    height: 28
-                    width: 28 + (micMouse.containsMouse ? micLabel.implicitWidth + 6 : 0)
-                    anchors.verticalCenter: parent.verticalCenter
-                    Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-
-                    scale: micMouse.pressed ? 0.85 : (micMouse.containsMouse ? 1.05 : 1.0)
-                    Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
-
+                BarRingControl {
                     property color _primary: Theme.primary
                     property color _error: Theme.error
-                    property color activeColor: sysInfo.isMicMuted ? _error : _primary
-
-                    Item {
-                        id: micRing
-                        width: 28; height: 28
-                        anchors.left: parent.left
-                        anchors.verticalCenter: parent.verticalCenter
-                        
-                        Rectangle {
-                            anchors.fill: parent; radius: width / 2
-                            color: "transparent"
-                            border.color: Qt.rgba(micContainer._primary.r, micContainer._primary.g, micContainer._primary.b, 0.15)
-                            border.width: 2
-                        }
-
-                        Canvas {
-                            anchors.fill: parent
-                            property real value: sysInfo.micValue
-                            property color ringColor: micContainer.activeColor
-                            onValueChanged: requestPaint(); onRingColorChanged: requestPaint()
-                            onPaint: {
-                                var ctx = getContext("2d"); ctx.reset();
-                                if (value > 0) {
-                                    ctx.beginPath();
-                                    ctx.arc(width/2, height/2, width/2 - 1, -Math.PI/2, -Math.PI/2 + (Math.min(1.0, value) * 2 * Math.PI));
-                                    ctx.lineWidth = 2; ctx.strokeStyle = ringColor; ctx.lineCap = "round"; ctx.stroke();
-                                }
-                            }
-                        }
-
-                        Text {
-                            text: sysInfo.isMicMuted ? "󰍭" : "󰍬"
-                            color: micContainer.activeColor
-                            font.pixelSize: 14
-                            anchors.centerIn: parent
-                        }
+                    ringColor: sysInfo.isMicMuted ? _error : _primary
+                    value: sysInfo.micValue
+                    icon: sysInfo.isMicMuted ? "󰍭" : "󰍬"
+                    labelText: sysInfo.isMicMuted ? "Muted" : (Math.round(sysInfo.micValue * 100) + "%")
+                    onClicked: {
+                        sysInfo.isMicMuted = !sysInfo.isMicMuted
+                        executor.run(["bash", "-c", "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"])
                     }
-
-                    Text {
-                        id: micLabel
-                        text: sysInfo.isMicMuted ? "Muted" : (Math.round(sysInfo.micValue * 100) + "%")
-                        color: Theme.secondary // Differentiate value text from icon color
-                        font.pixelSize: 11; font.bold: true
-                        anchors.left: micRing.right
-                        anchors.leftMargin: 6
-                        anchors.verticalCenter: parent.verticalCenter
-                        verticalAlignment: Text.AlignVCenter
-                        clip: true
-                        opacity: micMouse.containsMouse ? 1.0 : 0.0
-                        Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-                    }
-
-                    MouseArea {
-                        id: micMouse; anchors.fill: parent; anchors.margins: -5; hoverEnabled: true
-                        onClicked: {
-                            sysInfo.isMicMuted = !sysInfo.isMicMuted
-                            executor.run(["bash", "-c", "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"])
-                        }
-                        onWheel: (wheel) => triggerOSD("mic", wheel.angleDelta.y > 0 ? 0.05 : -0.05)
-                    }
+                    onScrolled: (delta) => triggerOSD("mic", delta)
                 }
 
                 // Brightness
-                Item {
-                    id: briContainer
-                    height: 28
-                    width: 28 + (briMouse.containsMouse ? briLabel.implicitWidth + 6 : 0)
-                    anchors.verticalCenter: parent.verticalCenter
-                    Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-
-                    scale: briMouse.pressed ? 0.85 : (briMouse.containsMouse ? 1.05 : 1.0)
-                    Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
-
+                BarRingControl {
                     property color _primary: Theme.primary
-
-                    Item {
-                        id: briRing
-                        width: 28; height: 28
-                        anchors.left: parent.left
-                        anchors.verticalCenter: parent.verticalCenter
-                        
-                        Rectangle {
-                            anchors.fill: parent; radius: width / 2
-                            color: "transparent"
-                            border.color: Qt.rgba(briContainer._primary.r, briContainer._primary.g, briContainer._primary.b, 0.15)
-                            border.width: 2
-                        }
-
-                        Canvas {
-                            anchors.fill: parent
-                            property real value: sysInfo.briValue
-                            property color ringColor: briContainer._primary
-                            onValueChanged: requestPaint(); onRingColorChanged: requestPaint()
-                            onPaint: {
-                                var ctx = getContext("2d"); ctx.reset();
-                                if (value > 0) {
-                                    ctx.beginPath();
-                                    ctx.arc(width/2, height/2, width/2 - 1, -Math.PI/2, -Math.PI/2 + (Math.min(1.0, value) * 2 * Math.PI));
-                                    ctx.lineWidth = 2; ctx.strokeStyle = ringColor; ctx.lineCap = "round"; ctx.stroke();
-                                }
-                            }
-                        }
-
-                        Text {
-                            text: sysInfo.briValue > 0.6 ? "󰃠" : (sysInfo.briValue > 0.3 ? "󰃟" : "󰃞")
-                            color: briContainer._primary
-                            font.pixelSize: 14
-                            anchors.centerIn: parent
-                        }
-                    }
-
-                    Text {
-                        id: briLabel
-                        text: Math.round(sysInfo.briValue * 100) + "%"
-                        color: Theme.secondary
-                        font.pixelSize: 11; font.bold: true
-                        anchors.left: briRing.right
-                        anchors.leftMargin: 6
-                        anchors.verticalCenter: parent.verticalCenter
-                        verticalAlignment: Text.AlignVCenter
-                        clip: true
-                        opacity: briMouse.containsMouse ? 1.0 : 0.0
-                        Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-                    }
-
-                    MouseArea {
-                        id: briMouse; anchors.fill: parent; anchors.margins: -5; hoverEnabled: true
-                        onClicked: triggerOSD("bri", 0)
-                        onWheel: (wheel) => triggerOSD("bri", wheel.angleDelta.y > 0 ? 0.05 : -0.05)
-                    }
+                    ringColor: _primary
+                    value: sysInfo.briValue
+                    icon: sysInfo.briValue > 0.6 ? "󰃠" : (sysInfo.briValue > 0.3 ? "󰃟" : "󰃞")
+                    labelText: Math.round(sysInfo.briValue * 100) + "%"
+                    onClicked: triggerOSD("bri", 0)
+                    onScrolled: (delta) => triggerOSD("bri", delta)
                 }
 
                 // Volume
-                Item {
-                    id: volContainer
-                    height: 28
-                    width: 28 + (volIconMouse.containsMouse ? volLabel.implicitWidth + 6 : 0)
-                    anchors.verticalCenter: parent.verticalCenter
-                    Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-
-                    scale: volIconMouse.pressed ? 0.85 : (volIconMouse.containsMouse ? 1.05 : 1.0)
-                    Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
-
+                BarRingControl {
                     property color _primary: Theme.primary
                     property color _error: Theme.error
-                    property color activeColor: sysInfo.isMuted ? _error : _primary
-
-                    Item {
-                        id: volRing
-                        width: 28; height: 28
-                        anchors.left: parent.left
-                        anchors.verticalCenter: parent.verticalCenter
-                        
-                        Rectangle {
-                            anchors.fill: parent; radius: width / 2
-                            color: "transparent"
-                            border.color: Qt.rgba(volContainer._primary.r, volContainer._primary.g, volContainer._primary.b, 0.15)
-                            border.width: 2
-                        }
-
-                        Canvas {
-                            anchors.fill: parent
-                            property real value: sysInfo.volValue
-                            property color ringColor: volContainer.activeColor
-                            onValueChanged: requestPaint(); onRingColorChanged: requestPaint()
-                            onPaint: {
-                                var ctx = getContext("2d"); ctx.reset();
-                                if (value > 0) {
-                                    ctx.beginPath();
-                                    ctx.arc(width/2, height/2, width/2 - 1, -Math.PI/2, -Math.PI/2 + (Math.min(1.0, value) * 2 * Math.PI));
-                                    ctx.lineWidth = 2; ctx.strokeStyle = ringColor; ctx.lineCap = "round"; ctx.stroke();
-                                }
-                            }
-                        }
-
-                        Text {
-                            text: sysInfo.isMuted ? "󰝟" : (sysInfo.volValue > 0.6 ? "󰕾" : (sysInfo.volValue > 0.2 ? "󰖀" : "󰕿"))
-                            color: volContainer.activeColor
-                            font.pixelSize: 14
-                            anchors.centerIn: parent
-                        }
+                    ringColor: sysInfo.isMuted ? _error : _primary
+                    value: sysInfo.volValue
+                    icon: sysInfo.isMuted ? "󰝟" : (sysInfo.volValue > 0.6 ? "󰕾" : (sysInfo.volValue > 0.2 ? "󰖀" : "󰕿"))
+                    labelText: sysInfo.isMuted ? "Muted" : (Math.round(sysInfo.volValue * 100) + "%")
+                    onClicked: {
+                        sysInfo.isMuted = !sysInfo.isMuted
+                        executor.run(["bash", "-c", "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"])
                     }
-
-                    Text {
-                        id: volLabel
-                        text: sysInfo.isMuted ? "Muted" : (Math.round(sysInfo.volValue * 100) + "%")
-                        color: Theme.secondary
-                        font.pixelSize: 11; font.bold: true
-                        anchors.left: volRing.right
-                        anchors.leftMargin: 6
-                        anchors.verticalCenter: parent.verticalCenter
-                        verticalAlignment: Text.AlignVCenter
-                        clip: true
-                        opacity: volIconMouse.containsMouse ? 1.0 : 0.0
-                        Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-                    }
-
-                    MouseArea {
-                        id: volIconMouse; anchors.fill: parent; anchors.margins: -5; hoverEnabled: true
-                        onClicked: {
-                            sysInfo.isMuted = !sysInfo.isMuted
-                            executor.run(["bash", "-c", "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"])
-                        }
-                        onWheel: (wheel) => triggerOSD("vol", wheel.angleDelta.y > 0 ? 0.05 : -0.05)
-                    }
+                    onScrolled: (delta) => triggerOSD("vol", delta)
                 }
 
                 Rectangle { width: 1; height: 16; color: Theme.primary; opacity: 0.2; anchors.verticalCenter: parent.verticalCenter }
@@ -928,13 +828,15 @@ PanelWindow {
     }
 
     // --- CANVAS CORNERS ---
-    Canvas { 
+    Canvas {
         opacity: 0.8; id: leftCorner; x: 10; y: 40; width: 20; height: 20
+        renderTarget: Canvas.FramebufferObject
         property color syncColor: Theme.background; onSyncColorChanged: requestPaint()
         onPaint: { var ctx = getContext("2d"); ctx.reset(); ctx.fillStyle = Theme.background; ctx.moveTo(0, 0); ctx.lineTo(20, 0); ctx.arcTo(0, 0, 0, 20, 20); ctx.fill() }
     }
-    Canvas { 
+    Canvas {
         opacity: 0.8; id: rightCorner; x: parent.width - 30; y: 40; width: 20; height: 20
+        renderTarget: Canvas.FramebufferObject
         property color syncColor: Theme.background; onSyncColorChanged: requestPaint()
         onPaint: { var ctx = getContext("2d"); ctx.reset(); ctx.fillStyle = Theme.background; ctx.moveTo(20, 0); ctx.lineTo(0, 0); ctx.arcTo(20, 0, 20, 20, 20); ctx.fill() }
     }

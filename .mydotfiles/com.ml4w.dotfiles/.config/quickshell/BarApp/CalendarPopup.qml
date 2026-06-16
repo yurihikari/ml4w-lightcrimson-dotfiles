@@ -19,9 +19,16 @@ PanelWindow {
     WlrLayershell.keyboardFocus: WlrLayershell.Exclusive
     color: "transparent"
 
-    MouseArea { 
+    IpcHandler {
+        target: "bar-calendar"
+        function toggle(): void { root.active = !root.active }
+        function open(): void { root.active = true }
+        function close(): void { root.active = false }
+    }
+
+    MouseArea {
         anchors.fill: parent
-        onClicked: root.active = false 
+        onClicked: root.active = false
     }
 
     // Keyboard focus handler for ESC (when no text input is focused)

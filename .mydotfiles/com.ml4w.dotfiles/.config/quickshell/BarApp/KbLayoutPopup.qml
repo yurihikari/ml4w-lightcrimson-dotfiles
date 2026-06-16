@@ -21,6 +21,13 @@ PanelWindow {
     WlrLayershell.keyboardFocus: active ? WlrLayershell.OnDemand : WlrLayershell.None
     color: "transparent"
 
+    IpcHandler {
+        target: "bar-keyboard"
+        function toggle(): void { root.active = !root.active }
+        function open(): void { root.active = true }
+        function close(): void { root.active = false }
+    }
+
     MouseArea { anchors.fill: parent; onClicked: root.active = false }
     Shortcut { sequence: "Escape"; onActivated: root.active = false }
 

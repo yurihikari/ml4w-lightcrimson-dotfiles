@@ -21,6 +21,13 @@ PanelWindow {
     WlrLayershell.keyboardFocus: WlrLayershell.Exclusive
     color: "transparent"
 
+    IpcHandler {
+        target: "bar-system"
+        function toggle(): void { popup.active = !popup.active }
+        function open(): void { popup.active = true }
+        function close(): void { popup.active = false }
+    }
+
     MouseArea { anchors.fill: parent; onClicked: popup.active = false }
 
     // Keyboard focus handler for ESC

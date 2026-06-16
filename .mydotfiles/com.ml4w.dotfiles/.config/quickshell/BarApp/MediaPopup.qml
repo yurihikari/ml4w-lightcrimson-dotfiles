@@ -28,6 +28,13 @@ PanelWindow {
     WlrLayershell.keyboardFocus: WlrLayershell.OnDemand
     color: "transparent"
 
+    IpcHandler {
+        target: "bar-media"
+        function toggle(): void { popup.active = !popup.active }
+        function open(): void { popup.active = true }
+        function close(): void { popup.active = false }
+    }
+
     property var p: bar.activePlayer
 
     function formatTime(s) {

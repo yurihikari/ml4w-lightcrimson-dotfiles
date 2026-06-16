@@ -10,18 +10,23 @@ PanelWindow {
     id: root
     property bool active: false
 
-    
-    
     // 1. Keep window alive while the exit animation is running
     property bool isAnimating: false
     visible: active || isAnimating
-    
-    screen: modelData 
+
+    screen: modelData
     anchors { top: true; bottom: true; left: true; right: true }
     WlrLayershell.layer: WlrLayer.Overlay
     exclusionMode: WlrLayershell.Ignore
     WlrLayershell.keyboardFocus: WlrLayershell.Exclusive
     color: "transparent"
+
+    IpcHandler {
+        target: "bar-power"
+        function toggle(): void { root.active = !root.active }
+        function open(): void { root.active = true }
+        function close(): void { root.active = false }
+    }
 
     MouseArea {
         anchors.fill: parent

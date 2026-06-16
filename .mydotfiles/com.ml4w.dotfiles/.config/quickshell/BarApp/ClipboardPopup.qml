@@ -27,6 +27,13 @@ PanelWindow {
     WlrLayershell.keyboardFocus: WlrLayershell.Exclusive
     color: "transparent"
 
+    IpcHandler {
+        target: "bar-clipboard"
+        function toggle(): void { root.active = !root.active }
+        function open(): void { root.active = true }
+        function close(): void { root.active = false }
+    }
+
     // Background click-to-close area
     MouseArea {
         anchors.fill: parent

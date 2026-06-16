@@ -24,6 +24,13 @@ PanelWindow {
     WlrLayershell.keyboardFocus: active ? WlrLayershell.OnDemand : WlrLayershell.None
     color: "transparent"
 
+    IpcHandler {
+        target: "dock"
+        function toggle(): void { popup.active = !popup.active }
+        function open(): void { popup.active = true }
+        function close(): void { popup.active = false }
+    }
+
     // ── FIX: Close when clicking outside the popup (backdrop) ──────────────
     MouseArea {
         anchors.fill: parent
