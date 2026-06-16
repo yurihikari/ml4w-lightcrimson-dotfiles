@@ -73,11 +73,12 @@ Item {
     PanelWindow {
         screen: root.screen
         anchors { top: true; bottom: true; left: true }
+        margins { top: 40; bottom: 10 }
         width: 10
         WlrLayershell.layer: WlrLayer.Top
         exclusionMode: WlrLayershell.Ignore
         color: "transparent"
-        
+
         Rectangle { anchors.fill: parent; color: Theme.background; opacity: 0.8 }
 
         MouseArea {
@@ -90,11 +91,12 @@ Item {
     PanelWindow {
         screen: root.screen
         anchors { top: true; bottom: true; right: true }
+        margins { top: 40; bottom: 10 }
         width: 11
         WlrLayershell.layer: WlrLayer.Top
         exclusionMode: WlrLayershell.Ignore
         color: "transparent"
-        
+
         Rectangle { anchors.fill: parent; color: Theme.background; opacity: 0.8 }
 
         MouseArea {
