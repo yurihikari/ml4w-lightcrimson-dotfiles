@@ -29,3 +29,12 @@ hl.layer_rule({
     xray = true,
     ignore_alpha = 0.79
 })
+
+-- Polkit auth dialog → float, center, and follow the active workspace
+hl.window_rule({
+    name = "polkit-gnome-authentication-agent-1",
+    match = {class = "^(polkit-gnome-authentication-agent-1)$"},
+    float = true,
+    center = true,
+    pin = true,
+})
