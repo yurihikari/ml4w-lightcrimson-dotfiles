@@ -11,6 +11,7 @@ import "CavaApp"
 import "BarApp"
 import "RadialMenuApp"
 import "DisplayManagerApp"
+import "SettingsApp"
 
 ShellRoot {
     // Test IPC tools: qs ipc show
@@ -41,6 +42,7 @@ ShellRoot {
     WallpaperWindow {}
     RadialMenuPopup {}
     DisplayManagerWindow { id: displayManager }
+    SettingsLauncher {}
     // Variants {
     //     model: Quickshell.screens
     //     delegate: Component {

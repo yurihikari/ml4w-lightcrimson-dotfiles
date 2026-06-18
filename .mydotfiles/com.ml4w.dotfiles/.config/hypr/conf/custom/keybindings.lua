@@ -3,6 +3,7 @@ hl.bind(mainMod .. " + D", hl.dsp.exec_cmd("~/.config/hypr/scripts/launcher.sh")
 hl.bind(mainMod .. " + R", hl.dsp.exec_cmd("qs ipc call radialMenu open"), { description = "Open radial menu" })
 hl.bind(mainMod .. " + P", hl.dsp.exec_cmd("~/.config/hypr/scripts/colorpicker.sh"), { description = "Open the color Picker" })
 hl.bind(mainMod .. " + ALT + M", hl.dsp.exec_cmd("qs ipc call display toggle"), { description = "Toggle DisplayManager" })
+hl.bind(mainMod .. " + SHIFT + I", hl.dsp.exec_cmd("qs ipc call settings toggle"), { description = "Open settings window" })
 
 -- Bar popup toggles (Quickshell IPC)
 hl.bind(mainMod .. " + M", hl.dsp.exec_cmd("qs ipc call bar-media toggle"), { description = "Toggle media popup" })
