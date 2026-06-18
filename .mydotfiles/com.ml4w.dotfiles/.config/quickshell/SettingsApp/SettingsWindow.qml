@@ -16,7 +16,7 @@ import qs.SettingsApp.pages
 FloatingWindow {
     id: root
     title: "Settings"
-    color: Theme.background
+    color: Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.8)
 
     implicitWidth: 1060
     implicitHeight: 720
