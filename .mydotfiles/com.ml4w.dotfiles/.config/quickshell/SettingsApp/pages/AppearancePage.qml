@@ -24,6 +24,14 @@ StPage {
     property string transitionEffect: "simple"
     property string search: ""
 
+    // Light / Dark mode: current state + matugen preview palettes for both
+    // modes (computed from the current wallpaper, applied only on click).
+    property bool isDark: true
+    property var modeColors: ({ "dark": ({}), "light": ({}) })
+    property bool modeLoaded: false
+
+    onActiveChanged: if (active) matugenPreview.running = true
+
     function expand(p) { return p.replace(/~|\$HOME/g, Quickshell.env("HOME")) }
 
     FileView {
@@ -42,6 +50,192 @@ StPage {
         watchChanges: true
         onLoaded: { let v = text().trim(); if (page.transitionEffects.indexOf(v) !== -1) page.transitionEffect = v }
         onFileChanged: { reload(); let v = text().trim(); if (page.transitionEffects.indexOf(v) !== -1) page.transitionEffect = v }
+    }
+
+    // Tracks the ml4w dark/light setting (1 = dark) written by ml4w-toggle-theme.
+    FileView {
+        id: darkmodeSetting
+        path: Qt.url(Quickshell.env("HOME") + "/.config/ml4w/settings/darkmode")
+        blockLoading: true
+        watchChanges: true
+        onLoaded: page.isDark = (text().trim() === "1")
+        onFileChanged: { reload(); page.isDark = (text().trim() === "1") }
+    }
+
+    // The previews depend on the wallpaper — re-render when it changes.
+    FileView {
+        id: wallpaperCache
+        path: Qt.url(Quickshell.env("HOME") + "/.cache/ml4w/hyprland-dotfiles/current_wallpaper")
+        blockLoading: true
+        watchChanges: true
+        onFileChanged: { reload(); if (page.active) matugenPreview.running = true }
+    }
+
+    // Emulates matugen for the current wallpaper WITHOUT touching the real
+    // colors.json (--dry-run). A single call returns both palettes, so we can
+    // preview light and dark side by side. Nothing is applied until you click.
+    Process {
+        id: matugenPreview
+        command: ["bash", "-c",
+            "WP=$(cat \"$HOME/.cache/ml4w/hyprland-dotfiles/current_wallpaper\" 2>/dev/null); " +
+            "[ -z \"$WP\" ] && exit 0; " +
+            "MG=matugen; " +
+            "[ -x \"$HOME/.cargo/bin/matugen\" ] && MG=\"$HOME/.cargo/bin/matugen\"; " +
+            "[ -x \"$HOME/.local/bin/matugen\" ] && MG=\"$HOME/.local/bin/matugen\"; " +
+            "\"$MG\" image \"$WP\" --source-color-index 0 -j hex --dry-run 2>/dev/null"
+        ]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    var j = JSON.parse(text)
+                    if (!j.colors) return
+                    var roles = ["background", "surface_container", "surface_container_high",
+                                 "on_surface", "primary", "on_primary", "secondary_container"]
+                    var out = { "dark": ({}), "light": ({}) }
+                    for (var i = 0; i < roles.length; i++) {
+                        var r = roles[i]
+                        if (j.colors[r]) {
+                            out.dark[r]  = j.colors[r].dark.color
+                            out.light[r] = j.colors[r].light.color
+                        }
+                    }
+                    page.modeColors = out
+                    page.modeLoaded = true
+                } catch (e) { console.log("matugen preview parse error:", e) }
+            }
+        }
+    }
+
+    // ── Reusable mode preview card (mini mock of the desktop in that mode) ──
+    component ModePreview: Rectangle {
+        id: mp
+        property var colors: ({})
+        property string label: ""
+        property bool selected: false
+        signal clicked()
+
+        // role → color; pass an alpha to get a translucent variant. Falls back
+        // to grey until matugen has produced the palette.
+        function rc(role, a) {
+            var h = (colors && colors[role]) ? colors[role] : "#888888"
+            if (a === undefined) return h
+            var r = parseInt(h.substr(1, 2), 16) / 255
+            var g = parseInt(h.substr(3, 2), 16) / 255
+            var b = parseInt(h.substr(5, 2), 16) / 255
+            return Qt.rgba(r, g, b, a)
+        }
+
+        Layout.fillWidth: true
+        implicitHeight: 150
+        radius: 16
+        color: rc("background")
+        border.color: selected ? rc("primary") : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.2)
+        border.width: selected ? 3 : 1
+        scale: mpMouse.pressed ? 0.98 : 1.0
+        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
+        Behavior on border.color { ColorAnimation { duration: 150 } }
+        Behavior on color { ColorAnimation { duration: 200 } }
+
+        // ── mock window content ──
+        Item {
+            anchors.fill: parent
+            anchors.margins: 16
+            anchors.bottomMargin: 30
+
+            Rectangle {
+                id: avatar
+                width: 26; height: 26; radius: 13
+                anchors.top: parent.top; anchors.left: parent.left
+                color: mp.rc("surface_container_high")
+            }
+            Column {
+                anchors.left: avatar.right; anchors.leftMargin: 10
+                anchors.verticalCenter: avatar.verticalCenter
+                spacing: 6
+                Rectangle { width: 120; height: 7; radius: 3.5; color: mp.rc("on_surface", 0.75) }
+                Rectangle { width: 78;  height: 6; radius: 3;   color: mp.rc("on_surface", 0.35) }
+            }
+
+            // wavy accent line — painted once, no animation
+            Canvas {
+                id: wave
+                anchors.left: parent.left; anchors.right: parent.right
+                anchors.top: avatar.bottom; anchors.topMargin: 12
+                height: 14
+                property color stroke: mp.rc("primary")
+                onStrokeChanged: requestPaint()
+                onWidthChanged: requestPaint()
+                onPaint: {
+                    var ctx = getContext("2d"); ctx.reset()
+                    var w = width, midY = height / 2, amp = 4, k = 2 * Math.PI / 26
+                    ctx.beginPath()
+                    for (var x = 0; x <= w; x += 2) {
+                        var y = midY + amp * Math.sin(k * x)
+                        if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y)
+                    }
+                    ctx.strokeStyle = stroke; ctx.lineWidth = 2.5
+                    ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.stroke()
+                }
+            }
+
+            // three pills; the first carries the accent + selected check
+            Row {
+                anchors.bottom: parent.bottom; anchors.left: parent.left
+                spacing: 6
+                Rectangle {
+                    width: 52; height: 22; radius: 11
+                    color: mp.selected ? mp.rc("primary") : mp.rc("surface_container_high")
+                    Text {
+                        anchors.centerIn: parent; visible: mp.selected
+                        text: "󰄬"; color: mp.rc("on_primary"); font.pixelSize: 12
+                    }
+                }
+                Rectangle { width: 44; height: 22; radius: 11; color: mp.rc("secondary_container") }
+                Rectangle { width: 44; height: 22; radius: 11; color: mp.rc("secondary_container") }
+            }
+        }
+
+        // footer label
+        Text {
+            anchors.bottom: parent.bottom; anchors.bottomMargin: 8
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: mp.label
+            color: mp.selected ? mp.rc("primary") : mp.rc("on_surface", 0.6)
+            font.family: Theme.fontFamily; font.pixelSize: 12; font.bold: mp.selected
+        }
+
+        MouseArea {
+            id: mpMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: mp.clicked()
+        }
+    }
+
+    // ── Theme mode ──────────────────────────────────────────────────────
+    StCard {
+        title: "Mode"
+
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.margins: 6
+            spacing: 12
+
+            ModePreview {
+                colors: page.modeColors.light
+                label: "Light"
+                selected: !page.isDark
+                // ml4w-toggle-theme is a pure toggle, so only act when switching.
+                onClicked: if (page.isDark) Quickshell.execDetached(["bash", "-c", Quickshell.env("HOME") + "/.config/ml4w/scripts/ml4w-toggle-theme"])
+            }
+            ModePreview {
+                colors: page.modeColors.dark
+                label: "Dark"
+                selected: page.isDark
+                onClicked: if (!page.isDark) Quickshell.execDetached(["bash", "-c", Quickshell.env("HOME") + "/.config/ml4w/scripts/ml4w-toggle-theme"])
+            }
+        }
     }
 
     // ── Wallpaper actions ───────────────────────────────────────────────
