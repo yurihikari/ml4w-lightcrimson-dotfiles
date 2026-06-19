@@ -18,10 +18,28 @@ StPage {
     property bool charging: false
     property bool hasBattery: false
     property bool tuxedo: false
+    // Mirrors the ml4w sidebar / SystemPopup state: presence of the
+    // gamemode-enabled marker file means game mode is on.
+    property bool gamemode: false
 
     onActiveChanged: if (active) refresh()
 
-    function refresh() { profileReader.running = true; batteryReader.running = true; tuxedoDetector.running = true }
+    function refresh() { profileReader.running = true; batteryReader.running = true; tuxedoDetector.running = true; gamemodeReader.running = true }
+
+    Process {
+        id: gamemodeReader
+        command: ["bash", "-c", "test -f \"$HOME/.config/ml4w/settings/gamemode-enabled\" && echo 1 || echo 0"]
+        stdout: SplitParser { onRead: data => page.gamemode = (data.trim() === "1") }
+    }
+    // Runs the shared ml4w gamemode script (toggles the marker + hyprctl), then
+    // re-reads the state so the switch reflects reality.
+    Process {
+        id: gamemodeToggle
+        command: ["bash", "-c", "$HOME/.config/hypr/scripts/gamemode.sh"]
+        onRunningChanged: if (!running) gamemodeReader.running = true
+    }
+    // Catch external changes (sidebar / SystemPopup) while the page is open.
+    Timer { interval: 2000; repeat: true; running: page.active; onTriggered: gamemodeReader.running = true }
 
     Process {
         id: tuxedoDetector
@@ -108,6 +126,21 @@ StPage {
                 model: page.profileOptions
                 current: page.profile
                 onSelected: (v) => { profileSetter.command = ["bash", "-c", "powerprofilesctl set " + v]; profileSetter.running = true }
+            }
+        }
+    }
+
+    // ── Game mode ───────────────────────────────────────────────────────
+    StCard {
+        title: "Performance"
+        StRow {
+            icon: "󰊴"
+            title: "Game mode"
+            subtitle: "Disable animations and blur for maximum performance"
+            StToggle {
+                controlled: true
+                checked: page.gamemode
+                onToggled: gamemodeToggle.running = true
             }
         }
     }
