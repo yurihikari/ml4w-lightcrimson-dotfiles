@@ -1,31 +1,17 @@
-import Quickshell
 import Quickshell.Wayland
 import Quickshell.Io
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
-import "../CustomTheme"
+import qs.CustomTheme
+import qs.BarApp.services
+import qs.BarApp.components
 
-PanelWindow {
+BarPopup {
     id: root
-    property bool active: false
-    property bool isAnimating: false
-    visible: active || isAnimating
+    ipcTarget: "bar-keyboard"
+    keyboardFocusValue: active ? WlrLayershell.OnDemand : WlrLayershell.None
 
-    anchors { top: true; bottom: true; left: true; right: true }
-    WlrLayershell.layer: WlrLayer.Overlay
-    exclusionMode: WlrLayershell.Ignore
-    WlrLayershell.keyboardFocus: active ? WlrLayershell.OnDemand : WlrLayershell.None
-    color: "transparent"
-
-    IpcHandler {
-        target: "bar-keyboard"
-        function toggle(): void { root.active = !root.active }
-        function open(): void { root.active = true }
-        function close(): void { root.active = false }
-    }
-
-    MouseArea { anchors.fill: parent; onClicked: root.active = false }
     Shortcut { sequence: "Escape"; onActivated: root.active = false }
 
     // Local state
@@ -87,17 +73,12 @@ PanelWindow {
         })
     }
 
-    onActiveChanged: {
-        if (active) {
-            isAnimating = true
-            searchText = ""
-            kbGetter.running = true
-            cacheLoader.running = true
-            recentLoader.running = true
-        }
+    onOpened: {
+        searchText = ""
+        kbGetter.running = true
+        cacheLoader.running = true
+        recentLoader.running = true
     }
-
-    Process { id: executor; function run(args) { command = args; running = true } }
 
     Process {
         id: kbGetter
@@ -170,7 +151,7 @@ PanelWindow {
         arr = arr.slice(0, 8)
         recentCodes = arr
         let json = JSON.stringify(arr)
-        executor.run(["bash", "-c", "echo '" + json + "' > \"$HOME/.cache/quickshell-kbrecent-v2.json\""])
+        Sys.run(["bash", "-c", "echo '" + json + "' > \"$HOME/.cache/quickshell-kbrecent-v2.json\""])
     }
 
     // Hyprland requires lowercase layout/variant — force it here.
@@ -183,12 +164,12 @@ PanelWindow {
         let cmd = "sed -i -E 's/kb_layout\\s*=\\s*\".*\"/kb_layout  = \"'" + lc + "'\"/' ~/.config/hypr/input.lua && " +
                   "sed -i -E 's/kb_variant\\s*=\\s*\".*\"/kb_variant = \"'" + lv + "'\"/' ~/.config/hypr/input.lua && " +
                   "hyprctl reload"
-        executor.run(["bash", "-c", cmd])
+        Sys.run(["bash", "-c", cmd])
         root.active = false
     }
 
     function editManually() {
-        executor.run(["bash", "-c", "kitty -e sh -c '${EDITOR:-nano} ~/.config/hypr/input.lua' >/dev/null 2>&1 &"])
+        Sys.run(["bash", "-c", "kitty -e sh -c '${EDITOR:-nano} ~/.config/hypr/input.lua' >/dev/null 2>&1 &"])
         root.active = false
     }
 

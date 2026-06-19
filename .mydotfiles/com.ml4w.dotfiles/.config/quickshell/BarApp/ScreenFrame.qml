@@ -1,23 +1,15 @@
 import Quickshell
 import Quickshell.Wayland
-import Quickshell.Io
 import QtQuick
-import "../CustomTheme"
+import qs.CustomTheme
+import qs.BarApp.services
 
 Item {
     id: root
-    
+
     property var screen
     property var modelData
     onModelDataChanged: screen = modelData
-
-    Process { 
-        id: ipcExec
-        function call(target) { 
-            command = ["qs", "ipc", "call", target, "toggle"]
-            running = true 
-        } 
-    }
 
     // --- BOTTOM FRAME ---
     PanelWindow {
@@ -83,7 +75,7 @@ Item {
 
         MouseArea {
             anchors.fill: parent
-            onClicked: ipcExec.call("wallpaper")
+            onClicked: Sys.run(["qs", "ipc", "call", "wallpaper", "toggle"])
         }
     }
 
@@ -101,7 +93,7 @@ Item {
 
         MouseArea {
             anchors.fill: parent
-            onClicked: ipcExec.call("sidebar")
+            onClicked: Sys.run(["qs", "ipc", "call", "sidebar", "toggle"])
         }
     }
 

@@ -1,18 +1,14 @@
-import Quickshell
-import Quickshell.Wayland
-import Quickshell.Io
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
-import "../CustomTheme"
+import qs.CustomTheme
+import qs.BarApp.services
+import qs.BarApp.components
 
-PanelWindow {
+BarPopup {
     id: root
-    property bool active: false
-
-    // 1. Keep window alive while the exit animation is running
-    property bool isAnimating: false
-    visible: active || isAnimating
+    ipcTarget: "bar-power"
+    onOpened: root.selectedIndex = 0
 
     // Keyboard selection state
     property int selectedIndex: 0
@@ -25,26 +21,8 @@ PanelWindow {
     ]
 
     function activate(i) {
-        powerExec.run(root.powerActions[i].action)
+        Sys.run(root.powerActions[i].action)
         root.active = false
-    }
-
-    anchors { top: true; bottom: true; left: true; right: true }
-    WlrLayershell.layer: WlrLayer.Overlay
-    exclusionMode: WlrLayershell.Ignore
-    WlrLayershell.keyboardFocus: WlrLayershell.Exclusive
-    color: "transparent"
-
-    IpcHandler {
-        target: "bar-power"
-        function toggle(): void { root.active = !root.active }
-        function open(): void { root.active = true }
-        function close(): void { root.active = false }
-    }
-
-    MouseArea {
-        anchors.fill: parent
-        onClicked: root.active = false
     }
 
     // Keyboard navigation + activation
@@ -63,11 +41,6 @@ PanelWindow {
                 root.activate(root.selectedIndex); event.accepted = true
             }
         }
-    }
-
-    Process {
-        id: powerExec
-        function run(args) { command = args; running = true }
     }
 
     // --- FULLSCREEN BLUR BACKGROUND ---
@@ -167,12 +140,4 @@ PanelWindow {
         }
     }
     
-    // Trigger animation tracker
-    onActiveChanged: {
-        if (active) {
-            selectedIndex = 0
-            isAnimating = true
-            forceActiveFocus()
-        }
-    }
 }

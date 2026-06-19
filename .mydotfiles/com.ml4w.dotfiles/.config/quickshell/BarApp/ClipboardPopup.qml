@@ -1,42 +1,15 @@
-import Quickshell
-import Quickshell.Wayland
 import Quickshell.Io
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
-import "../CustomTheme"
+import qs.CustomTheme
+import qs.BarApp.services
+import qs.BarApp.components
 
-PanelWindow {
+BarPopup {
     id: root
-    property bool active: false
+    ipcTarget: "bar-clipboard"
     property string searchText: ""
-    
-    // Wayland-safe exit animation state
-    property bool isAnimating: false
-    visible: active || isAnimating
-
-    anchors {
-        top: true; bottom: true
-        left: true; right: true 
-    }
-    
-    WlrLayershell.layer: WlrLayer.Overlay
-    exclusionMode: WlrLayershell.Ignore
-    WlrLayershell.keyboardFocus: WlrLayershell.Exclusive
-    color: "transparent"
-
-    IpcHandler {
-        target: "bar-clipboard"
-        function toggle(): void { root.active = !root.active }
-        function open(): void { root.active = true }
-        function close(): void { root.active = false }
-    }
-
-    // Background click-to-close area
-    MouseArea {
-        anchors.fill: parent
-        onClicked: { root.active = false }
-    }
 
     // --- PREVIEW STATE ---
     property string hoveredClipId: ""
@@ -125,11 +98,6 @@ PanelWindow {
     }
 
     // --- LOGIC ---
-    Process {
-        id: clipExec
-        function run(args) { command = args; running = true }
-    }
-
     ListModel { id: clipModel }
 
     Process {
@@ -153,18 +121,15 @@ PanelWindow {
         onTriggered: { clipModel.clear(); clipLoader.running = true }
     }
 
-    onActiveChanged: {
-        if (active) {
-            root.isAnimating = true
-            root.searchText = ""
-            searchField.forceActiveFocus()
-            clipModel.clear()
-            clipLoader.running = true
-            root.hoveredClipId = ""
-            root.hoveredIsImage = false
-            root.decodedImagePath = ""
-            root.decodedText = ""
-        }
+    onOpened: {
+        root.searchText = ""
+        searchField.forceActiveFocus()
+        clipModel.clear()
+        clipLoader.running = true
+        root.hoveredClipId = ""
+        root.hoveredIsImage = false
+        root.decodedImagePath = ""
+        root.decodedText = ""
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -390,7 +355,7 @@ PanelWindow {
                             }
                             MouseArea {
                                 id: clearMouse; anchors.fill: parent; hoverEnabled: true
-                                onClicked: { clipExec.run(["bash", "-c", "cliphist wipe"]); clipModel.clear(); root.active = false }
+                                onClicked: { Sys.run(["bash", "-c", "cliphist wipe"]); clipModel.clear(); root.active = false }
                             }
                         }
                     }
@@ -499,7 +464,7 @@ PanelWindow {
                                             }
                                             onExited: hidePreviewTimer.restart()
                                             onClicked: {
-                                                clipExec.run(["bash", "-c", "echo '" + model.clipId + "\t" + model.preview + "' | cliphist decode | wl-copy"])
+                                                Sys.run(["bash", "-c", "echo '" + model.clipId + "\t" + model.preview + "' | cliphist decode | wl-copy"])
                                                 root.active = false
                                             }
                                         }
@@ -519,7 +484,7 @@ PanelWindow {
                                         MouseArea {
                                             id: delMouse; anchors.fill: parent; hoverEnabled: true
                                             onClicked: {
-                                                clipExec.run(["bash", "-c", "echo '" + model.clipId + "\t" + model.preview + "' | cliphist delete"])
+                                                Sys.run(["bash", "-c", "echo '" + model.clipId + "\t" + model.preview + "' | cliphist delete"])
                                                 clipModel.remove(index)
                                                 if (root.hoveredClipId === model.clipId) root.hoveredClipId = ""
                                             }

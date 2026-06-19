@@ -61,6 +61,14 @@ QtObject {
     property color tertiary_fixed: "#f9e0a6"
     property color tertiary_fixed_dim: "#dcc48c"
 
+    // Generic accent. Used by widgets that want a distinct highlight separate
+    // from `primary` (e.g. the dock's terminal-command mode). Tracks the theme.
+    readonly property color accent: tertiary
+
+    // Convenience: return `c` with a custom alpha. Replaces the very common
+    // Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, a) boilerplate.
+    function withAlpha(c, a) { return Qt.rgba(c.r, c.g, c.b, a) }
+
     property var themeReader: Process {
         id: reader
         command: ["cat", Quickshell.env("HOME") + "/.config/ml4w/colors/colors.json"]

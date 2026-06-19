@@ -1,335 +1,50 @@
 import Quickshell
 import Quickshell.Wayland
 import Quickshell.Hyprland
-import Quickshell.Io 
 import Quickshell.Services.Mpris
 import Quickshell.Services.SystemTray
 import QtQuick
 import QtQuick.Layouts
-import "../CustomTheme"
+import qs.CustomTheme
+import qs.BarApp.services
+import qs.BarApp.components
 
 PanelWindow {
     id: bar
     anchors { top: true; left: true; right: true }
     property var modelData
     screen: modelData
-    
-    height: 60 
+
+    height: 60
     WlrLayershell.layer: WlrLayer.Top
     exclusionMode: WlrLayershell.Exclusive
-    exclusiveZone: height - 30 
+    exclusiveZone: height - 30
     WlrLayershell.keyboardFocus: WlrLayershell.None
     color: "transparent"
 
-    // --- SYSTEM DATA ENGINE ---
-    QtObject {
-        id: sysInfo
-        property real volValue: 0.0
-        property bool isMuted: false
-        property real micValue: 0.0
-        property bool isMicMuted: false
-        property real briValue: 0.0
-        
-        property string bat: "0%"
-        property int batLevel: 0
-        property bool batCharging: false
-        property string wifi: ""
-        property bool wifiRadio: false
-        property string connType: "none"
-        property bool bluetooth: false
-        property bool hasBattery: true 
-        property real cpuUsage: 0.0
-        property real ramUsage: 0.0
-        property real diskUsage: 0.0
-        
-        property string kbLayout: "US"
-        property string kbVariant: ""
-        property string activeOSD: ""
-    }
-
-    // --- HYPRLAND CLIENTS (for workspace app icons) ---
-    property var hyprClients: []
-    property string _clientsBuf: ""
-
-    Process {
-        id: clientsGetter; running: true
-        command: ["hyprctl", "clients", "-j"]
-        stdout: SplitParser { onRead: bar._clientsBuf += data }
-        onRunningChanged: {
-            if (running) {
-                bar._clientsBuf = ""
-            } else {
-                try { bar.hyprClients = JSON.parse(bar._clientsBuf) }
-                catch(e) {}
-                bar._clientsBuf = ""
-            }
-        }
-    }
-
-    // --- PROCESSES ---
-    Process { 
-        id: executor
-        function run(args) { command = args; running = true } 
-    }
-
-    Process {
-        id: volGetter; running: true
-        command: ["bash", "-c", "wpctl get-volume @DEFAULT_AUDIO_SINK@"]
-        stdout: SplitParser {
-            onRead: {
-                if (sysInfo.activeOSD !== "vol") {
-                    let out = data.trim(); sysInfo.isMuted = out.includes("[MUTED]")
-                    let m = out.match(/[0-9.]+/)
-                    if (m) sysInfo.volValue = parseFloat(m[0])
-                }
-            }
-        }
-    }
-
-    Process {
-        id: micGetter; running: true
-        command: ["bash", "-c", "wpctl get-volume @DEFAULT_AUDIO_SOURCE@"]
-        stdout: SplitParser {
-            onRead: {
-                if (sysInfo.activeOSD !== "mic") {
-                    let out = data.trim(); sysInfo.isMicMuted = out.includes("[MUTED]")
-                    let m = out.match(/[0-9.]+/)
-                    if (m) sysInfo.micValue = parseFloat(m[0])
-                }
-            }
-        }
-    }
-
-    Process {
-        id: briGetter; running: true
-        command: ["bash", "-c", "brightnessctl -m 2>/dev/null | awk -F, '{print $4}' | tr -d % || echo '0'"]
-        stdout: SplitParser {
-            onRead: {
-                if (sysInfo.activeOSD !== "bri") {
-                    sysInfo.briValue = (parseFloat(data.trim()) || 0) / 100
-                }
-            }
-        }
-    }
-
-    // KB Getter
-    Process {
-        id: kbGetter; running: true
-        command: ["bash", "-c", "l=$(grep -E 'kb_layout\\s*=' ~/.config/hypr/input.lua | cut -d'\"' -f2 | head -1); v=$(grep -E 'kb_variant\\s*=' ~/.config/hypr/input.lua | cut -d'\"' -f2 | head -1); echo \"${l:-US}|${v}\""]
-        stdout: SplitParser { 
-            onRead: { 
-                let parts = data.trim().split("|")
-                sysInfo.kbLayout = (parts[0] || "US").toUpperCase()
-                sysInfo.kbVariant = parts[1] || ""
-            } 
-        }
-    }
-
-    Process {
-        id: batGetter; running: true
-        command: ["bash", "-c", "cap=$(cat /sys/class/power_supply/BAT0/capacity 2>/dev/null); st=$(cat /sys/class/power_supply/BAT0/status 2>/dev/null); if [ -z \"$cap\" ]; then echo 'none'; else echo \"$cap|$st\"; fi"]
-        stdout: SplitParser {
-            onRead: {
-                let out = data.trim()
-                if (out === "none") { sysInfo.hasBattery = false }
-                else {
-                    let parts = out.split("|")
-                    sysInfo.batLevel = parseInt(parts[0]) || 0
-                    sysInfo.bat = (parseInt(parts[0]) || 0) + "%"
-                    sysInfo.batCharging = (parts[1] === "Charging" || parts[1] === "Full")
-                }
-            }
-        }
-    }
-    
-    Process {
-        id: wifiGetter; running: true
-        command: ["bash", "-c", "eth=$(nmcli -t -f type,state dev 2>/dev/null | grep '^ethernet:connected' | head -1); wifi=$(nmcli -t -f active,ssid dev wifi 2>/dev/null | grep '^yes' | cut -d: -f2); if [ -n \"$eth\" ]; then connType=\"ethernet\"; elif [ -n \"$wifi\" ]; then connType=\"wifi\"; else connType=\"none\"; fi; echo \"$connType:$wifi\""]
-        stdout: SplitParser { onRead: { let parts = data.trim().split(":"); sysInfo.connType = parts[0]; sysInfo.wifi = parts[1] || "" } }
-    }
-    
-    Process {
-        id: wifiRadioGetter; running: true
-        command: ["bash", "-c", "nmcli radio wifi"]
-        stdout: SplitParser { onRead: { sysInfo.wifiRadio = data.trim() === "enabled" } }
-    }
-
-    Process {
-        id: btGetter; running: true
-        command: ["bash", "-c", "bluetoothctl show | grep -q 'Powered: yes' && echo 'on' || echo 'off'"]
-        stdout: SplitParser { onRead: { sysInfo.bluetooth = (data.trim() === "on") } }
-    }
-
-    Process {
-        id: perfGetter; running: true
-        command: ["bash", "-c", "cpu=$(top -bn1 | grep 'Cpu(s)' | awk '{print 100 - $8}'); mem=$(free | grep Mem | awk '{print $3/$2 * 100.0}'); disk=$(df / --output=pcent | tail -1 | tr -dc '0-9'); echo \"$cpu|$mem|$disk\""]
-        stdout: SplitParser {
-            onRead: {
-                let parts = data.trim().split("|")
-                if (parts.length >= 3) {
-                    sysInfo.cpuUsage = (parseFloat(parts[0]) || 0) / 100
-                    sysInfo.ramUsage = (parseFloat(parts[1]) || 0) / 100
-                    sysInfo.diskUsage = (parseFloat(parts[2]) || 0) / 100
-                }
-            }
-        }
-    }
-
-    Timer {
-        interval: 3000; running: true; repeat: true
-        onTriggered: { 
-            batGetter.running = true; wifiGetter.running = true; btGetter.running = true; perfGetter.running = true
-            volGetter.running = true; micGetter.running = true; briGetter.running = true; kbGetter.running = true
-            clientsGetter.running = true
-        }
-    }
-
-    // Faster refresh for clients so workspace icons feel responsive
-    Timer { interval: 1500; running: true; repeat: true; onTriggered: clientsGetter.running = true }
-
-    Timer { interval: 1000; running: true; repeat: true; onTriggered: wifiRadioGetter.running = true }
-
-    // --- MEDIA (native MPRIS) ---
-    property var activePlayer: Mpris.players.values.length > 0 ? Mpris.players.values[0] : null
-    Connections {
-        target: Mpris.players
-        function onValuesChanged() {
-            if (Mpris.players.values.length > 0) {
-                let found = Mpris.players.values.some(p => p === bar.activePlayer)
-                if (!found) bar.activePlayer = Mpris.players.values[0]
-            } else { bar.activePlayer = null }
-        }
-    }
-    Timer { interval: 1000; repeat: true; running: bar.activePlayer !== null && bar.activePlayer.playbackState === MprisPlaybackState.Playing; onTriggered: { if (bar.activePlayer) bar.activePlayer.positionChanged() } }
-
-    // --- SWAYNC ---
-    property string swayncState: "none"
-    Process {
-        id: swayncWatcher; running: true
-        command: ["swaync-client", "-swb"]
-        stdout: SplitParser { onRead: { try { let json = JSON.parse(data.trim()); bar.swayncState = json.alt } catch (e) {} } }
-    }
-    function getNotificationIcon(state) {
-        if (state.includes("notification")) return "󰂠"
-        return state.includes("dnd") ? "󰂛" : "󰂚"
-    }
-
-    // --- BATTERY HELPER --- 
-    function getBatteryIcon(level, charging) {
-        if (charging) return "󰂄"
-        if (level >= 90) return "󰁹"
-        if (level >= 80) return "󰂁"
-        if (level >= 70) return "󰂀"
-        if (level >= 60) return "󰁿"
-        if (level >= 50) return "󰁾"
-        if (level >= 40) return "󰁽"
-        if (level >= 30) return "󰁼"
-        if (level >= 20) return "󰁻"
-        if (level >= 10) return "󰁺"
-        return "󰂎"
-    }
+    // All system data + the command runner now live in the Sys singleton.
 
     // ── INSTANT OSD HANDLER ──
     function triggerOSD(type, delta) {
-        sysInfo.activeOSD = type
+        Sys.activeOSD = type
         osdPopup.active = true
         osdTimer.restart()
-        
+
         if (delta !== 0) {
             if (type === "vol") {
-                let nv = Math.max(0, Math.min(1, sysInfo.volValue + delta))
-                sysInfo.volValue = nv
-                executor.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", nv.toFixed(2)])
+                let nv = Math.max(0, Math.min(1, Sys.volValue + delta))
+                Sys.volValue = nv
+                Sys.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", nv.toFixed(2)])
             } else if (type === "mic") {
-                let nv = Math.max(0, Math.min(1, sysInfo.micValue + delta))
-                sysInfo.micValue = nv
-                executor.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SOURCE@", nv.toFixed(2)])
+                let nv = Math.max(0, Math.min(1, Sys.micValue + delta))
+                Sys.micValue = nv
+                Sys.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SOURCE@", nv.toFixed(2)])
             } else if (type === "bri") {
-                let nv = Math.max(0, Math.min(1, sysInfo.briValue + delta))
-                sysInfo.briValue = nv
+                let nv = Math.max(0, Math.min(1, Sys.briValue + delta))
+                Sys.briValue = nv
                 let sign = delta > 0 ? "+" : "-"
-                executor.run(["bash", "-c", "brightnessctl s 5%" + sign])
+                Sys.run(["bash", "-c", "brightnessctl s 5%" + sign])
             }
-        }
-    }
-
-    // ── RING CONTROL COMPONENT (reused for mic, brightness, volume) ───────────
-    component BarRingControl: Item {
-        id: ctrl
-
-        property color ringColor: Theme.primary
-        property real value: 0.0
-        property string icon: ""
-        property string labelText: ""
-        signal clicked()
-        signal scrolled(real delta)
-
-        height: 28
-        width: 28 + (ctrlMouse.containsMouse ? ctrlLabel.implicitWidth + 6 : 0)
-        anchors.verticalCenter: parent.verticalCenter
-        Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-
-        scale: ctrlMouse.pressed ? 0.85 : (ctrlMouse.containsMouse ? 1.05 : 1.0)
-        Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
-
-        Item {
-            id: ctrlRing
-            width: 28; height: 28
-            anchors.left: parent.left
-            anchors.verticalCenter: parent.verticalCenter
-
-            Rectangle {
-                anchors.fill: parent; radius: width / 2
-                color: "transparent"
-                border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15)
-                border.width: 2
-            }
-
-            Canvas {
-                anchors.fill: parent
-                property real arcValue: ctrl.value
-                property color arcColor: ctrl.ringColor
-                onArcValueChanged: requestPaint()
-                onArcColorChanged: requestPaint()
-                onPaint: {
-                    var ctx = getContext("2d"); ctx.reset()
-                    if (arcValue > 0) {
-                        ctx.beginPath()
-                        ctx.arc(width/2, height/2, width/2 - 1, -Math.PI/2, -Math.PI/2 + (Math.min(1.0, arcValue) * 2 * Math.PI))
-                        ctx.lineWidth = 2; ctx.strokeStyle = arcColor; ctx.lineCap = "round"; ctx.stroke()
-                    }
-                }
-            }
-
-            Text {
-                text: ctrl.icon
-                color: ctrl.ringColor
-                font.pixelSize: 14
-                anchors.centerIn: parent
-            }
-        }
-
-        Text {
-            id: ctrlLabel
-            text: ctrl.labelText
-            color: Theme.secondary
-            font.pixelSize: 11; font.bold: true
-            anchors.left: ctrlRing.right
-            anchors.leftMargin: 6
-            anchors.verticalCenter: parent.verticalCenter
-            verticalAlignment: Text.AlignVCenter
-            clip: true
-            opacity: ctrlMouse.containsMouse ? 1.0 : 0.0
-            Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-        }
-
-        MouseArea {
-            id: ctrlMouse
-            anchors.fill: parent
-            anchors.margins: -5
-            hoverEnabled: true
-            onClicked: ctrl.clicked()
-            onWheel: (wheel) => ctrl.scrolled(wheel.angleDelta.y > 0 ? 0.05 : -0.05)
         }
     }
 
@@ -345,26 +60,26 @@ PanelWindow {
         anchors.top: parent.top; anchors.topMargin: 5
         height: 30; width: Math.min(centerRow.implicitWidth + 30, 450); radius: 15; z: 5
         scale: centerMouse.pressed ? 0.96 : (centerMouse.containsMouse ? 1.02 : 1.0)
-        color: centerMouse.containsMouse ? Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.95) : Theme.background
+        color: centerMouse.containsMouse ? Theme.withAlpha(Theme.background, 0.95) : Theme.background
         Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
         Behavior on color { ColorAnimation { duration: 200 } }
 
         Row {
             id: centerRow; anchors.centerIn: parent; spacing: 8
-            
+
             property color _primary: Theme.primary
             property color _tertiary: Theme.tertiary
-            property bool isPlaying: bar.activePlayer && bar.activePlayer.playbackState === MprisPlaybackState.Playing
+            property bool isPlaying: Sys.activePlayer && Sys.activePlayer.playbackState === MprisPlaybackState.Playing
 
-            Text { 
+            Text {
                 text: "󰎆"
-                color: centerRow.isPlaying ? centerRow._tertiary : centerRow._primary 
+                color: centerRow.isPlaying ? centerRow._tertiary : centerRow._primary
                 font.pixelSize: 14
                 anchors.verticalCenter: parent.verticalCenter
             }
-            Text { 
-                text: { let title = bar.activePlayer ? (bar.activePlayer.trackTitle || "No Media") : "No Media"; let artist = bar.activePlayer ? (bar.activePlayer.trackArtist || "") : ""; return title + (artist ? " - " + artist : "") }
-                color: Theme.primary; font.pixelSize: 14; font.weight: Font.Medium; 
+            Text {
+                text: { let title = Sys.activePlayer ? (Sys.activePlayer.trackTitle || "No Media") : "No Media"; let artist = Sys.activePlayer ? (Sys.activePlayer.trackArtist || "") : ""; return title + (artist ? " - " + artist : "") }
+                color: Theme.primary; font.pixelSize: 14; font.weight: Font.Medium;
                 anchors.verticalCenter: parent.verticalCenter
                 elide: Text.ElideRight; width: Math.min(implicitWidth, 350)
             }
@@ -381,8 +96,8 @@ PanelWindow {
             Layout.alignment: Qt.AlignLeft; spacing: 8
 
             // Logo
-            Text { 
-                text: "   󰣇"; color: Theme.primary; font.pixelSize: 24; anchors.verticalCenter: parent.verticalCenter 
+            Text {
+                text: "   󰣇"; color: Theme.primary; font.pixelSize: 24; anchors.verticalCenter: parent.verticalCenter
                 opacity: 1; scale: logoMouse.pressed ? 0.85 : (logoMouse.containsMouse ? 1.15 : 1.0)
                 Behavior on opacity { NumberAnimation { duration: 150 } }
                 Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
@@ -403,7 +118,7 @@ PanelWindow {
                             id: wsItem
                             property var wsClients: {
                                 let name = modelData.name
-                                return bar.hyprClients.filter(function(c) {
+                                return Sys.hyprClients.filter(function(c) {
                                     return c.workspace && c.workspace.name === name
                                 })
                             }
@@ -421,12 +136,12 @@ PanelWindow {
                                 anchors.left: parent.left
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: modelData.active ? "󰮯" : "󰊠"
-                                
+
                                 // Make active workspace pop with tertiary color
                                 property color _primary: Theme.primary
                                 property color _tertiary: Theme.tertiary
                                 color: modelData.active ? _tertiary : _primary
-                                
+
                                 font.pixelSize: 16; verticalAlignment: Text.AlignVCenter
                                 Behavior on color { ColorAnimation { duration: 200 } }
                             }
@@ -479,7 +194,7 @@ PanelWindow {
 
                             MouseArea {
                                 id: wsMouse; anchors.fill: parent; hoverEnabled: true
-                                onClicked: executor.run(["hyprctl", "dispatch", "hl.dsp.focus({ workspace = \"" + modelData.name + "\" })"])
+                                onClicked: Sys.run(["hyprctl", "dispatch", "hl.dsp.focus({ workspace = \"" + modelData.name + "\" })"])
                             }
                         }
                     }
@@ -492,7 +207,7 @@ PanelWindow {
                 height: 30; width: trayRow.width + 20; radius: 15
                 anchors.verticalCenter: parent.verticalCenter
                 visible: SystemTray.items.values.length > 0
-                
+
                 // Solid base so the gradient doesn't double-blend with the transparent bar background
                 color: Theme.background
 
@@ -501,19 +216,19 @@ PanelWindow {
                     id: trayGradient
                     anchors.fill: parent
                     radius: 15
-                    
+
                     // Force rigorous bindings to avoid QML gradient theme loss
-                    property color gradStart: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.6)
-                    property color gradEnd: Qt.rgba(Theme.tertiary.r, Theme.tertiary.g, Theme.tertiary.b, 0.6)
-                    
+                    property color gradStart: Theme.withAlpha(Theme.primary, 0.6)
+                    property color gradEnd: Theme.withAlpha(Theme.tertiary, 0.6)
+
                     gradient: Gradient {
                         orientation: Gradient.Horizontal
                         GradientStop { position: 0.0; color: trayGradient.gradStart }
                         GradientStop { position: 1.0; color: trayGradient.gradEnd }
                     }
-                    
+
                     // Subtle border to frame the gradient nicely
-                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.3)
+                    border.color: Theme.withAlpha(Theme.primary, 0.3)
                     border.width: 1
                 }
 
@@ -578,44 +293,44 @@ PanelWindow {
             // Compact Cluster (Mic, Brightness, Volume, Layout)
             Row {
                 spacing: 12; anchors.verticalCenter: parent.verticalCenter
-                
+
                 // Mic
-                BarRingControl {
+                RingControl {
                     property color _primary: Theme.primary
                     property color _error: Theme.error
-                    ringColor: sysInfo.isMicMuted ? _error : _primary
-                    value: sysInfo.micValue
-                    icon: sysInfo.isMicMuted ? "󰍭" : "󰍬"
-                    labelText: sysInfo.isMicMuted ? "Muted" : (Math.round(sysInfo.micValue * 100) + "%")
+                    ringColor: Sys.isMicMuted ? _error : _primary
+                    value: Sys.micValue
+                    icon: Sys.isMicMuted ? "󰍭" : "󰍬"
+                    labelText: Sys.isMicMuted ? "Muted" : (Math.round(Sys.micValue * 100) + "%")
                     onClicked: {
-                        sysInfo.isMicMuted = !sysInfo.isMicMuted
-                        executor.run(["bash", "-c", "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"])
+                        Sys.isMicMuted = !Sys.isMicMuted
+                        Sys.run(["bash", "-c", "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"])
                     }
                     onScrolled: (delta) => triggerOSD("mic", delta)
                 }
 
                 // Brightness
-                BarRingControl {
+                RingControl {
                     property color _primary: Theme.primary
                     ringColor: _primary
-                    value: sysInfo.briValue
-                    icon: sysInfo.briValue > 0.6 ? "󰃠" : (sysInfo.briValue > 0.3 ? "󰃟" : "󰃞")
-                    labelText: Math.round(sysInfo.briValue * 100) + "%"
+                    value: Sys.briValue
+                    icon: Sys.briValue > 0.6 ? "󰃠" : (Sys.briValue > 0.3 ? "󰃟" : "󰃞")
+                    labelText: Math.round(Sys.briValue * 100) + "%"
                     onClicked: triggerOSD("bri", 0)
                     onScrolled: (delta) => triggerOSD("bri", delta)
                 }
 
                 // Volume
-                BarRingControl {
+                RingControl {
                     property color _primary: Theme.primary
                     property color _error: Theme.error
-                    ringColor: sysInfo.isMuted ? _error : _primary
-                    value: sysInfo.volValue
-                    icon: sysInfo.isMuted ? "󰝟" : (sysInfo.volValue > 0.6 ? "󰕾" : (sysInfo.volValue > 0.2 ? "󰖀" : "󰕿"))
-                    labelText: sysInfo.isMuted ? "Muted" : (Math.round(sysInfo.volValue * 100) + "%")
+                    ringColor: Sys.isMuted ? _error : _primary
+                    value: Sys.volValue
+                    icon: Sys.isMuted ? "󰝟" : (Sys.volValue > 0.6 ? "󰕾" : (Sys.volValue > 0.2 ? "󰖀" : "󰕿"))
+                    labelText: Sys.isMuted ? "Muted" : (Math.round(Sys.volValue * 100) + "%")
                     onClicked: {
-                        sysInfo.isMuted = !sysInfo.isMuted
-                        executor.run(["bash", "-c", "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"])
+                        Sys.isMuted = !Sys.isMuted
+                        Sys.run(["bash", "-c", "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"])
                     }
                     onScrolled: (delta) => triggerOSD("vol", delta)
                 }
@@ -650,7 +365,7 @@ PanelWindow {
 
                     Text {
                         id: kbLabel
-                        text: sysInfo.kbLayout + (sysInfo.kbVariant !== "" ? " (" + sysInfo.kbVariant.split(",")[0].substring(0,2) + ")" : "")
+                        text: Sys.kbLayout + (Sys.kbVariant !== "" ? " (" + Sys.kbVariant.split(",")[0].substring(0,2) + ")" : "")
                         color: Theme.secondary
                         font.pixelSize: 11
                         font.bold: true
@@ -697,7 +412,7 @@ PanelWindow {
                 property color _primary: Theme.primary
                 property color _tertiary: Theme.tertiary
                 property color _outline: Theme.outline
-                property color activeColor: bar.swayncState.includes("notification") ? _tertiary : (bar.swayncState.includes("dnd") ? _outline : _primary)
+                property color activeColor: Sys.swayncState.includes("notification") ? _tertiary : (Sys.swayncState.includes("dnd") ? _outline : _primary)
 
                 Item {
                     id: notifIconWrapper
@@ -705,7 +420,7 @@ PanelWindow {
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
                     Text {
-                        text: getNotificationIcon(bar.swayncState)
+                        text: Sys.notificationIcon(Sys.swayncState)
                         color: notifContainer.activeColor
                         font.pixelSize: 18
                         anchors.centerIn: parent
@@ -714,7 +429,7 @@ PanelWindow {
 
                 Text {
                     id: notifLabel
-                    text: bar.swayncState.includes("dnd") ? "DND" : (bar.swayncState.includes("notification") ? "New" : "Clear")
+                    text: Sys.swayncState.includes("dnd") ? "DND" : (Sys.swayncState.includes("notification") ? "New" : "Clear")
                     color: Theme.secondary
                     font.pixelSize: 11; font.bold: true
                     anchors.left: notifIconWrapper.right
@@ -730,8 +445,8 @@ PanelWindow {
                     id: notifMouse; anchors.fill: parent; anchors.margins: -5; hoverEnabled: true
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
                     onClicked: (mouse) => {
-                        if (mouse.button === Qt.LeftButton) executor.run(["swaync-client", "-t", "-sw"])
-                        else executor.run(["swaync-client", "-d", "-sw"])
+                        if (mouse.button === Qt.LeftButton) Sys.run(["swaync-client", "-t", "-sw"])
+                        else Sys.run(["swaync-client", "-d", "-sw"])
                     }
                 }
             }
@@ -787,37 +502,37 @@ PanelWindow {
             // SYSTEM PILL
             Rectangle {
                 height: 30; width: sysRow.implicitWidth + 24; radius: 15
-                color: sysMouse.containsMouse ? Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.95) : Theme.background
+                color: sysMouse.containsMouse ? Theme.withAlpha(Theme.background, 0.95) : Theme.background
                 anchors.verticalCenter: parent.verticalCenter
                 scale: sysMouse.pressed ? 0.96 : (sysMouse.containsMouse ? 1.02 : 1.0)
                 Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
                 Behavior on color { ColorAnimation { duration: 200 } }
                 RowLayout {
                     id: sysRow; anchors.centerIn: parent; spacing: 10
-                    Row { 
-                        spacing: 4; Layout.alignment: Qt.AlignVCenter; visible: sysInfo.connType !== "none"
-                        Text { text: sysInfo.connType === "ethernet" ? "󰈀" : "󰤨"; color: Theme.primary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
-                        Text { text: sysInfo.wifi; color: Theme.secondary; font.pixelSize: 13; font.weight: Font.Bold; visible: sysInfo.connType === "wifi" && sysInfo.wifi !== ""; verticalAlignment: Text.AlignVCenter }
+                    Row {
+                        spacing: 4; Layout.alignment: Qt.AlignVCenter; visible: Sys.connType !== "none"
+                        Text { text: Sys.connType === "ethernet" ? "󰈀" : "󰤨"; color: Theme.primary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
+                        Text { text: Sys.wifi; color: Theme.secondary; font.pixelSize: 13; font.weight: Font.Bold; visible: Sys.connType === "wifi" && Sys.wifi !== ""; verticalAlignment: Text.AlignVCenter }
                     }
-                    Text { text: "󰂯"; color: Theme.secondary; font.pixelSize: 14; visible: sysInfo.bluetooth; Layout.alignment: Qt.AlignVCenter; verticalAlignment: Text.AlignVCenter }
-                    
-                    Row { 
-                        spacing: 4; visible: sysInfo.hasBattery; Layout.alignment: Qt.AlignVCenter
-                        
+                    Text { text: "󰂯"; color: Theme.secondary; font.pixelSize: 14; visible: Sys.bluetooth; Layout.alignment: Qt.AlignVCenter; verticalAlignment: Text.AlignVCenter }
+
+                    Row {
+                        spacing: 4; visible: Sys.hasBattery; Layout.alignment: Qt.AlignVCenter
+
                         property color _primary: Theme.primary
                         property color _tertiary: Theme.tertiary
                         property color _error: Theme.error
-                        property color activeColor: sysInfo.batCharging ? _tertiary : (sysInfo.batLevel <= 20 ? _error : _primary)
+                        property color activeColor: Sys.batCharging ? _tertiary : (Sys.batLevel <= 20 ? _error : _primary)
 
-                        Text { text: getBatteryIcon(sysInfo.batLevel, sysInfo.batCharging); color: parent.activeColor; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
-                        Text { text: sysInfo.bat; color: parent.activeColor; font.pixelSize: 13; font.weight: Font.Bold; verticalAlignment: Text.AlignVCenter }
+                        Text { text: Sys.batteryIcon(Sys.batLevel, Sys.batCharging); color: parent.activeColor; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
+                        Text { text: Sys.bat; color: parent.activeColor; font.pixelSize: 13; font.weight: Font.Bold; verticalAlignment: Text.AlignVCenter }
                     }
                 }
                 MouseArea { id: sysMouse; anchors.fill: parent; hoverEnabled: true; onClicked: systemPopup.active = !systemPopup.active }
             }
 
             // POWER
-            Text { 
+            Text {
                 text: "󰐥    "; color: Theme.primary; font.pixelSize: 18; anchors.verticalCenter: parent.verticalCenter; verticalAlignment: Text.AlignVCenter
                 opacity: 1; scale: powerMouse.pressed ? 0.85 : (powerMouse.containsMouse ? 1.15 : 1.0)
                 Behavior on opacity { NumberAnimation { duration: 150 } }
@@ -884,7 +599,7 @@ PanelWindow {
                     anchors.centerIn: parent
                     width: parent.width - 12 - entryRoot.depth * 14
                     height: 1
-                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15)
+                    color: Theme.withAlpha(Theme.primary, 0.15)
                 }
 
                 Rectangle {
@@ -893,7 +608,7 @@ PanelWindow {
                     anchors.leftMargin: 2; anchors.rightMargin: 2
                     radius: 8
                     color: eMouse.containsMouse
-                           ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15)
+                           ? Theme.withAlpha(Theme.primary, 0.15)
                            : "transparent"
                     Behavior on color { ColorAnimation { duration: 100 } }
 
@@ -994,8 +709,8 @@ PanelWindow {
             radius: 16
             clip: true
 
-            color: Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.8)
-            border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.8)
+            color: Theme.withAlpha(Theme.background, 0.8)
+            border.color: Theme.withAlpha(Theme.primary, 0.8)
             border.width: 2
 
             opacity: trayMenu.shown ? 1.0 : 0.0
@@ -1056,39 +771,39 @@ PanelWindow {
             transformOrigin: Item.Top
             opacity: osdPopup.active ? 1.0 : 0.0
             scale: osdPopup.active ? 1.0 : 0.95
-            
+
             Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic; onRunningChanged: if(!running && !osdPopup.active) osdPopup.isAnimating = false } }
             Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
 
             Rectangle {
                 anchors.fill: parent; radius: 23
-                color: Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.8)
-                border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.5); border.width: 2
+                color: Theme.withAlpha(Theme.background, 0.8)
+                border.color: Theme.withAlpha(Theme.primary, 0.5); border.width: 2
 
                 RowLayout {
                     anchors.fill: parent; anchors.margins: 12; spacing: 10
-                    
+
                     property color _primary: Theme.primary
                     property color _error: Theme.error
                     property color activeColor: {
-                        if (sysInfo.activeOSD === "vol" && sysInfo.isMuted) return _error;
-                        if (sysInfo.activeOSD === "mic" && sysInfo.isMicMuted) return _error;
+                        if (Sys.activeOSD === "vol" && Sys.isMuted) return _error;
+                        if (Sys.activeOSD === "mic" && Sys.isMicMuted) return _error;
                         return _primary;
                     }
 
-                    Text { text: sysInfo.activeOSD === "vol" ? "󰕾" : (sysInfo.activeOSD === "mic" ? "󰍬" : "󰃠"); color: parent.activeColor; font.pixelSize: 18 }
-                    
+                    Text { text: Sys.activeOSD === "vol" ? "󰕾" : (Sys.activeOSD === "mic" ? "󰍬" : "󰃠"); color: parent.activeColor; font.pixelSize: 18 }
+
                     Rectangle {
-                        Layout.fillWidth: true; height: 6; radius: 3; color: Qt.rgba(parent.activeColor.r, parent.activeColor.g, parent.activeColor.b, 0.2)
+                        Layout.fillWidth: true; height: 6; radius: 3; color: Theme.withAlpha(parent.activeColor, 0.2)
                         Rectangle {
-                            width: parent.width * (sysInfo.activeOSD === "vol" ? sysInfo.volValue : (sysInfo.activeOSD === "mic" ? sysInfo.micValue : sysInfo.briValue))
+                            width: parent.width * (Sys.activeOSD === "vol" ? Sys.volValue : (Sys.activeOSD === "mic" ? Sys.micValue : Sys.briValue))
                             height: parent.height; radius: 3; color: parent.parent.activeColor
                             Behavior on width { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
                         }
                     }
-                    
+
                     Text {
-                        text: Math.round((sysInfo.activeOSD === "vol" ? sysInfo.volValue : (sysInfo.activeOSD === "mic" ? sysInfo.micValue : sysInfo.briValue)) * 100) + "%"
+                        text: Math.round((Sys.activeOSD === "vol" ? Sys.volValue : (Sys.activeOSD === "mic" ? Sys.micValue : Sys.briValue)) * 100) + "%"
                         color: parent.activeColor; font.pixelSize: 12; font.bold: true; Layout.preferredWidth: 35
                     }
                 }

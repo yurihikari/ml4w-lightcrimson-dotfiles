@@ -1,35 +1,17 @@
-import Quickshell
-import Quickshell.Wayland
 import Quickshell.Io
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
-import "../CustomTheme"
+import qs.CustomTheme
+import qs.BarApp.components
 
-PanelWindow {
+BarPopup {
     id: root
-    property bool active: false
-    
-    // KEEP VISIBLE DURING OUTRO ANIMATION
+    ipcTarget: "bar-calendar"
+
+    // Keep the window mapped through the outro fade. This popup drives its exit
+    // off the container opacity rather than the shared isAnimating flag.
     visible: active || mainContent.opacity > 0
-    
-    anchors { top: true; bottom: true; left: true; right: true }
-    WlrLayershell.layer: WlrLayer.Overlay
-    exclusionMode: WlrLayershell.Ignore
-    WlrLayershell.keyboardFocus: WlrLayershell.Exclusive
-    color: "transparent"
-
-    IpcHandler {
-        target: "bar-calendar"
-        function toggle(): void { root.active = !root.active }
-        function open(): void { root.active = true }
-        function close(): void { root.active = false }
-    }
-
-    MouseArea {
-        anchors.fill: parent
-        onClicked: root.active = false
-    }
 
     // Keyboard focus handler for ESC (when no text input is focused)
     FocusScope {
@@ -361,10 +343,8 @@ PanelWindow {
         wcGeocodeProc.running = true
     }
 
-    onActiveChanged: { 
-        if (active && weatherCode === -1) {
-            loadCity("") 
-        }
+    onOpened: {
+        if (weatherCode === -1) loadCity("")
     }
 
     // ─── UNIFIED MAIN CONTAINER ───────────────────────────────────────────

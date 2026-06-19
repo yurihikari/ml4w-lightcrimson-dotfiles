@@ -5,46 +5,28 @@ import Quickshell.Services.Mpris
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
-import Qt5Compat.GraphicalEffects 
-import "../CustomTheme"
+import Qt5Compat.GraphicalEffects
+import qs.CustomTheme
+import qs.BarApp.services
+import qs.BarApp.components
 
-PanelWindow {
+BarPopup {
     id: popup
-    property bool active: false
-    
-    // 1. Wayland-safe exit animation state
-    property bool isAnimating: false
-    visible: active || isAnimating
-
-    anchors {
-        top: true; bottom: true
-        left: true; right: true 
-    }
-    WlrLayershell.layer: WlrLayer.Overlay
-    exclusionMode: WlrLayershell.Ignore
-    WlrLayershell.keyboardFocus: WlrLayershell.OnDemand
-    color: "transparent"
-
-    IpcHandler {
-        target: "bar-media"
-        function toggle(): void { popup.active = !popup.active }
-        function open(): void { popup.active = true }
-        function close(): void { popup.active = false }
+    ipcTarget: "bar-media"
+    keyboardFocusValue: WlrLayershell.OnDemand
+    closeOnBackdrop: false
+    onBackdropClicked: {
+        if (popup.selectingSink) popup.selectingSink = false
+        else popup.active = false
     }
 
-    property var p: bar.activePlayer
+    property var p: Sys.activePlayer
 
     function formatTime(s) {
         if (!s || isNaN(s) || s < 0) return "0:00"
         let mins = Math.floor(s / 60)
         let secs = Math.floor(s % 60)
         return mins + ":" + (secs < 10 ? "0" : "") + secs
-    }
-
-    // Local executor just in case
-    Process {
-        id: executor
-        function run(args) { command = args; running = true }
     }
 
     // --- STATE & MODELS ---
@@ -85,7 +67,7 @@ PanelWindow {
             anchors.fill: parent
             hoverEnabled: true
             onClicked: {
-                executor.run([
+                Sys.run([
                     "hyprctl",
                     "dispatch",
                     "hl.dsp.exec_cmd(\"" + cmd + "\")"
@@ -119,9 +101,9 @@ PanelWindow {
         id: cavaConfigWriter
         command: ["bash", "-c",
             "cat > /tmp/qs_cava_bar.ini << 'EOF'\n" +
-            "[general]\nsensitivity=250\n" +
+            "[general]\nframerate=30\nsensitivity=200\nbars=64\n" +
             "[smoothing]\nmonstercat=1\n" +
-            "[output]\nmethod=raw\ndata_format=ascii\nascii_max_range=200\nbar_delimiter=32\nbars=100\nEOF"
+            "[output]\nmethod=raw\ndata_format=ascii\nascii_max_range=200\nbar_delimiter=32\nbars=64\nEOF"
         ]
         running: true
     }
@@ -135,7 +117,7 @@ PanelWindow {
                 var clean = data.trim()
                 if (clean.length > 0) {
                     var parts = clean.split(/\s+/)
-                    if (parts.length >= 100) {
+                    if (parts.length >= 64) {
                         popup.cavaData = parts
                         cavaCanvas.requestPaint()
                     }
@@ -185,23 +167,6 @@ PanelWindow {
         interval: 1000; repeat: true
         running: (popup.active || popup.isAnimating) && p !== null && p.playbackState === MprisPlaybackState.Playing
         onTriggered: { if (p) p.positionChanged() }
-    }
-
-    // 2. Track animation state
-    onActiveChanged: {
-        if (active) {
-            isAnimating = true
-            forceActiveFocus()
-        }
-    }
-
-    // Click outside to close
-    MouseArea { 
-        anchors.fill: parent
-        onClicked: {
-            if (popup.selectingSink) popup.selectingSink = false
-            else popup.active = false
-        }
     }
 
     // --- MAIN POPUP CONTAINER ---
@@ -283,7 +248,7 @@ PanelWindow {
                             MouseArea { 
                                 id: sinkDelegateMouse
                                 anchors.fill: parent; hoverEnabled: true
-                                onClicked: { executor.run(["pactl", "set-default-sink", fullName]); popup.selectingSink = false; sinkGetter.running = true } 
+                                onClicked: { Sys.run(["pactl", "set-default-sink", fullName]); popup.selectingSink = false; sinkGetter.running = true }
                             }
                         }
                     }
@@ -329,7 +294,7 @@ PanelWindow {
                     model: Mpris.players.values
                     delegate: Rectangle {
                         required property var modelData
-                        property bool isSelected: bar.activePlayer === modelData
+                        property bool isSelected: Sys.activePlayer === modelData
                         height: 32
                         width: pillLabel.implicitWidth + 36
                         radius: 16
@@ -386,7 +351,7 @@ PanelWindow {
                             id: pillMouse
                             anchors.fill: parent
                             hoverEnabled: true
-                            onClicked: bar.activePlayer = modelData
+                            onClicked: Sys.activePlayer = modelData
                         }
                     }
                 }
@@ -404,7 +369,7 @@ PanelWindow {
                         renderTarget: Canvas.FramebufferObject
                         onPaint: {
                             var ctx = getContext("2d"); ctx.clearRect(0, 0, width, height)
-                            var centerX = width/2; var centerY = height/2; var innerRadius = 55; var barCount = 100
+                            var centerX = width/2; var centerY = height/2; var innerRadius = 55; var barCount = 64
                             ctx.strokeStyle = Theme.primary; ctx.lineWidth = 2.5; ctx.lineCap = "round"
                             for (var i = 0; i < barCount; i++) {
                                 var val = parseInt(popup.cavaData[i]) || 0
@@ -528,48 +493,112 @@ PanelWindow {
                 Layout.fillWidth: true
                 spacing: 6
 
-                Rectangle {
+                Item {
                     id: sliderTrack
                     Layout.fillWidth: true
-                    height: 10; radius: 5 // Slightly thicker for modern look
-                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+                    height: 22
 
+                    readonly property real amp: 4.0
+                    readonly property real wavelen: 26
+                    // Played width in pixels — drives the clip and the dot position.
+                    property real played: width * prog
+
+                    // Smoothed playback progress (0..1). The Behavior keeps the fill
+                    // gliding between the once-a-second position updates.
+                    property real prog: (p && p.lengthSupported && p.length > 0)
+                        ? Math.min(1, p.position / p.length) : 0
+                    Behavior on prog {
+                        enabled: !sliderKnob.dragging
+                        NumberAnimation { duration: 900; easing.type: Easing.Linear }
+                    }
+
+                    // Ahead of the dot (unplayed) — a plain straight line.
                     Rectangle {
-                        width: (p && p.lengthSupported && p.length > 0)
-                            ? parent.width * Math.min(1, p.position / p.length)
-                            : 0
-                        height: parent.height; radius: 5
-                        color: Theme.primary
-                        opacity: 0.9
-                        Behavior on width { 
-                            enabled: !sliderKnob.dragging
-                            NumberAnimation { duration: 900; easing.type: Easing.Linear } 
+                        anchors.verticalCenter: parent.verticalCenter
+                        x: sliderTrack.played
+                        width: Math.max(0, parent.width - sliderTrack.played)
+                        height: 2; radius: 1
+                        color: Theme.withAlpha(Theme.primary, 0.18)
+                    }
+
+                    // Behind the dot (played) — the wave. It is painted ONCE and then
+                    // only scrolled on the GPU (a pure transform, no per-frame Canvas
+                    // repaint), so it's very light on the iGPU. Clipped to the played
+                    // width, which animates as playback advances.
+                    Item {
+                        id: playedClip
+                        height: parent.height
+                        width: sliderTrack.played
+                        clip: true
+
+                        Canvas {
+                            id: waveTile
+                            height: parent.height
+                            width: sliderTrack.width + sliderTrack.wavelen
+                            renderTarget: Canvas.FramebufferObject
+                            property color tint: Theme.primary
+                            onTintChanged: requestPaint()
+                            onWidthChanged: requestPaint()
+                            onPaint: {
+                                var ctx = getContext("2d"); ctx.reset()
+                                var w = width, h = height, mid = h / 2
+                                var amp = sliderTrack.amp, k = 2 * Math.PI / sliderTrack.wavelen
+                                var c = tint
+                                function trace() {
+                                    ctx.beginPath()
+                                    for (var x = 0; x <= w; x += 2) {
+                                        var y = mid + amp * Math.sin(k * x)
+                                        if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y)
+                                    }
+                                }
+                                trace()
+                                ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath()
+                                var grad = ctx.createLinearGradient(0, 0, 0, h)
+                                grad.addColorStop(0, Qt.rgba(c.r, c.g, c.b, 0.35))
+                                grad.addColorStop(1, Qt.rgba(c.r, c.g, c.b, 0.05))
+                                ctx.fillStyle = grad; ctx.fill()
+                                trace()
+                                ctx.strokeStyle = c
+                                ctx.lineWidth = 2.5; ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.stroke()
+                            }
+
+                            // Scroll one wavelength on repeat — GPU transform only.
+                            // Only runs while the popup is actually on screen.
+                            NumberAnimation on x {
+                                running: (popup.active || popup.isAnimating)
+                                         && p !== null && p.playbackState === MprisPlaybackState.Playing
+                                from: 0; to: -sliderTrack.wavelen
+                                duration: 1200; loops: Animation.Infinite
+                            }
                         }
                     }
 
+                    // Play head — a rounded square on the line. Its off-round shape
+                    // makes the slow spin readable while playing.
                     Rectangle {
                         id: sliderKnob
                         property bool dragging: false
-                        x: (p && p.lengthSupported && p.length > 0)
-                            ? (sliderTrack.width * Math.min(1, p.position / p.length)) - width / 2
-                            : -width / 2
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 18; height: 18; radius: 9
-                        
-                        scale: (sliderMouse.containsMouse || dragging) ? 1.3 : 1.0
+                        width: 13; height: 13; radius: 3.5
+                        antialiasing: true
                         color: Theme.primary
-                        
+                        x: sliderTrack.played - width / 2
+                        y: sliderTrack.height / 2 - height / 2
+                        scale: (sliderMouse.containsMouse || dragging) ? 1.3 : 1.0
                         Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
-                        Behavior on x {
-                            enabled: !sliderKnob.dragging
-                            NumberAnimation { duration: 900; easing.type: Easing.Linear }
+
+                        RotationAnimator on rotation {
+                            running: (popup.active || popup.isAnimating)
+                                     && p !== null && p.playbackState === MprisPlaybackState.Playing
+                            loops: Animation.Infinite
+                            from: 0; to: 360
+                            duration: 3000
                         }
                     }
 
                     MouseArea {
                         id: sliderMouse
                         anchors.fill: parent
-                        anchors.margins: -12 
+                        anchors.margins: -12
                         hoverEnabled: true
                         preventStealing: true
 
@@ -617,19 +646,19 @@ PanelWindow {
                         Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
                         Behavior on color { ColorAnimation { duration: 150 } }
 
-                        Text { 
+                        Text {
                             anchors.centerIn: parent
-                            text: sysInfo.isMuted ? "󰝟" : (sysInfo.volValue > 0.6 ? "󰕾" : (sysInfo.volValue > 0.2 ? "󰖀" : "󰕿"))
-                            color: sysInfo.isMuted ? Theme.accent : Theme.primary
+                            text: Sys.isMuted ? "󰝟" : (Sys.volValue > 0.6 ? "󰕾" : (Sys.volValue > 0.2 ? "󰖀" : "󰕿"))
+                            color: Sys.isMuted ? Theme.error : Theme.primary
                             font.pixelSize: 22
                             opacity: 0.9
                         }
-                        
+
                         MouseArea {
                             id: muteMouse
                             anchors.fill: parent
                             hoverEnabled: true
-                            onClicked: executor.run(["bash", "-c", "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"])
+                            onClicked: Sys.run(["bash", "-c", "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"])
                         }
                     }
 
@@ -638,24 +667,24 @@ PanelWindow {
                         color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
                         
                         Rectangle {
-                            width: parent.width * sysInfo.volValue; height: parent.height; radius: 5
-                            color: sysInfo.isMuted ? Theme.accent : Theme.primary 
+                            width: parent.width * Sys.volValue; height: parent.height; radius: 5
+                            color: Sys.isMuted ? Theme.error : Theme.primary
                             opacity: 0.9
                         }
                         MouseArea {
                             anchors.fill: parent
-                            anchors.margins: -10 
+                            anchors.margins: -10
                             cursorShape: Qt.PointingHandCursor
                             function updateVol(mouse) {
                                 let pv = Math.max(0, Math.min(1, mouse.x / width))
-                                sysInfo.volValue = pv
-                                executor.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", pv.toFixed(2)])
+                                Sys.volValue = pv
+                                Sys.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", pv.toFixed(2)])
                             }
                             onPressed: updateVol(mouse)
                             onPositionChanged: updateVol(mouse)
                         }
                     }
-                    Text { text: Math.round(sysInfo.volValue * 100) + "%"; color: Theme.primary; font.bold: true; font.pixelSize: 13; opacity: 0.9 }
+                    Text { text: Math.round(Sys.volValue * 100) + "%"; color: Theme.primary; font.bold: true; font.pixelSize: 13; opacity: 0.9 }
                 }
 
                 Item { Layout.fillWidth: true }

@@ -1,43 +1,19 @@
-import Quickshell
-import Quickshell.Wayland
 import Quickshell.Io
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
-import "../CustomTheme"
+import qs.CustomTheme
+import qs.BarApp.services
+import qs.BarApp.components
 
-PanelWindow {
+BarPopup {
     id: popup
-    property bool active: false
-    property var screen
-    screen: popup.screen
-    
-    // 1. Wayland-safe exit animation state
-    property bool isAnimating: false
-    visible: active || isAnimating
-    
-    onActiveChanged: {
-        if (active) {
-            isAnimating = true
-            infoLoader.running = true // Refresh data when opened
-        }
+    ipcTarget: "bar-dashboard"
+    onOpened: {
+        infoLoader.running = true        // fast core info (os, host, uptime, disks)
+        updatesLoader.running = true     // slow update count — runs independently
     }
 
-    anchors { top: true; bottom: true; left: true; right: true }
-    WlrLayershell.layer: WlrLayer.Overlay
-    exclusionMode: WlrLayershell.Ignore
-    WlrLayershell.keyboardFocus: WlrLayershell.Exclusive
-    color: "transparent"
-
-    IpcHandler {
-        target: "bar-dashboard"
-        function toggle(): void { popup.active = !popup.active }
-        function open(): void { popup.active = true }
-        function close(): void { popup.active = false }
-    }
-
-    // Backdrop — click to close
-    MouseArea { anchors.fill: parent; onClicked: popup.active = false }
     // Keyboard focus handler for ESC
     FocusScope {
         anchors.fill: parent
@@ -68,9 +44,8 @@ PanelWindow {
     property var    disks:      []
     property string updates:    "0"
 
-    Process { id: executor; function run(args) { command = args; running = true } }
-
-    // One bash invocation gathers everything
+    // Fast core info — no network calls, so this returns near-instantly and the
+    // popup populates immediately. The (slow) update count is a separate process.
     Process {
         id: infoLoader
         property string _buf: ""
@@ -118,11 +93,7 @@ PanelWindow {
             "    *) continue;;\n" +
             "  esac\n" +
             "  echo \"disk=${lbl}|${pct%\\%}|${used}|${size}|${tgt}\"\n" +
-            "done\n" +
-
-            "# Updates (Fast cross-distro check)\n" +
-            "pkgs=$((checkupdates 2>/dev/null || apt list --upgradable 2>/dev/null | grep -v Listing || dnf check-update -q 2>/dev/null) | wc -l)\n" +
-            "echo \"updates=$pkgs\"\n"
+            "done\n"
         ]
         stdout: SplitParser { onRead: { infoLoader._buf += data + "\n" } }
         onRunningChanged: {
@@ -139,7 +110,7 @@ PanelWindow {
                     case "osage": popup.osAge = v; break;       case "uptime": popup.uptimeStr = v; break
                     case "home": popup.homeDir = v; break;      case "docs": popup.docsDir = v; break
                     case "pics": popup.picsDir = v; break;      case "vids": popup.vidsDir = v; break
-                    case "music": popup.musicDir = v; break;    case "updates": popup.updates = v; break
+                    case "music": popup.musicDir = v; break
                     case "disk": {
                         let p = v.split("|")
                         disksArr.push({ label: p[0] || "?", pct: parseInt(p[1]) || 0,
@@ -150,6 +121,26 @@ PanelWindow {
             }
             popup.disks = disksArr
             if (popup.osIconHint !== "") logoResolver.start(popup.osIconHint)
+        }
+    }
+
+    // Update count — can touch the network (checkupdates syncs a temp DB), so it
+    // runs on its own and is wrapped in `timeout` to guarantee it can never hang
+    // the popup. The badge fills in whenever this finishes.
+    Process {
+        id: updatesLoader
+        property string _buf: ""
+        command: ["bash", "-c",
+            "if command -v checkupdates >/dev/null 2>&1; then timeout 20 checkupdates 2>/dev/null | wc -l\n" +
+            "elif command -v apt >/dev/null 2>&1; then apt list --upgradable 2>/dev/null | grep -vc '^Listing'\n" +
+            "elif command -v dnf >/dev/null 2>&1; then timeout 20 dnf check-update -q 2>/dev/null | grep -c .\n" +
+            "else echo 0; fi"
+        ]
+        stdout: SplitParser { onRead: data => updatesLoader._buf += data }
+        onRunningChanged: {
+            if (running) return
+            popup.updates = "" + (parseInt(updatesLoader._buf.trim()) || 0)
+            updatesLoader._buf = ""
         }
     }
 
@@ -257,14 +248,12 @@ PanelWindow {
             Rectangle { Layout.fillWidth: true; height: 1; color: Theme.primary; opacity: 0.1 }
 
             // ── INFO GRID ──────────────────────────────────────────────────
-            component InfoTile: Rectangle {
+            component InfoTile: GlassCard {
                 id: infoRoot
                 property string tileIcon: ""
                 property string tileLabel: ""
                 property string tileValue: ""
                 Layout.fillWidth: true; Layout.preferredHeight: 60; radius: 14
-                color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05)
-                border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.12); border.width: 1
 
                 RowLayout {
                     anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 10
@@ -327,10 +316,8 @@ PanelWindow {
                 }
 
                 // Updates Badge
-                Rectangle {
+                GlassCard {
                     Layout.preferredWidth: 100; Layout.fillHeight: true; radius: 14
-                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05)
-                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.12); border.width: 1
                     ColumnLayout {
                         anchors.centerIn: parent; spacing: 4
                         Text { text: "󰏔"; color: popup.updates !== "0" ? Theme.primary : Theme.primary; opacity: popup.updates !== "0" ? 1.0 : 0.4; font.pixelSize: 26; Layout.alignment: Qt.AlignHCenter }
@@ -374,7 +361,7 @@ PanelWindow {
                     onEntered: fbRoot.hovered = true; onExited: fbRoot.hovered = false
                     onClicked: {
                         if (fbRoot.folderPath !== "") {
-                            executor.run(["bash", "-c", "if command -v nemo &>/dev/null; then nemo \"" + fbRoot.folderPath + "\"; else xdg-open \"" + fbRoot.folderPath + "\"; fi"])
+                            Sys.run(["bash", "-c", "if command -v nemo &>/dev/null; then nemo \"" + fbRoot.folderPath + "\"; else xdg-open \"" + fbRoot.folderPath + "\"; fi"])
                             popup.active = false
                         }
                     }
@@ -415,7 +402,7 @@ PanelWindow {
                     MouseArea {
                         id: pMouse; anchors.fill: parent; hoverEnabled: true
                         // FIX: Wrapped command in bash invocation
-                        onClicked: { executor.run(["bash", "-c", cmd]); popup.active = false }
+                        onClicked: { Sys.run(["bash", "-c", cmd]); popup.active = false }
                     }
                 }
 

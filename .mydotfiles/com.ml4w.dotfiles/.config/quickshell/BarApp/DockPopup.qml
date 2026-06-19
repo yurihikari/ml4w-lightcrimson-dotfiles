@@ -4,7 +4,8 @@ import Quickshell.Io
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
-import "../CustomTheme"
+import qs.CustomTheme
+import qs.BarApp.services
 
 // DockPopup — Apps · Notes · Todo · Screenshot
 PanelWindow {
@@ -57,12 +58,6 @@ PanelWindow {
             easing.type: Easing.OutExpo
             onRunningChanged: if (!running && !popup.active) popup.isAnimating = false
         }
-    }
-
-    // ── EXECUTOR ─────────────────────────────────────────────────────────────
-    Process {
-        id: executor
-        function run(args) { command = args; running = true }
     }
 
     // ── GLOBAL STATE ─────────────────────────────────────────────────────────
@@ -576,11 +571,11 @@ PanelWindow {
                         onTextChanged: popup.searchText = text
                         Keys.onReturnPressed: {
                             if (popup.isCommandMode)
-                                executor.run(["kitty", "--", "bash", "-c",
+                                Sys.run(["kitty", "--", "bash", "-c",
                                     searchField.text + "; echo; read -rsp 'Press any key…' -n1"])
                             else if (popup.filteredApps.length > 0) {
                                 let i = appGrid.currentIndex >= 0 ? appGrid.currentIndex : 0
-                                executor.run(["bash", "-c", popup.filteredApps[i].appExec])
+                                Sys.run(["bash", "-c", popup.filteredApps[i].appExec])
                             }
                             popup.active = false
                         }
@@ -688,7 +683,7 @@ PanelWindow {
                                     anchors.fill: parent
                                     hoverEnabled: true
                                     onClicked: {
-                                        executor.run(["kitty", "--", "bash", "-c",
+                                        Sys.run(["kitty", "--", "bash", "-c",
                                             popup.searchText + "; echo; read -rsp 'Press any key…' -n1"])
                                         popup.active = false
                                     }
@@ -788,7 +783,7 @@ PanelWindow {
                                         cursorShape: Qt.PointingHandCursor
                                         // Keep keyboard highlight in sync with the mouse
                                         onContainsMouseChanged: if (containsMouse) appGrid.currentIndex = index
-                                        onClicked: { executor.run(["bash", "-c", app.appExec]); popup.active = false }
+                                        onClicked: { Sys.run(["bash", "-c", app.appExec]); popup.active = false }
                                     }
                                 }
                             }
@@ -863,7 +858,7 @@ PanelWindow {
                                 MouseArea {
                                     id: copyNotesMouse
                                     anchors.fill: parent; hoverEnabled: true
-                                    onClicked: executor.run(["bash", "-c",
+                                    onClicked: Sys.run(["bash", "-c",
                                         "printf '%s' " + JSON.stringify(notesEdit.text) + " | wl-copy"])
                                 }
                             }
@@ -1309,7 +1304,7 @@ PanelWindow {
                                         anchors.fill: parent; hoverEnabled: true
                                         cursorShape: Qt.PointingHandCursor
                                         onClicked: {
-                                            executor.run(["bash", "-c",
+                                            Sys.run(["bash", "-c",
                                                 "DIR=\"$(xdg-user-dir PICTURES 2>/dev/null || echo \"$HOME/Pictures\")/Screenshots\"; " +
                                                 "command -v nemo &>/dev/null && nemo \"$DIR\" || xdg-open \"$DIR\""])
                                             popup.active = false
@@ -1412,7 +1407,7 @@ PanelWindow {
                                                     anchors.fill: parent; hoverEnabled: true
                                                     cursorShape: Qt.PointingHandCursor
                                                     onClicked: {
-                                                        executor.run(["xdg-open", ssPath])
+                                                        Sys.run(["xdg-open", ssPath])
                                                         popup.active = false
                                                     }
                                                 }
@@ -1436,7 +1431,7 @@ PanelWindow {
                                                     cursorShape: Qt.PointingHandCursor
                                                     onClicked: {
                                                         let dir = ssPath.substring(0, ssPath.lastIndexOf("/"))
-                                                        executor.run(["bash", "-c",
+                                                        Sys.run(["bash", "-c",
                                                             "command -v nemo &>/dev/null && nemo \"" + dir + "\" || xdg-open \"" + dir + "\""])
                                                         popup.active = false
                                                     }
@@ -1452,7 +1447,7 @@ PanelWindow {
                                             hoverEnabled: true
                                             cursorShape: Qt.PointingHandCursor
                                             onClicked: {
-                                                executor.run(["bash", "-c",
+                                                Sys.run(["bash", "-c",
                                                     "command -v wl-copy &>/dev/null && printf '%s' " +
                                                     JSON.stringify(ssPath) + " | wl-copy"])
                                             }

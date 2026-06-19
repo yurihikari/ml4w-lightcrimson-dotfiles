@@ -1,34 +1,15 @@
-import Quickshell
-import Quickshell.Wayland
 import Quickshell.Io
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
-import "../CustomTheme"
+import qs.CustomTheme
+import qs.BarApp.services
+import qs.BarApp.components
 
-PanelWindow {
+BarPopup {
     id: popup
-    property bool active: false
+    ipcTarget: "bar-system"
     property string currentTab: "Network"
-    
-    // 1. Wayland-safe exit animation state
-    property bool isAnimating: false
-    visible: active || isAnimating
-
-    anchors { top: true; bottom: true; left: true; right: true }
-    WlrLayershell.layer: WlrLayer.Overlay
-    exclusionMode: WlrLayershell.Ignore
-    WlrLayershell.keyboardFocus: WlrLayershell.Exclusive
-    color: "transparent"
-
-    IpcHandler {
-        target: "bar-system"
-        function toggle(): void { popup.active = !popup.active }
-        function open(): void { popup.active = true }
-        function close(): void { popup.active = false }
-    }
-
-    MouseArea { anchors.fill: parent; onClicked: popup.active = false }
 
     // Keyboard focus handler for ESC
     FocusScope {
@@ -162,11 +143,6 @@ PanelWindow {
     }
 
     Process { id: btAction; onRunningChanged: { if (!running) btScanner.running=true } }
-
-    Process {
-        id: localExec
-        function run(args) { command = args; running = true }
-    }
 
     Process {
         id: gamemodeExec
@@ -312,9 +288,9 @@ PanelWindow {
                 }
                 if (popup.cpuTemp > 0)  popup.cpuTempHistory   = popup.pushHist(popup.cpuTempHistory, popup.cpuTemp, 30)
                 if (popup.gpuTemp > 0)  popup.gpuTempHistory   = popup.pushHist(popup.gpuTempHistory, popup.gpuTemp, 30)
-                let cpuForHistory = popup.localCpuUsage > 0 ? popup.localCpuUsage : sysInfo.cpuUsage
+                let cpuForHistory = popup.localCpuUsage > 0 ? popup.localCpuUsage : Sys.cpuUsage
                 popup.cpuUsageHistory = popup.pushHist(popup.cpuUsageHistory, cpuForHistory, 30)
-                if (popup.localCpuUsage > 0) sysInfo.cpuUsage = popup.localCpuUsage
+                if (popup.localCpuUsage > 0) Sys.cpuUsage = popup.localCpuUsage
                 popup.netRxHistory    = popup.pushHist(popup.netRxHistory, popup.netRxKBs, 30)
                 popup.netTxHistory    = popup.pushHist(popup.netTxHistory, popup.netTxKBs, 30)
                 let peak = 100
@@ -336,14 +312,10 @@ PanelWindow {
     Timer { id: gamemodeRepoll; interval: 100; repeat: true; onTriggered: gamemodeReader.running=true }
     Timer { id: repollTimer; interval: 800; repeat: false; onTriggered: { wifiScanner.running=true; btScanner.running=true } }
 
-    onActiveChanged: {
-        if (active) {
-            isAnimating = true // Start entrance animation
-            forceActiveFocus()
-            if (currentTab === "Network")     { popup._wifiBuf=""; popup.wifiScanning=true; wifiScanner.running=true }
-            if (currentTab === "Bluetooth")   { popup._btBuf="";   popup.btScanning=true;   btScanner.running=true }
-            if (currentTab === "Performance") { powerProfileReader.running=true; gamemodeReader.running=true }
-        }
+    onOpened: {
+        if (currentTab === "Network")     { popup._wifiBuf=""; popup.wifiScanning=true; wifiScanner.running=true }
+        if (currentTab === "Bluetooth")   { popup._btBuf="";   popup.btScanning=true;   btScanner.running=true }
+        if (currentTab === "Performance") { powerProfileReader.running=true; gamemodeReader.running=true }
     }
     onCurrentTabChanged: {
         if (!active) return
@@ -450,7 +422,7 @@ PanelWindow {
 
                 Rectangle {
                     Layout.fillWidth: true; height: 48; radius: 14; color: Theme.background
-                    visible: sysInfo.connType === "ethernet"
+                    visible: Sys.connType === "ethernet"
                     RowLayout {
                         anchors.fill: parent; anchors.leftMargin: 14; anchors.rightMargin: 14; spacing: 10
                         Text { text: "󰈀"; color: Theme.primary; font.pixelSize: 20 }
@@ -471,37 +443,17 @@ PanelWindow {
                     Item { Layout.fillWidth: true }
                     
                     // Wi-Fi Refresh Button
-                    Rectangle {
-                        width: 28; height: 28; radius: 8
-                        color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
-                        scale: wifiRefMouse.pressed ? 0.9 : (wifiRefMouse.containsMouse ? 1.1 : 1.0)
-                        Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
-
-                        Text { anchors.centerIn: parent; text: "󰑓"; color: Theme.primary; font.pixelSize: 14; opacity: popup.wifiScanning ? 0.3 : 0.8 }
-                        MouseArea {
-                            id: wifiRefMouse
-                            anchors.fill: parent; hoverEnabled: true; enabled: !popup.wifiScanning
-                            onClicked: { popup._wifiBuf=""; popup.wifiScanning=true; wifiScanner.running=true }
-                        }
+                    IconButton {
+                        icon: "󰑓"
+                        busy: popup.wifiScanning
+                        enabled: !popup.wifiScanning
+                        onClicked: { popup._wifiBuf=""; popup.wifiScanning=true; wifiScanner.running=true }
                     }
-                    
-                    // Wi-Fi Toggle Switch
-                    Rectangle {
-                        width: 44; height: 24; radius: 12
-                        color: sysInfo.wifiRadio ? Theme.primary : "transparent"
-                        border.color: Theme.primary; border.width: 2
-                        Behavior on color { ColorAnimation { duration: 200 } }
 
-                        Rectangle {
-                            x: sysInfo.wifiRadio ? parent.width - width - 3 : 3; y: 3; width: 18; height: 18; radius: 9
-                            color: sysInfo.wifiRadio ? Theme.background : Theme.primary
-                            Behavior on x { NumberAnimation { duration: 350; easing.type: Easing.OutBack } }
-                            Behavior on color { ColorAnimation { duration: 200 } }
-                        }
-                        MouseArea {
-                            anchors.fill: parent
-                            onClicked: { localExec.run(["bash", "-c", sysInfo.wifiRadio ? "nmcli radio wifi off" : "nmcli radio wifi on"]); repollTimer.restart() }
-                        }
+                    // Wi-Fi Toggle Switch
+                    BarToggle {
+                        checked: Sys.wifiRadio
+                        onClicked: { Sys.run(["bash", "-c", Sys.wifiRadio ? "nmcli radio wifi off" : "nmcli radio wifi on"]); repollTimer.restart() }
                     }
                 }
 
@@ -648,7 +600,7 @@ PanelWindow {
                     MouseArea { 
                         id: advNetMouse
                         anchors.fill: parent; hoverEnabled: true
-                        onClicked: { localExec.run(["kitty","--class","floating","nmtui"]); popup.active=false } 
+                        onClicked: { Sys.run(["kitty","--class","floating","nmtui"]); popup.active=false } 
                     }
                 }
             }
@@ -666,32 +618,17 @@ PanelWindow {
                     Item { Layout.fillWidth: true }
                     
                     // BT Refresh Button
-                    Rectangle {
-                        width: 28; height: 28; radius: 8; color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
-                        scale: btRefMouse.pressed ? 0.9 : (btRefMouse.containsMouse ? 1.1 : 1.0)
-                        Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
-
-                        Text { anchors.centerIn: parent; text: "󰑓"; color: Theme.primary; font.pixelSize: 14; opacity: popup.btScanning ? 0.3 : 0.8 }
-                        MouseArea { 
-                            id: btRefMouse
-                            anchors.fill: parent; hoverEnabled: true; enabled: !popup.btScanning
-                            onClicked: { popup._btBuf=""; popup.btScanning=true; btScanner.running=true } 
-                        }
+                    IconButton {
+                        icon: "󰑓"
+                        busy: popup.btScanning
+                        enabled: !popup.btScanning
+                        onClicked: { popup._btBuf=""; popup.btScanning=true; btScanner.running=true }
                     }
-                    
-                    // BT Toggle Switch
-                    Rectangle {
-                        width: 44; height: 24; radius: 12
-                        color: sysInfo.bluetooth ? Theme.primary : "transparent"; border.color: Theme.primary; border.width: 2
-                        Behavior on color { ColorAnimation { duration: 200 } }
 
-                        Rectangle {
-                            x: sysInfo.bluetooth ? parent.width - width - 3 : 3; y: 3; width: 18; height: 18; radius: 9
-                            color: sysInfo.bluetooth ? Theme.background : Theme.primary
-                            Behavior on x { NumberAnimation { duration: 350; easing.type: Easing.OutBack } }
-                            Behavior on color { ColorAnimation { duration: 200 } }
-                        }
-                        MouseArea { anchors.fill: parent; onClicked: { localExec.run(["bash","-c",sysInfo.bluetooth?"bluetoothctl power off":"bluetoothctl power on"]); repollTimer.restart() } }
+                    // BT Toggle Switch
+                    BarToggle {
+                        checked: Sys.bluetooth
+                        onClicked: { Sys.run(["bash","-c",Sys.bluetooth?"bluetoothctl power off":"bluetoothctl power on"]); repollTimer.restart() }
                     }
                 }
 
@@ -700,9 +637,9 @@ PanelWindow {
                     color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.04); clip: true
                     Text {
                         anchors.centerIn: parent
-                        text: popup.btScanning ? "Scanning…" : (!sysInfo.bluetooth ? "Bluetooth is off" : popup.btDevices.length===0 ? "No paired devices" : "")
+                        text: popup.btScanning ? "Scanning…" : (!Sys.bluetooth ? "Bluetooth is off" : popup.btDevices.length===0 ? "No paired devices" : "")
                         color: Theme.primary; opacity: 0.4; font.pixelSize: 12
-                        visible: popup.btScanning || !sysInfo.bluetooth || popup.btDevices.length===0
+                        visible: popup.btScanning || !Sys.bluetooth || popup.btDevices.length===0
                     }
                     ListView {
                         anchors.fill: parent; anchors.margins: 6; model: popup.btDevices; spacing: 4; clip: true
@@ -766,7 +703,7 @@ PanelWindow {
                     MouseArea { 
                         id: btManMouse
                         anchors.fill: parent; hoverEnabled: true
-                        onClicked: { localExec.run(["blueman-manager"]); popup.active=false } 
+                        onClicked: { Sys.run(["blueman-manager"]); popup.active=false } 
                     }
                 }
             }
@@ -822,9 +759,9 @@ PanelWindow {
                         Text { anchors.horizontalCenter: parent.horizontalCenter; anchors.bottom: parent.bottom; text: gauge.label; color: Theme.primary; opacity: 0.55; font.pixelSize: 10; font.weight: Font.Medium }
                     }
 
-                    CircleGauge { label: "CPU";    icon: "󰻠"; value: sysInfo.cpuUsage }
-                    CircleGauge { label: "Memory"; icon: "󰍛"; value: sysInfo.ramUsage }
-                    CircleGauge { label: "Disk";   icon: "󰋊"; value: sysInfo.diskUsage }
+                    CircleGauge { label: "CPU";    icon: "󰻠"; value: Sys.cpuUsage }
+                    CircleGauge { label: "Memory"; icon: "󰍛"; value: Sys.ramUsage }
+                    CircleGauge { label: "Disk";   icon: "󰋊"; value: Sys.diskUsage }
                 }
 
                 Rectangle { Layout.fillWidth: true; height: 1; color: Theme.primary; opacity: 0.1 }
@@ -1113,8 +1050,8 @@ PanelWindow {
                             SparkCard {
                                 cardIcon:  "󰻠"
                                 cardLabel: "CPU LOAD"
-                                cardValue: Math.round(sysInfo.cpuUsage * 100) + "%"
-                                cardColor: sysInfo.cpuUsage > 0.85 ? "#e06c75" : Theme.primary
+                                cardValue: Math.round(Sys.cpuUsage * 100) + "%"
+                                cardColor: Sys.cpuUsage > 0.85 ? "#e06c75" : Theme.primary
                                 history:   popup.cpuUsageHistory
                                 yMin: 0; yMax: 1
                             }
@@ -1213,26 +1150,12 @@ PanelWindow {
                             }
                             
                             // Game Mode Toggle Switch
-                            Rectangle {
-                                width: 44; height: 24; radius: 12
-                                color: popup.gamemodeActive ? Theme.primary : "transparent"
-                                border.color: Theme.primary; border.width: 2
+                            BarToggle {
+                                checked: popup.gamemodeActive
                                 Layout.alignment: Qt.AlignVCenter
-                                Behavior on color { ColorAnimation { duration: 200 } }
-
-                                Rectangle {
-                                    x: popup.gamemodeActive ? parent.width - width - 3 : 3; y: 3
-                                    width: 18; height: 18; radius: 9
-                                    color: popup.gamemodeActive ? Theme.background : Theme.primary
-                                    Behavior on x { NumberAnimation { duration: 350; easing.type: Easing.OutBack } }
-                                    Behavior on color { ColorAnimation { duration: 200 } }
-                                }
-                                MouseArea {
-                                    anchors.fill: parent
-                                    onClicked: {
-                                        gamemodeExec.apply(!popup.gamemodeActive)
-                                        gamemodeRepoll.restart()
-                                    }
+                                onClicked: {
+                                    gamemodeExec.apply(!popup.gamemodeActive)
+                                    gamemodeRepoll.restart()
                                 }
                             }
                         }
@@ -1271,7 +1194,7 @@ PanelWindow {
                                     id: tuxMouse
                                     anchors.fill: parent; hoverEnabled: true
                                     onClicked: {
-                                        localExec.run([
+                                        Sys.run([
                                             "hyprctl",
                                             "dispatch",
                                             "hl.dsp.exec_cmd(\"tuxedo-control-center\")"
@@ -1332,7 +1255,7 @@ PanelWindow {
                     MouseArea { 
                         id: sysMonMouse
                         anchors.fill: parent; hoverEnabled: true
-                        onClicked: { localExec.run(["bash","-c","~/.config/ml4w/settings/system-monitor.sh"]); popup.active=false } 
+                        onClicked: { Sys.run(["bash","-c","~/.config/ml4w/settings/system-monitor.sh"]); popup.active=false } 
                     }
                 }
             }
