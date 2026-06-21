@@ -964,12 +964,14 @@ PanelWindow {
                         }
 
                         ScrollView {
+                            id: todoScroll
                             Layout.fillWidth: true; Layout.fillHeight: true
                             visible: todoModel.count > 0
                             clip: true; ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                            contentWidth: availableWidth
 
                             Column {
-                                width: parent.width; spacing: 6; bottomPadding: 8
+                                width: todoScroll.availableWidth; spacing: 6; bottomPadding: 8
 
                                 Repeater {
                                     model: todoModel
