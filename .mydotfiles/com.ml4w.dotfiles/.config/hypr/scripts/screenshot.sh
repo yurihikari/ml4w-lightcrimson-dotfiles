@@ -8,13 +8,36 @@
 
 # -----------------------------------------------------
 
-prompt='Screenshot'
-mesg="DIR: ~/Screenshots"
+# Screenshots will be stored in $HOME by default.
+# The screenshot will be moved into the screenshot directory
 
-SAVE_DIR=$(cat ~/.config/ml4w/settings/screenshot-folder)
-SAVE_FILENAME=$(cat ~/.config/ml4w/settings/screenshot-filename)
+# Defaults
+SAVE_DIR="$HOME/Pictures"
+SAVE_FILENAME="screenshot_$(date +%d%m%Y_%H%M%S).jpg"
+
+# Load Settings
+if [ -f ~/.config/ml4w/settings/screenshot-folder ]; then
+    SAVE_DIR=$(cat ~/.config/ml4w/settings/screenshot-folder)
+fi
+if [ -f ~/.config/ml4w/settings/screenshot-filename ]; then
+    SAVE_FILENAME=$(cat ~/.config/ml4w/settings/screenshot-filename)
+fi
+
 eval screenshot_folder="$SAVE_DIR"
 eval NAME="$SAVE_FILENAME"
+
+# Get image format
+image_format="png"
+extension="${NAME##*.}"
+
+case $extension in
+    "jpg"|"jpeg")
+        image_format="jpeg"
+        ;;
+    "ppm")
+        image_format="ppm"
+        ;;
+esac
 
 # Notifications
 source "$HOME/.config/ml4w/scripts/ml4w-notification-handler"
@@ -24,13 +47,12 @@ NOTIFICATION_ICON="camera-photo-symbolic"
 # Screenshot Editor
 export GRIMBLAST_EDITOR="$(cat ~/.config/ml4w/settings/screenshot-editor)"
 
-# Helper to handle clipboard and notification with preview
+# Copy the screenshot to the clipboard and notify with the image as a preview.
 post_process() {
     local FILE_PATH="$screenshot_folder/$NAME"
+    [[ -f "$FILE_PATH" ]] || FILE_PATH="$HOME/$NAME"
     if [[ -f "$FILE_PATH" ]]; then
-        # Copy to clipboard
         wl-copy < "$FILE_PATH"
-        # Notify with the image itself as the icon
         notify_user \
             --a "${APP_NAME}" \
             --i "$FILE_PATH" \
@@ -42,7 +64,7 @@ post_process() {
 
 # Quick instant mode: full screen
 take_instant_full() {
-    grim "$HOME/$NAME"
+    grim -t "$image_format" "$HOME/$NAME"
     if [[ -f "$HOME/$NAME" ]]; then
         [[ -d "$screenshot_folder" && -w "$screenshot_folder" ]] && mv "$HOME/$NAME" "$screenshot_folder/"
         post_process
@@ -67,8 +89,8 @@ take_instant_area() {
     kill "$pid_picker" 2>/dev/null
     trap - EXIT
 
-    # capture
-    grim -g "$region" "$HOME/$NAME"
+    # capture, move, then copy to clipboard + notify with preview
+    grim -g "$region" -t "$image_format" "$HOME/$NAME"
     if [[ -f "$HOME/$NAME" ]]; then
         [[ -d "$screenshot_folder" && -w "$screenshot_folder" ]] && mv "$HOME/$NAME" "$screenshot_folder/"
         post_process
@@ -97,6 +119,7 @@ option_time_2="10s"
 option_time_3="20s"
 option_time_4="30s"
 option_time_5="60s"
+#option_time_4="Custom (in seconds)" # Roadmap or someone contribute :)
 
 list_col='1'
 list_row='2'
@@ -116,15 +139,19 @@ run_rofi() {
     echo -e "$option_1\n$option_2" | rofi_cmd
 }
 
+####
 # Choose Timer
+# CMD
 timer_cmd() {
     rofi -dmenu -replace -config ~/.config/rofi/config-screenshot.rasi -i -no-show-icons -l 5 -width 30 -p "Choose timer"
 }
 
+# Ask for confirmation
 timer_exit() {
     echo -e "$option_time_1\n$option_time_2\n$option_time_3\n$option_time_4\n$option_time_5" | timer_cmd
 }
 
+# Confirm and execute
 timer_run() {
     selected_timer="$(timer_exit)"
     if [[ "$selected_timer" == "$option_time_1" ]]; then
@@ -146,16 +173,21 @@ timer_run() {
         exit
     fi
 }
+###
 
-# Choose Screenshot Type
+####
+# Chose Screenshot Type
+# CMD
 type_screenshot_cmd() {
     rofi -dmenu -replace -config ~/.config/rofi/config-screenshot.rasi -i -no-show-icons -l 3 -width 30 -p "Type of screenshot"
 }
 
+# Ask for confirmation
 type_screenshot_exit() {
     echo -e "$option_capture_1\n$option_capture_2\n$option_capture_3" | type_screenshot_cmd
 }
 
+# Confirm and execute
 type_screenshot_run() {
     selected_type_screenshot="$(type_screenshot_exit)"
     if [[ "$selected_type_screenshot" == "$option_capture_1" ]]; then
@@ -171,26 +203,34 @@ type_screenshot_run() {
         exit
     fi
 }
+###
 
+####
 # Choose to save or copy photo
+# CMD
 copy_save_editor_cmd() {
     rofi -dmenu -replace -config ~/.config/rofi/config-screenshot.rasi -i -no-show-icons -l 4 -width 30 -p "How to save"
 }
 
+# Ask for confirmation
 copy_save_editor_exit() {
     echo -e "$copy\n$save\n$copy_save\n$edit" | copy_save_editor_cmd
 }
 
+# Confirm and execute
+# Note: `grimblast` only supports png outpuut when copy is specified
 copy_save_editor_run() {
     selected_chosen="$(copy_save_editor_exit)"
     if [[ "$selected_chosen" == "$copy" ]]; then
         option_chosen=copy
+        image_format=png
         ${1}
     elif [[ "$selected_chosen" == "$save" ]]; then
         option_chosen=save
         ${1}
     elif [[ "$selected_chosen" == "$copy_save" ]]; then
         option_chosen=copysave
+        image_format=png
         ${1}
     elif [[ "$selected_chosen" == "$edit" ]]; then
         option_chosen=edit
@@ -199,15 +239,27 @@ copy_save_editor_run() {
         exit
     fi
 }
+###
 
 timer() {
     if [[ $countdown -gt 10 ]]; then
-        notify_user --a "${APP_NAME}" --i "${NOTIFICATION_ICON}" --s "Taking screenshot in ${countdown} seconds" --t 1000
-        sleep $((countdown - 10))
+        notify_user \
+            --a "${APP_NAME}" \
+            --i "${NOTIFICATION_ICON}" \
+            --s "Taking screenshot in ${countdown} seconds" \
+            --m "" \
+            --t 1000
+        countdown_less_10=$((countdown - 10))
+        sleep $countdown_less_10
         countdown=10
     fi
     while [[ $countdown -ne 0 ]]; do
-        notify_user --a "${APP_NAME}" --i "${NOTIFICATION_ICON}" --s "Taking screenshot in ${countdown} seconds" --t 1000
+        notify_user \
+            --a "${APP_NAME}" \
+            --i "${NOTIFICATION_ICON}" \
+            --s "Taking screenshot in ${countdown} seconds" \
+            --m "" \
+            --t 1000
         countdown=$((countdown - 1))
         sleep 1
     done
@@ -216,23 +268,17 @@ timer() {
 # take shots
 takescreenshot() {
     sleep 1
-    # We always save to a file first so we can copy it and show a preview
-    # If the user chose 'copy', we treat it as 'copysave' internally to get the file
+    # Force a saved file even for "copy" so we can also preview + clipboard it.
     local action="$option_chosen"
     [[ "$action" == "copy" ]] && action="copysave"
-    
-    grimblast "$action" "$option_type_screenshot" "$HOME/$NAME"
-    
+    grimblast --filetype "$image_format" "$action" "$option_type_screenshot" "$HOME/$NAME"
     if [ -f "$HOME/$NAME" ]; then
-        if [ -d "$screenshot_folder" ]; then
-            mv "$HOME/$NAME" "$screenshot_folder/"
-        fi
+        [ -d "$screenshot_folder" ] && mv "$HOME/$NAME" "$screenshot_folder/"
         post_process
     fi
 }
 
 takescreenshot_timer() {
-    sleep 1
     timer
     takescreenshot
 }
