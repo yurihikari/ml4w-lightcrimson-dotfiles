@@ -117,9 +117,11 @@ BarPopup {
         Behavior on scale { NumberAnimation { duration: 400; easing.type: Easing.OutExpo } }
         Behavior on y { NumberAnimation { duration: 400; easing.type: Easing.OutExpo } }
 
+        Shadow {}
+
         Rectangle {
-            anchors.fill: parent; color: Theme.background; border.color: Theme.primary
-            border.width: 1; radius: 30; opacity: 0.95
+            anchors.fill: parent; color: Theme.background; border.color: Theme.withAlpha(Theme.primary, 0.8)
+            border.width: 2; radius: 30; opacity: 0.95
         }
 
         MouseArea { anchors.fill: parent }

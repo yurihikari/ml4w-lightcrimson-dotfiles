@@ -6,6 +6,7 @@ import QtQuick.Layouts
 import QtQuick.Controls
 import qs.CustomTheme
 import qs.BarApp.services
+import qs.BarApp.components
 
 // DockPopup — Apps · Notes · Todo · Screenshot
 PanelWindow {
@@ -455,9 +456,11 @@ PanelWindow {
         
         // Smooth Opacity Fade on the Container
         opacity: popup.active ? 1.0 : 0.0
-        Behavior on opacity { 
-            NumberAnimation { duration: 250; easing.type: Easing.OutCubic } 
+        Behavior on opacity {
+            NumberAnimation { duration: 250; easing.type: Easing.OutCubic }
         }
+
+        Shadow { radius: 28 }
 
         Rectangle {
             anchors.fill: parent; radius: parent.radius

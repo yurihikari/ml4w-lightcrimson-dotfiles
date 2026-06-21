@@ -369,6 +369,8 @@ BarPopup {
         }
         Behavior on scale { NumberAnimation { duration: 350; easing.type: Easing.OutExpo } }
 
+        Shadow {}
+
         Rectangle {
             anchors.fill: parent; color: Theme.background; border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.8);
             border.width: 2; radius: 30; opacity: 0.8; 

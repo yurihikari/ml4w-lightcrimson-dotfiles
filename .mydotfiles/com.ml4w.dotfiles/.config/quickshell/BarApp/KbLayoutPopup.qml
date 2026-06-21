@@ -292,11 +292,13 @@ BarPopup {
         Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic; onRunningChanged: if(!running && !root.active) root.isAnimating = false } }
         Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
 
+        Shadow { radius: 24 }
+
         Rectangle { anchors.fill: parent; radius: 24; color: Theme.background; opacity: 0.8 }
 
         Rectangle {
             anchors.fill: parent; radius: 24; color: "transparent"
-            border.color: Theme.primary; border.width: 2
+            border.color: Theme.withAlpha(Theme.primary, 0.8); border.width: 2
             MouseArea { anchors.fill: parent }
 
             ColumnLayout {

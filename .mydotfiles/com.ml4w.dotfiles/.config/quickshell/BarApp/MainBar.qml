@@ -778,7 +778,7 @@ PanelWindow {
             Rectangle {
                 anchors.fill: parent; radius: 23
                 color: Theme.withAlpha(Theme.background, 0.8)
-                border.color: Theme.withAlpha(Theme.primary, 0.5); border.width: 2
+                border.color: Theme.withAlpha(Theme.primary, 0.8); border.width: 2
 
                 RowLayout {
                     anchors.fill: parent; anchors.margins: 12; spacing: 10

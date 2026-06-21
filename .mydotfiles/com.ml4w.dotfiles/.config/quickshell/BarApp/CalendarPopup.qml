@@ -347,6 +347,15 @@ BarPopup {
         if (weatherCode === -1) loadCity("")
     }
 
+    // Elevation shadow — a sibling because mainContent clips (a child shadow
+    // would be cut off). Tracks the container's geometry and fade.
+    Shadow {
+        anchors.fill: mainContent
+        radius: 30
+        opacity: mainContent.opacity
+        visible: mainContent.visible
+    }
+
     // ─── UNIFIED MAIN CONTAINER ───────────────────────────────────────────
     Rectangle {
         id: mainContent
@@ -359,7 +368,7 @@ BarPopup {
         height: 580
         radius: 30
         color: Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.8)
-        border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.6)
+        border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.8)
         border.width: 2
         clip: true 
 

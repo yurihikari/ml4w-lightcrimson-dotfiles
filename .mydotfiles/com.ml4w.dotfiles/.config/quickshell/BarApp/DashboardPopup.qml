@@ -44,6 +44,17 @@ BarPopup {
     property var    disks:      []
     property string updates:    "0"
 
+    // Live clock used for the greeting line.
+    property var now: new Date()
+    Timer { interval: 60000; repeat: true; running: popup.active; onTriggered: popup.now = new Date() }
+    function greeting() {
+        var h = now.getHours()
+        if (h < 5)  return "Good night"
+        if (h < 12) return "Good morning"
+        if (h < 18) return "Good afternoon"
+        return "Good evening"
+    }
+
     // Fast core info — no network calls, so this returns near-instantly and the
     // popup populates immediately. The (slow) update count is a separate process.
     Process {
@@ -181,10 +192,12 @@ BarPopup {
         Behavior on anchors.topMargin { NumberAnimation { duration: 400; easing.type: Easing.OutExpo } }
 
 
+        Shadow {}
+
         Rectangle {
             anchors.fill: parent
             color: Theme.background; opacity: 0.8
-            border.color: Theme.primary; border.width: 2
+            border.color: Theme.withAlpha(Theme.primary, 0.8); border.width: 2
             radius: 30
         }
 
@@ -200,8 +213,8 @@ BarPopup {
 
                 Rectangle {
                     width: 92; height: 92; radius: 22
-                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.08)
-                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15)
+                    color: Theme.withAlpha(Theme.primary, 0.08)
+                    border.color: Theme.withAlpha(Theme.primary, 0.15)
                     border.width: 1
 
                     Image {
@@ -223,6 +236,11 @@ BarPopup {
                     Layout.fillWidth: true; spacing: 4
 
                     Text {
+                        text: popup.greeting() + (popup.username !== "" ? ", " + popup.username : "")
+                        color: Theme.primary; opacity: 0.5; font.pixelSize: 11; font.bold: true
+                        elide: Text.ElideRight; Layout.fillWidth: true
+                    }
+                    Text {
                         text: popup.osName || "Loading…"
                         color: Theme.primary; font.pixelSize: 22; font.weight: Font.Black
                         elide: Text.ElideRight; Layout.fillWidth: true
@@ -234,14 +252,23 @@ BarPopup {
                     }
                     Rectangle {
                         height: 22; radius: 11; Layout.preferredWidth: kernelLbl.implicitWidth + 18
-                        color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.10)
-                        border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.18); border.width: 1
+                        color: Theme.withAlpha(Theme.primary, 0.10)
+                        border.color: Theme.withAlpha(Theme.primary, 0.18); border.width: 1
                         visible: popup.kernelStr !== ""
                         Text {
                             id: kernelLbl; anchors.centerIn: parent; text: "󰌽  " + popup.kernelStr
                             color: Theme.primary; opacity: 0.75; font.pixelSize: 10; font.bold: true
                         }
                     }
+                }
+
+                // Settings — fills the previously-empty top-right corner.
+                IconButton {
+                    icon: "󰒓"
+                    size: 40
+                    iconSize: 18
+                    Layout.alignment: Qt.AlignTop
+                    onClicked: { Sys.run(["qs", "ipc", "call", "settings", "open"]); popup.active = false }
                 }
             }
 
@@ -258,7 +285,7 @@ BarPopup {
                 RowLayout {
                     anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 10
                     Rectangle {
-                        width: 34; height: 34; radius: 10; color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.10)
+                        width: 34; height: 34; radius: 10; color: Theme.withAlpha(Theme.primary, 0.10)
                         Text { anchors.centerIn: parent; text: infoRoot.tileIcon; color: Theme.primary; font.pixelSize: 16 }
                     }
                     ColumnLayout {
@@ -301,7 +328,7 @@ BarPopup {
                             }
                             Rectangle {
                                 Layout.fillWidth: true; height: 8; radius: 4
-                                color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+                                color: Theme.withAlpha(Theme.primary, 0.1)
                                 Rectangle { width: parent.width * (modelData.pct/100); height: parent.height; radius: 4; color: modelData.pct > 90 ? "#ff5555" : Theme.primary }
                             }
                             Text { text: modelData.used + " / " + modelData.total; color: Theme.primary; opacity: 0.6; font.pixelSize: 11; Layout.preferredWidth: 65; horizontalAlignment: Text.AlignRight }
@@ -338,11 +365,13 @@ BarPopup {
                 property string folderPath:  ""
 
                 Layout.fillWidth: true; Layout.preferredHeight: 78; radius: 16
-                color: hovered ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.12) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05)
-                border.color: hovered ? Theme.primary : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15)
+                color: hovered ? Theme.withAlpha(Theme.primary, 0.12) : Theme.withAlpha(Theme.primary, 0.05)
+                border.color: hovered ? Theme.primary : Theme.withAlpha(Theme.primary, 0.15)
                 border.width: hovered ? 1.5 : 1
+                scale: hovered ? 1.04 : 1.0
                 Behavior on color       { ColorAnimation { duration: 120 } }
                 Behavior on border.color { ColorAnimation { duration: 120 } }
+                Behavior on scale       { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
 
                 property bool hovered: false
 
@@ -350,7 +379,7 @@ BarPopup {
                     anchors.fill: parent; anchors.margins: 10; spacing: 4
                     Rectangle {
                         Layout.alignment: Qt.AlignHCenter; width: 38; height: 38; radius: 11
-                        color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, fbRoot.hovered ? 0.20 : 0.12)
+                        color: Theme.withAlpha(Theme.primary, fbRoot.hovered ? 0.20 : 0.12)
                         Text { anchors.centerIn: parent; text: fbRoot.folderIcon; color: Theme.primary; font.pixelSize: 20 }
                     }
                     Text { Layout.alignment: Qt.AlignHCenter; text: fbRoot.folderLabel; color: Theme.primary; font.pixelSize: 11; font.weight: Font.Bold }
@@ -387,11 +416,13 @@ BarPopup {
                     property color hoverColor: Theme.primary
                     Layout.fillWidth: true; Layout.preferredHeight: 50; radius: 14
                     
-                    color: pMouse.containsMouse ? hoverColor : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05)
-                    border.color: pMouse.containsMouse ? hoverColor : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.12)
+                    color: pMouse.containsMouse ? hoverColor : Theme.withAlpha(Theme.primary, 0.05)
+                    border.color: pMouse.containsMouse ? hoverColor : Theme.withAlpha(Theme.primary, 0.12)
                     border.width: 1
-                    
+                    scale: pMouse.pressed ? 0.94 : (pMouse.containsMouse ? 1.05 : 1.0)
+
                     Behavior on color { ColorAnimation { duration: 150 } }
+                    Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
                     
                     Text { 
                         anchors.centerIn: parent; text: parent.btnIcon 

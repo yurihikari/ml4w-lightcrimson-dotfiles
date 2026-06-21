@@ -3,6 +3,7 @@ import Quickshell.Wayland
 import QtQuick
 import qs.CustomTheme
 import qs.BarApp.services
+import qs.BarApp.components
 
 Item {
     id: root
@@ -20,7 +21,16 @@ Item {
         exclusionMode: WlrLayershell.Ignore
         color: "transparent"
 
+        // Subtle shadow cast upward onto the windows, so the frame reads as raised.
+        Shadow {
+            anchors.fill: bottomBar
+            radius: 0
+            blur: 12
+            offset: Qt.vector2d(0, -4)
+        }
+
         Rectangle {
+            id: bottomBar
             anchors.bottom: parent.bottom
             width: parent.width; height: 10
             color: Theme.background; opacity: 0.8

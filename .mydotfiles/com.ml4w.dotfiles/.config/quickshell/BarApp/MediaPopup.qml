@@ -191,6 +191,8 @@ BarPopup {
         Behavior on scale { NumberAnimation { duration: 400; easing.type: Easing.OutExpo } }
         Behavior on y { NumberAnimation { duration: 400; easing.type: Easing.OutExpo } }
 
+        Shadow {}
+
         // Blur-friendly background
         Rectangle {
             anchors.fill: parent

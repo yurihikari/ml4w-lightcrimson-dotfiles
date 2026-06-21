@@ -165,6 +165,8 @@ BarPopup {
                 } 
             }
 
+            Shadow {}
+
             // The blurred background layer (0.8 opacity for Hyprland to blur!)
             Rectangle {
                 anchors.fill: parent

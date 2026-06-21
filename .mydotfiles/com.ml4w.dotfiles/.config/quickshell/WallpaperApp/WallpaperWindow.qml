@@ -9,6 +9,7 @@ import Qt.labs.folderlistmodel
 import Qt5Compat.GraphicalEffects
 import QtQuick.Effects
 import qs.CustomTheme
+import qs.BarApp.components
 
 PanelWindow {
     id: root
@@ -196,14 +197,19 @@ PanelWindow {
         anchors.fill: parent
         anchors.margins: 20
 
+        // Elevation shadow, sits behind the panel background (sibling so the
+        // rect's own `clip` doesn't cut it off).
+        Shadow { anchors.fill: mainBgRect; radius: 30 }
+
         Rectangle {
             id: mainBgRect
             anchors.fill: parent
-            color: Theme.background
-            border.color: Theme.primary
+            // Translucency lives on the fill so the border alpha stays exactly 0.8
+            // (a rect-wide opacity would compound it down and dim the contents).
+            color: Theme.withAlpha(Theme.background, 0.8)
+            border.color: Theme.withAlpha(Theme.primary, 0.8)
             border.width: 2
             radius: 30
-            opacity: 0.8
             clip: true
         
         ColumnLayout {
