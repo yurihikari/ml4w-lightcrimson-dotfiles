@@ -10,4 +10,6 @@ hl.on("hyprland.start", function ()
     -- Start xdg-desktop-portal-hyprland for screen capture and other portal features
     hl.exec_cmd("/usr/lib/xdg-desktop-portal-hyprland")
     hl.exec_cmd("/usr/lib/xdg-desktop-portal")
+    -- Start per-workspace wallpaper manager after ML4W wallpaper init
+    hl.exec_cmd("bash -c 'sleep 2; setsid nohup ~/.config/hypr/conf/custom/workspace-wallpapers.sh >> ~/.cache/workspace-wallpapers.log 2>&1 &'")
 end)
