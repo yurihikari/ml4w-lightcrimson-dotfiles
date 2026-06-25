@@ -312,8 +312,8 @@ BarPopup {
                 
                 // Disks Layout
                 ColumnLayout {
-                    Layout.fillWidth: true; spacing: 10
-                    
+                    Layout.fillWidth: true; Layout.alignment: Qt.AlignVCenter; spacing: 10
+
                     Text { text: "STORAGE"; color: Theme.primary; opacity: 0.45; font.pixelSize: 10; font.bold: true }
 
                     // One row per mounted disk (root + /mnt, /media, /run/media)
@@ -344,7 +344,8 @@ BarPopup {
 
                 // Updates Badge
                 GlassCard {
-                    Layout.preferredWidth: 100; Layout.fillHeight: true; radius: 14
+                    Layout.preferredWidth: 100; Layout.preferredHeight: 72
+                    Layout.alignment: Qt.AlignVCenter; radius: 14
                     ColumnLayout {
                         anchors.centerIn: parent; spacing: 4
                         Text { text: "󰏔"; color: popup.updates !== "0" ? Theme.primary : Theme.primary; opacity: popup.updates !== "0" ? 1.0 : 0.4; font.pixelSize: 26; Layout.alignment: Qt.AlignHCenter }

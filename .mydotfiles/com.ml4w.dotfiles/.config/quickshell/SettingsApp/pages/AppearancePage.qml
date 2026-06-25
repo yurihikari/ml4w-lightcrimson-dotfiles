@@ -24,6 +24,24 @@ StPage {
     property string transitionEffect: "simple"
     property string search: ""
 
+    // ── Per-workspace wallpapers ─────────────────────────────────────────
+    property string wsConfigFile: Quickshell.env("HOME") + "/.config/hypr/conf/custom/workspace-wallpapers.json"
+    property string wsScript: Quickshell.env("HOME") + "/.config/hypr/conf/custom/workspace-wallpapers.sh"
+    property int workspaceCount: 10
+    property int wsTarget: 1            // which workspace the picker below assigns to
+    property var wsConfig: ({})         // { "1": "/path", ... }
+    property string wsSearch: ""
+
+    function wsAssignment(n) {
+        var v = page.wsConfig[String(n)]
+        return v ? v : ""
+    }
+    function baseName(p) {
+        if (!p) return ""
+        var parts = String(p).split("/")
+        return parts[parts.length - 1]
+    }
+
     // Light / Dark mode: current state + matugen preview palettes for both
     // modes (computed from the current wallpaper, applied only on click).
     property bool isDark: true
@@ -69,6 +87,22 @@ StPage {
         blockLoading: true
         watchChanges: true
         onFileChanged: { reload(); if (page.active) matugenPreview.running = true }
+    }
+
+    // Per-workspace wallpaper assignments (written by the daemon / picker).
+    FileView {
+        id: wsConfigView
+        path: Qt.url(page.wsConfigFile)
+        blockLoading: true
+        watchChanges: true
+        function parseConfig() {
+            var t = text().trim()
+            if (t === "") { page.wsConfig = ({}); return }
+            try { page.wsConfig = JSON.parse(t) }
+            catch (e) { console.log("workspace-wallpapers.json parse error:", e); page.wsConfig = ({}) }
+        }
+        onLoaded: parseConfig()
+        onFileChanged: { reload(); parseConfig() }
     }
 
     // Emulates matugen for the current wallpaper WITHOUT touching the real
@@ -390,6 +424,193 @@ StPage {
             clickable: true
             onClicked: Quickshell.execDetached(["bash", "-c", Quickshell.env("HOME") + "/.config/ml4w/scripts/ml4w-clear-wallpaper-cache"])
             Text { text: "󰁔"; color: Theme.primary; opacity: 0.5; font.pixelSize: 16 }
+        }
+    }
+
+    // ── Per-workspace wallpapers ────────────────────────────────────────
+    StCard {
+        title: "Per-workspace wallpapers"
+
+        // What this does / doesn't do.
+        StRow {
+            icon: "󰋩"
+            title: "Wallpaper only — theme stays the same"
+            subtitle: "Each workspace can show its own wallpaper. This does not change "
+                    + "the colour theme. To recolour the desktop, set a global wallpaper "
+                    + "from the Wallpaper section above (that also applies to this workspace)."
+        }
+
+        // Target workspace selector (number chips; dot = has an assignment).
+        Text {
+            Layout.fillWidth: true
+            Layout.leftMargin: 6
+            Layout.topMargin: 4
+            text: "TARGET WORKSPACE"
+            color: Theme.primary
+            opacity: 0.45
+            font.family: Theme.fontFamily
+            font.pixelSize: 11
+            font.bold: true
+        }
+        Flow {
+            Layout.fillWidth: true
+            Layout.leftMargin: 6
+            Layout.rightMargin: 6
+            spacing: 6
+            Repeater {
+                model: page.workspaceCount
+                delegate: Rectangle {
+                    required property int index
+                    readonly property int ws: index + 1
+                    readonly property bool sel: page.wsTarget === ws
+                    width: 34; height: 34; radius: 9
+                    color: sel ? Theme.primary
+                         : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+                    Behavior on color { ColorAnimation { duration: 130 } }
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: ws
+                        color: sel ? Theme.background : Theme.primary
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 13
+                        font.bold: sel
+                    }
+                    Rectangle {
+                        visible: page.wsAssignment(ws) !== ""
+                        width: 6; height: 6; radius: 3
+                        anchors.top: parent.top; anchors.right: parent.right; anchors.margins: 4
+                        color: sel ? Theme.background : Theme.primary
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: page.wsTarget = ws
+                    }
+                }
+            }
+        }
+
+        // Current assignment + clear.
+        StRow {
+            icon: "󰋩"
+            title: "Workspace " + page.wsTarget
+            subtitle: page.wsAssignment(page.wsTarget) !== ""
+                      ? page.baseName(page.wsAssignment(page.wsTarget))
+                      : "Using the global wallpaper"
+            StButton {
+                text: "Clear"
+                icon: "󰜺"
+                dangerous: true
+                enabled: page.wsAssignment(page.wsTarget) !== ""
+                onClicked: Quickshell.execDetached(["bash", "-c",
+                    page.wsScript + " --clear " + page.wsTarget])
+            }
+        }
+
+        StSearchField {
+            id: wsSearchField
+            placeholder: "Search wallpapers…"
+            onTextChanged: page.wsSearch = text
+        }
+
+        // Grid — clicking assigns to the target workspace.
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.margins: 6
+            Layout.preferredHeight: 320
+            radius: 12
+            color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.04)
+            clip: true
+
+            Text {
+                anchors.centerIn: parent
+                visible: wsGrid.count === 0
+                text: "Wallpaper folder is empty or invalid"
+                color: Theme.primary; opacity: 0.4; font.pixelSize: 13
+            }
+
+            GridView {
+                id: wsGrid
+                anchors.fill: parent
+                anchors.margins: 8
+                clip: true
+                cacheBuffer: 2400
+                reuseItems: true
+                cellWidth: width / 3
+                cellHeight: cellWidth * 0.62
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                model: FolderListModel {
+                    folder: "file://" + page.wallpaperFolder
+                    showDirs: false
+                    caseSensitive: false
+                    sortField: FolderListModel.Name
+                    nameFilters: {
+                        let s = page.wsSearch.trim()
+                        if (s === "") return ["*.jpg", "*.jpeg", "*.png"]
+                        return ["*" + s + "*.jpg", "*" + s + "*.jpeg", "*" + s + "*.png"]
+                    }
+                }
+
+                delegate: Item {
+                    required property string filePath
+                    required property string fileName
+                    width: wsGrid.cellWidth
+                    height: wsGrid.cellHeight
+                    readonly property bool isAssigned: page.wsAssignment(page.wsTarget) === filePath
+
+                    Rectangle {
+                        anchors.fill: parent
+                        anchors.margins: 5
+                        radius: 10
+                        color: Theme.surface_container
+                        border.color: isAssigned ? Theme.primary
+                                    : (wsCellMouse.containsMouse ? Theme.primary : "transparent")
+                        border.width: isAssigned ? 3 : 2
+                        clip: true
+
+                        Image {
+                            anchors.fill: parent
+                            anchors.margins: 2
+                            source: "file://" + filePath
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                            sourceSize.width: 320
+                            sourceSize.height: 200
+                            opacity: status === Image.Ready ? 1.0 : 0.0
+                            Behavior on opacity { NumberAnimation { duration: 300 } }
+                        }
+
+                        Rectangle {
+                            anchors.bottom: parent.bottom
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.margins: 2
+                            height: 20
+                            color: "#aa000000"
+                            Text {
+                                anchors.centerIn: parent
+                                width: parent.width - 10
+                                text: fileName
+                                color: "white"
+                                font.pixelSize: 10
+                                elide: Text.ElideRight
+                                horizontalAlignment: Text.AlignHCenter
+                            }
+                        }
+
+                        MouseArea {
+                            id: wsCellMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: Quickshell.execDetached(["bash", "-c",
+                                page.wsScript + " --assign " + page.wsTarget + " '" + filePath + "'"])
+                        }
+                    }
+                }
+            }
         }
     }
 }

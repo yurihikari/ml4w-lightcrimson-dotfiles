@@ -18,7 +18,7 @@ echo -e "\n========================================"
 echo "📦 Installing Dependencies"
 echo "========================================"
 # Loop through required packages to install them cleanly
-for pkg in cava zoxide rsync; do
+for pkg in cava zoxide rsync socat; do
     if ! command -v "$pkg" &> /dev/null; then
         echo "📦 $pkg not found. Installing..."
         # Added --noconfirm so the script doesn't pause waiting for "Y"
@@ -70,6 +70,9 @@ else
     cp -rLf "$REPO_ROOT/.config/"* "$TARGET_STORAGE/.config/"
 fi
 
+# Ensure custom scripts remain executable after rsync
+chmod +x "$TARGET_STORAGE/.config/hypr/conf/custom/workspace-wallpapers.sh" 2>/dev/null || true
+
 # ==========================================
 # 5. SPECIFIC FILE FAILSAFES
 # ==========================================
@@ -117,6 +120,13 @@ echo "
    • darkmode: Custom darkmode state file preserved
    • ml4w-wallpaper: Added darkmode variable
      → Matugen won't override darkmode unless desired
+
+🖼️ Per-Workspace Wallpapers
+   • workspace-wallpapers.sh: Different wallpaper per Hyprland workspace
+     → Autostarted via ~/.config/hypr/conf/custom/autostart.lua
+   • WorkspaceWallpaperAPP: Separate Quickshell app to select wallpapers per workspace
+     → Open with SUPER + SHIFT + E
+     → Saves assignments to ~/.config/hypr/conf/custom/workspace-wallpapers.json
 
 📸 Screenshot & Colorpicker Enhancements
    • screenshot.sh: Screenshots now copied to clipboard
