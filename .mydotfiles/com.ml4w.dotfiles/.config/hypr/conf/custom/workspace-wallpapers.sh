@@ -3,19 +3,15 @@
 # ============================================================================
 # Per-workspace wallpaper manager (coordinated with the ML4W pipeline)
 # ----------------------------------------------------------------------------
-# Applies a different wallpaper per Hyprland workspace, and optionally recolors
-# the Quickshell shell (bar/popups) to match each workspace's wallpaper.
+# Applies a different wallpaper per Hyprland workspace. It ONLY changes the
+# wallpaper image — it never touches the colour theme. To recolour the desktop,
+# use the normal ML4W wallpaper flow (which runs matugen); that change also
+# pins itself to the workspace you're on (see --record-current below).
 #
 # Source of truth:  ~/.config/hypr/conf/custom/workspace-wallpapers.json
 #                   { "1": "/path/a.jpg", "3": "/path/b.png", ... }
 #   • A workspace WITH an entry uses that wallpaper.
 #   • A workspace WITHOUT an entry falls back to the active ML4W wallpaper.
-#
-# Coordination with ML4W:
-#   ml4w-wallpaper calls us with `--record-current <path>` after a global
-#   change, so the change pins to the workspace you were on (no more "snap
-#   back to the old per-workspace wallpaper when you return"). ML4W already
-#   ran full matugen for that change, so we only record — we do not recolor.
 #
 # Modes:
 #   (no args)                  Run as the daemon: apply now, then listen for
@@ -39,21 +35,12 @@ log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $1" >> "$LOG_FILE"; }
 CONFIG_FILE="$HOME/.config/hypr/conf/custom/workspace-wallpapers.json"
 ACTIVE_WALLPAPER_FILE="$HOME/.cache/ml4w/hyprland-dotfiles/current_wallpaper"
 DEFAULT_WALLPAPER="$HOME/.config/ml4w/wallpapers/default.jpg"
-
-# Per-workspace color following (1 = on, 0 = off). Written by the Settings app.
-COLORS_SETTING_FILE="$HOME/.config/ml4w/settings/workspace-wallpaper-colors"
-# Dark/light mode, shared with the ML4W pipeline (1 = dark).
-DARKMODE_SETTING="$HOME/.config/ml4w/settings/darkmode"
-# Lightweight matugen config that regenerates ONLY the Quickshell shell colors
-# (no kitty/gtk/hyprland post-hooks). See config-workspace.toml.
-MATUGEN_WS_CONFIG="$HOME/.config/matugen/config-workspace.toml"
 TRANSITION_SETTING="$HOME/.config/ml4w/settings/wallpaper-transition-effect"
 
-# State: remembers what we last put on each monitor / used for colors so we can
-# skip redundant work (this is what keeps workspace switching from being janky).
+# State: remembers what we last put on each monitor so we can skip redundant
+# work (this is what keeps workspace switching from flickering).
 STATE_DIR="$HOME/.cache/workspace-wallpapers"
 mkdir -p "$STATE_DIR"
-COLOR_STATE_FILE="$STATE_DIR/last-color-wallpaper"
 
 # --- Dependency checks -----------------------------------------------------
 # jq/hyprctl/awww are always needed. socat is only needed by the daemon's event
@@ -151,79 +138,27 @@ start_awww() {
 transition_type() {
     local t="fade"
     [[ -f "$TRANSITION_SETTING" ]] && t="$(cat "$TRANSITION_SETTING")"
-    # "off"/empty -> a safe simple transition.
     [[ -z "$t" || "$t" == "off" || "$t" == "none" ]] && t="simple"
     echo "$t"
 }
 
-# --- Colors ----------------------------------------------------------------
-colors_enabled() {
-    [[ -f "$COLORS_SETTING_FILE" ]] && [[ "$(cat "$COLORS_SETTING_FILE" 2>/dev/null)" == "1" ]]
-}
-
-matugen_bin() {
-    if [[ -x "$HOME/.cargo/bin/matugen" ]]; then echo "$HOME/.cargo/bin/matugen"
-    elif [[ -x "$HOME/.local/bin/matugen" ]]; then echo "$HOME/.local/bin/matugen"
-    else echo "matugen"; fi
-}
-
-matugen_mode() {
-    # Mirror ml4w-wallpaper: ML4W darkmode setting wins, default dark.
-    if [[ -f "$DARKMODE_SETTING" ]] && [[ "$(cat "$DARKMODE_SETTING" 2>/dev/null)" == "0" ]]; then
-        echo "light"
-    else
-        echo "dark"
-    fi
-}
-
-# Lightweight recolor: regenerate ONLY the Quickshell shell colors from $1 and
-# reload the shell. No kitty/gtk/hyprland reloads, so it's cheap enough to run
-# on a workspace switch. Skips work if the wallpaper hasn't changed.
-recolor_shell() {
-    local wallpaper="$1"
-    colors_enabled || return 0
-    [[ -f "$MATUGEN_WS_CONFIG" ]] || { log "Per-workspace colors on but $MATUGEN_WS_CONFIG missing"; return 0; }
-    local mg; mg="$(matugen_bin)"
-    command -v "$mg" >/dev/null 2>&1 || { log "matugen not found; skipping recolor"; return 0; }
-
-    local last=""
-    [[ -f "$COLOR_STATE_FILE" ]] && last="$(cat "$COLOR_STATE_FILE")"
-    if [[ "$wallpaper" == "$last" ]]; then
-        return 0  # already showing these colors
-    fi
-
-    log "Recoloring shell from $wallpaper"
-    "$mg" --config "$MATUGEN_WS_CONFIG" image "$wallpaper" \
-        --source-color-index 0 -m "$(matugen_mode)" >/dev/null 2>&1
-
-    # Reload the Quickshell shell + the ML4W settings shell.
-    qs ipc call theme-manager reload >/dev/null 2>&1 || true
-    qs -p "$HOME/.local/share/ml4w-dotfiles-settings/quickshell" ipc call theme-manager reload >/dev/null 2>&1 || true
-    echo "$wallpaper" > "$COLOR_STATE_FILE"
-}
-
 # --- Apply -----------------------------------------------------------------
-# Sets the per-workspace wallpaper on every monitor (skipping monitors that
-# already show the right image), then recolors from the focused monitor's
-# wallpaper (colors are global, so the focused workspace wins).
+# Sets the per-workspace wallpaper on every monitor, skipping monitors that
+# already show the right image (so switching doesn't flicker).
 set_wallpapers() {
     require jq hyprctl awww || return 1
     start_awww || return 1
 
-    local monitors_json transition focused_wallpaper=""
+    local monitors_json transition
     monitors_json=$(hyprctl monitors -j 2>/dev/null)
     transition="$(transition_type)"
 
-    while IFS=$'\t' read -r monitor workspace focused; do
+    while IFS=$'\t' read -r monitor workspace; do
         [[ -z "$monitor" ]] && continue
         local wallpaper state_file last=""
         wallpaper="$(get_workspace_wallpaper "$workspace")"
         state_file="$STATE_DIR/monitor-$monitor"
         [[ -f "$state_file" ]] && last="$(cat "$state_file")"
-
-        if [[ "$focused" == "true" ]]; then
-            focused_wallpaper="$wallpaper"
-        fi
 
         if [[ "$wallpaper" == "$last" ]]; then
             continue  # already correct on this monitor — no flicker
@@ -237,9 +172,7 @@ set_wallpapers() {
         else
             log "Wallpaper not found: $wallpaper"
         fi
-    done < <(echo "$monitors_json" | jq -r '.[] | "\(.name)\t\(.activeWorkspace.name)\t\(.focused)"')
-
-    [[ -n "$focused_wallpaper" ]] && recolor_shell "$focused_wallpaper"
+    done < <(echo "$monitors_json" | jq -r '.[] | "\(.name)\t\(.activeWorkspace.name)"')
 }
 
 # ============================================================================
@@ -268,18 +201,15 @@ case "$1" in
         ;;
     --record-current)
         # ML4W hook: pin the just-set global wallpaper to the focused workspace,
-        # WITHOUT re-applying (ML4W already set image + colors). We also sync the
-        # color state so we don't needlessly recolor when staying on this ws.
+        # WITHOUT re-applying (ML4W already set the image). We sync this monitor's
+        # state so the daemon won't redundantly re-apply on the next event.
         if [[ -z "$2" ]]; then log "--record-current needs <path>"; exit 1; fi
         require jq hyprctl || exit 0
         ws="$(active_workspace_of_focused_monitor)"
         [[ -z "$ws" ]] && exit 0
         config_set "$ws" "$2"
-        # Mark this monitor/colors as already showing $2 so the daemon won't
-        # re-apply or re-color on the next event.
         focused_mon="$(hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.focused==true) | .name' | head -n1)"
         [[ -n "$focused_mon" ]] && echo "$2" > "$STATE_DIR/monitor-$focused_mon"
-        echo "$2" > "$COLOR_STATE_FILE"
         log "Recorded global change: workspace $ws -> $2"
         exit 0
         ;;

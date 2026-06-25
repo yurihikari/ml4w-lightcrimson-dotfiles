@@ -26,12 +26,10 @@ StPage {
 
     // ── Per-workspace wallpapers ─────────────────────────────────────────
     property string wsConfigFile: Quickshell.env("HOME") + "/.config/hypr/conf/custom/workspace-wallpapers.json"
-    property string wsColorsFile: Quickshell.env("HOME") + "/.config/ml4w/settings/workspace-wallpaper-colors"
     property string wsScript: Quickshell.env("HOME") + "/.config/hypr/conf/custom/workspace-wallpapers.sh"
     property int workspaceCount: 10
     property int wsTarget: 1            // which workspace the picker below assigns to
     property var wsConfig: ({})         // { "1": "/path", ... }
-    property bool wsColors: false       // colors follow each workspace's wallpaper
     property string wsSearch: ""
 
     function wsAssignment(n) {
@@ -105,16 +103,6 @@ StPage {
         }
         onLoaded: parseConfig()
         onFileChanged: { reload(); parseConfig() }
-    }
-
-    // "Colors follow workspace" toggle state (1 = on).
-    FileView {
-        id: wsColorsView
-        path: Qt.url(page.wsColorsFile)
-        blockLoading: true
-        watchChanges: true
-        onLoaded: page.wsColors = (text().trim() === "1")
-        onFileChanged: { reload(); page.wsColors = (text().trim() === "1") }
     }
 
     // Emulates matugen for the current wallpaper WITHOUT touching the real
@@ -443,16 +431,13 @@ StPage {
     StCard {
         title: "Per-workspace wallpapers"
 
-        // Colors-follow toggle.
+        // What this does / doesn't do.
         StRow {
-            icon: "󰸉"
-            title: "Colors follow workspace"
-            subtitle: "Recolor the bar & popups to match each workspace's wallpaper"
-            StToggle {
-                checked: page.wsColors
-                controlled: true
-                onToggled: (v) => { page.wsColors = v; wsColorsView.setText(v ? "1" : "0") }
-            }
+            icon: "󰋩"
+            title: "Wallpaper only — theme stays the same"
+            subtitle: "Each workspace can show its own wallpaper. This does not change "
+                    + "the colour theme. To recolour the desktop, set a global wallpaper "
+                    + "from the Wallpaper section above (that also applies to this workspace)."
         }
 
         // Target workspace selector (number chips; dot = has an assignment).
