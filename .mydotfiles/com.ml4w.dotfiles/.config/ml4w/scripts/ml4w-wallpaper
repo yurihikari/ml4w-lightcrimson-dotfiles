@@ -301,4 +301,14 @@ info "$(basename "$RASI_FILE") written with $(basename "$BLURRED_WALLPAPER")"
 # Notification
 send_notification "Wallpaper Update Completed" "Successfully set and processed $(basename "$IMAGE_PATH")"
 info "Wallpaper Updated: Successfully set $(basename "$IMAGE_PATH")"
+
+# Per-workspace wallpaper integration:
+# Pin this global change to the workspace you're currently on, so returning to
+# it doesn't snap back to a stale per-workspace assignment. Fully optional and
+# defensive — never affects the wallpaper change if the script is absent.
+WS_WALLPAPER_SCRIPT="$HOME/.config/hypr/conf/custom/workspace-wallpapers.sh"
+if [ -x "$WS_WALLPAPER_SCRIPT" ]; then
+    "$WS_WALLPAPER_SCRIPT" --record-current "$IMAGE_PATH" >/dev/null 2>&1 || true
+fi
+
 exit 0

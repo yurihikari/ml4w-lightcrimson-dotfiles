@@ -18,7 +18,7 @@ echo -e "\n========================================"
 echo "📦 Installing Dependencies"
 echo "========================================"
 # Loop through required packages to install them cleanly
-for pkg in cava zoxide rsync; do
+for pkg in cava zoxide rsync socat; do
     if ! command -v "$pkg" &> /dev/null; then
         echo "📦 $pkg not found. Installing..."
         # Added --noconfirm so the script doesn't pause waiting for "Y"
