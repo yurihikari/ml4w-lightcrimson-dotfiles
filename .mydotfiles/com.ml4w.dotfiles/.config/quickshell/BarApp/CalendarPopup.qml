@@ -1,3 +1,4 @@
+import Quickshell
 import Quickshell.Io
 import QtQuick
 import QtQuick.Layouts
@@ -117,6 +118,41 @@ BarPopup {
     property real geoLat: 0
     property real geoLon: 0
 
+    // ─── Saved default location ──────────────────────────────────────────────
+    // A plain, geocodable place name (e.g. "Tokyo") persisted to the ml4w
+    // settings folder. When set, it becomes the default location on open,
+    // overriding IP-based geolocation. Empty → fall back to IP detection.
+    property string savedLocationFile: Quickshell.env("HOME") + "/.config/ml4w/settings/weather-location"
+    property string savedLocation: ""
+    // Plain name of whatever is currently displayed, suitable for re-geocoding
+    // and for persisting. Set by both the IP and the search code paths.
+    property string locationQuery: ""
+    property bool   isDefaultLocation: savedLocation !== "" && savedLocation === locationQuery
+
+    FileView {
+        id: savedLocationView
+        path: Qt.url(root.savedLocationFile)
+        blockLoading: true
+        watchChanges: true
+        printErrors: false   // the file is absent until a default is saved
+        onLoaded: root.savedLocation = text().trim()
+        onFileChanged: { reload(); root.savedLocation = text().trim() }
+    }
+
+    function saveDefaultLocation() {
+        if (root.locationQuery.trim() === "") return
+        root.savedLocation = root.locationQuery
+        // Pass the name as a positional arg ($1) so spaces/apostrophes in city
+        // names can't break the shell command.
+        Quickshell.execDetached(["bash", "-c",
+            "mkdir -p \"$HOME/.config/ml4w/settings\" && printf '%s' \"$1\" > \"$HOME/.config/ml4w/settings/weather-location\"",
+            "ml4w-weather", root.locationQuery])
+    }
+    function clearDefaultLocation() {
+        root.savedLocation = ""
+        Quickshell.execDetached(["rm", "-f", root.savedLocationFile])
+    }
+
     // ─── World Clock state ─────────────────────────────────────────────────
     property bool   showWorldClock: false
     property string targetWcCity: ""
@@ -179,6 +215,7 @@ BarPopup {
                     let j = JSON.parse(data.trim())
                     if (j.status === "success") {
                         root.displayCity = j.city
+                        root.locationQuery = j.city
                         root.geoLat = j.lat
                         root.geoLon = j.lon
                         fetchWeather(j.lat, j.lon)
@@ -203,6 +240,7 @@ BarPopup {
                     if (j.results && j.results.length > 0) {
                         let r = j.results[0]
                         root.displayCity = r.name + (r.country_code ? ", " + r.country_code : "")
+                        root.locationQuery = r.name
                         root.geoLat = r.latitude
                         root.geoLon = r.longitude
                         fetchWeather(r.latitude, r.longitude)
@@ -344,7 +382,11 @@ BarPopup {
     }
 
     onOpened: {
-        if (weatherCode === -1) loadCity("")
+        // Saved default location takes precedence; empty string → IP geolocation.
+        if (weatherCode === -1) {
+            root.cityInput = root.savedLocation
+            loadCity(root.savedLocation)
+        }
     }
 
     // Elevation shadow — a sibling because mainContent clips (a child shadow
@@ -629,7 +671,7 @@ BarPopup {
                             }
                         }
 
-                        Text { 
+                        Text {
                             text: "󰅖"
                             color: Theme.primary
                             opacity: 0.4
@@ -637,14 +679,67 @@ BarPopup {
                             visible: cityField.text.length > 0
                             verticalAlignment: Text.AlignVCenter
 
-                            MouseArea { 
+                            MouseArea {
                                 anchors.fill: parent
-                                onClicked: { 
+                                onClicked: {
                                     cityField.text = ""
                                     root.cityInput = ""
-                                    loadCity("") 
-                                } 
-                            } 
+                                    loadCity("")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Item { Layout.preferredHeight: 8 }
+
+                // ── Save-as-default location action ─────────────────────────
+                // An always-visible, labelled pill (once a location is loaded)
+                // so saving the default isn't hidden behind a tiny icon that
+                // only shows when the search field is empty.
+                Rectangle {
+                    Layout.fillWidth: true
+                    height: 28
+                    radius: 14
+                    visible: root.weatherCode !== -1 && root.locationQuery !== "" && !root.wxLoading
+                    color: saveMouse.containsMouse
+                        ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15)
+                        : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.06)
+                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, root.isDefaultLocation ? 0.4 : 0.2)
+                    border.width: 1
+                    Behavior on color { ColorAnimation { duration: 150 } }
+
+                    RowLayout {
+                        anchors.centerIn: parent
+                        spacing: 6
+
+                        Text {
+                            text: root.isDefaultLocation ? "󰓎" : "󰓒"
+                            color: Theme.primary
+                            opacity: root.isDefaultLocation ? 0.9 : 0.6
+                            font.pixelSize: 14
+                            verticalAlignment: Text.AlignVCenter
+                        }
+
+                        Text {
+                            text: root.isDefaultLocation
+                                ? (saveMouse.containsMouse ? "Remove default" : "Default location")
+                                : "Save as default"
+                            color: Theme.primary
+                            opacity: root.isDefaultLocation ? 0.9 : 0.6
+                            font.pixelSize: 11
+                            font.weight: Font.Bold
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                    }
+
+                    MouseArea {
+                        id: saveMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        onClicked: {
+                            if (root.isDefaultLocation) root.clearDefaultLocation()
+                            else root.saveDefaultLocation()
                         }
                     }
                 }
