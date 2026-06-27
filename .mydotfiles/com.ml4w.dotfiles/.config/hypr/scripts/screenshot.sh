@@ -52,7 +52,15 @@ post_process() {
     local FILE_PATH="$screenshot_folder/$NAME"
     [[ -f "$FILE_PATH" ]] || FILE_PATH="$HOME/$NAME"
     if [[ -f "$FILE_PATH" ]]; then
-        wl-copy < "$FILE_PATH"
+        # Copy to the clipboard as PNG — the format virtually every app expects
+        # when pasting an image. `wl-copy < file.jpg` advertises image/jpeg, which
+        # many apps (browsers, chat, editors) silently refuse to paste. The saved
+        # file keeps its configured format; only the clipboard copy is normalised.
+        if [[ "$image_format" == "png" ]]; then
+            wl-copy --type image/png < "$FILE_PATH"
+        else
+            magick "$FILE_PATH" png:- | wl-copy --type image/png
+        fi
         notify_user \
             --a "${APP_NAME}" \
             --i "$FILE_PATH" \
