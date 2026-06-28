@@ -339,7 +339,7 @@ PanelWindow {
                 anchors.fill: parent
                 anchors.margins: 2
                 radius: parent.radius - anchors.margins
-                color: Theme.background
+                color: Theme.withAlpha(Theme.background, 0.8)
             }
 
         ColumnLayout {
