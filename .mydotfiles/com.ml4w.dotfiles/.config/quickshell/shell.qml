@@ -7,6 +7,7 @@ import "SidebarApp"
 import "CalendarApp"
 import "WallpaperApp"
 import "WorkspaceWallpaperAPP"
+import "StatusbarApp"
 import "CustomTheme"
 import "CavaApp"
 import "BarApp"
@@ -51,4 +52,5 @@ ShellRoot {
     //         CavaWindow {}
     //     }
     // }
+    StatusbarWindow {}
 }
