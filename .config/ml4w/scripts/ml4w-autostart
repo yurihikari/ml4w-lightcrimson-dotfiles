@@ -4,6 +4,8 @@
 CACHE_FOLDER="$HOME/.cache/ml4w/hyprland-dotfiles"
 CACHE_FILE="$CACHE_FOLDER/current_wallpaper"
 DEFAULT_WALLPAPER="$HOME/.config/ml4w/wallpapers/default.jpg"
+AWWW_DAEMON_VERSION="$(awww-daemon --version 2>/dev/null | awk '{ print $2 }')"
+AWWW_CACHE_FOLDER="${XDG_CACHE_HOME:-"$HOME/.cache"}/awww/$AWWW_DAEMON_VERSION"
 
 # Colors for UI
 RED='\033[0;31m'
@@ -27,26 +29,63 @@ if [ ! -f $CACHE_FILE ]; then
     info "Cache file created"
 fi
 
-~/.config/ml4w/scripts/ml4w-wallpaper "$(cat $CACHE_FILE)" &
+# Kill any existing qs instances
+killall qs 2>/dev/null || true
 
-# Start Quickshell
-killall qs
-sleep 0.5
+# Start Quickshell first
+info "Starting Quickshell"
 qs &
+
+# Wait for qs process to be ready, then let IPC initialize
+info "Waiting for Quickshell..."
+timeout=15
+elapsed=0
+until pgrep -x qs >/dev/null 2>&1; do
+    sleep 0.2
+    elapsed=$((elapsed + 1))
+    if [ $elapsed -ge $((timeout * 5)) ]; then
+        warn "Quickshell did not start within ${timeout}s"
+        break
+    fi
+done
 sleep 0.5
+info "Quickshell ready"
+
+# Apply wallpaper theming on every start — qs is guaranteed ready for IPC calls.
+# Theming (matugen colors, quickshell reload, nwg-dock launch) must always run.
+# Only the awww image set is skipped when already cached, to avoid a flicker.
+if [[ -z $(find "$AWWW_CACHE_FOLDER" -mindepth 1 -maxdepth 1 -type f -print -quit 2>/dev/null) ]]; then
+    info "Set wallpaper to cache file $(cat $CACHE_FILE)"
+    ~/.config/ml4w/scripts/ml4w-wallpaper "$(cat $CACHE_FILE)" &
+else
+    info "awww cache present, applying theming only for $(cat $CACHE_FILE)"
+    ~/.config/ml4w/scripts/ml4w-wallpaper "$(cat $CACHE_FILE)" --skip-wallpaper &
+fi
 
 # Start ML4W Settings App
+info "Starting ML4W Dotfiles Settings"
 PROFILE="com.ml4w.dotfiles" qs -p $HOME/.local/share/ml4w-dotfiles-settings/quickshell &
 info "ML4W Dotfiles Settings started"
 
 # Start Quickshell Overview
+info "Starting Quickshell Overview"
 qs -p $HOME/.config/quickshell/overview &
 info "Quickshell Overview started"
 
 # Start ML4W Welcome App
+info "Starting ML4W Welcome App"
 if [ ! -f $HOME/.cache/ml4w-welcome-autostart ]; then
-    sleep 3
-    qs ipc call welcome toggle
+    timeout=30
+    count=0
+    sleep 1
+    until qs ipc call welcome toggle >/dev/null 2>&1; do
+        (( count++ ))
+        if (( count >= timeout )); then
+            warn "Welcome IPC not available after ${timeout}s"
+            break
+        fi
+        sleep 1
+    done
     info "ML4W Welcome started"
 else
     info "ML4W Welcome disabled"
