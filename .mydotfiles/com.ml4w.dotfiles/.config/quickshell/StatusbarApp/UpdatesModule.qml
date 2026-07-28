@@ -42,6 +42,11 @@ Rectangle {
     // Same accent-filled highlight as BarButton on hover/selection.
     color: active ? Theme.primary : "transparent"
 
+    // Fade the accent circle in/out like BarButton does.
+    Behavior on color {
+        ColorAnimation { duration: 500; easing.type: Easing.OutQuint }
+    }
+
     RowLayout {
         id: row
         anchors.centerIn: parent
@@ -59,6 +64,9 @@ Rectangle {
             layer.effect: MultiEffect {
                 colorization: 1.0
                 colorizationColor: updates.active ? Theme.background : Theme.primary
+                Behavior on colorizationColor {
+                    ColorAnimation { duration: 500; easing.type: Easing.OutQuint }
+                }
             }
         }
 
@@ -69,6 +77,9 @@ Rectangle {
             font.family: Theme.fontFamily
             font.pixelSize: 14
             font.bold: true
+            Behavior on color {
+                ColorAnimation { duration: 500; easing.type: Easing.OutQuint }
+            }
         }
     }
 
@@ -110,5 +121,15 @@ Rectangle {
         running: true
         repeat: true
         onTriggered: updates.refresh()
+    }
+
+    // Let external scripts drive the module via `qs ipc call updates ...`.
+    // `reset` clears the count immediately (e.g. right after an update run,
+    // so the module hides itself without waiting for the next poll); `refresh`
+    // re-runs the check script on demand.
+    IpcHandler {
+        target: "updates"
+        function reset(): void { updates.count = 0 }
+        function refresh(): void { updates.refresh() }
     }
 }

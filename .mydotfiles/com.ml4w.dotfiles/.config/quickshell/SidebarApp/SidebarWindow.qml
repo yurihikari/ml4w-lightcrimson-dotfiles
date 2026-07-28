@@ -29,8 +29,8 @@ PanelWindow {
     }
 
     margins {
-        top: 67 // 87 - 20
-        bottom: 0 // 20 - 20
+        top: 52
+        bottom: 0
     }
 
     // --- CLICK OUTSIDE TO CLOSE (Native Hyprland) ---
@@ -74,6 +74,7 @@ PanelWindow {
         function toggle(): void { root.isOpen = !root.isOpen }
         function open(): void { root.isOpen = true }
         function close(): void { root.isOpen = false }
+        function isOpen(): bool { return root.isOpen }
     }
 
     Process {
@@ -329,12 +330,19 @@ PanelWindow {
                             Layout.fillWidth: true
                             spacing: 15
 
-                            Text {
-                                text: "" // Speaker icon
-                                color: Theme.primary
-                                font.family: "monospace"
-                                font.pixelSize: 18
+                            Image {
+                                source: "../shared/icons/volume.svg"
                                 Layout.alignment: Qt.AlignVCenter
+                                Layout.preferredWidth: 20
+                                Layout.preferredHeight: 20
+                                sourceSize.width: 20
+                                sourceSize.height: 20
+                                fillMode: Image.PreserveAspectFit
+                                layer.enabled: true
+                                layer.effect: MultiEffect {
+                                    colorization: 1.0
+                                    colorizationColor: Theme.primary
+                                }
                             }
 
                             Slider {
@@ -397,12 +405,19 @@ PanelWindow {
                             Layout.fillWidth: true
                             spacing: 15
 
-                            Text {
-                                text: "" // Sun/Brightness icon
-                                color: Theme.primary
-                                font.family: "monospace"
-                                font.pixelSize: 18
+                            Image {
+                                source: "../shared/icons/brightness.svg"
                                 Layout.alignment: Qt.AlignVCenter
+                                Layout.preferredWidth: 20
+                                Layout.preferredHeight: 20
+                                sourceSize.width: 20
+                                sourceSize.height: 20
+                                fillMode: Image.PreserveAspectFit
+                                layer.enabled: true
+                                layer.effect: MultiEffect {
+                                    colorization: 1.0
+                                    colorizationColor: Theme.primary
+                                }
                             }
 
                             Slider {
@@ -611,93 +626,105 @@ PanelWindow {
                         visible: Mpris.players.values.length > 0
                     }
 
-                    // --- WAYBAR ---
+                    // --- STATUS BAR ENGINE ---
+                    // Select which bar ML4W OS uses. The choice is persisted to
+                    // ~/.config/ml4w/settings/statusbar (read by everything else
+                    // here and by the toggle/reload scripts). On = Quickshell,
+                    // Off = Waybar. Flipping it also applies the change live:
+                    // it shows the selected bar and hides the other.
                     RowLayout {
                         Layout.fillWidth: true
-                        Text { text: "Waybar"; color: Theme.primary; font.family: Theme.fontFamily; font.pixelSize: 16 }
+                        Text { text: "Status Bar Engine"; color: Theme.primary; font.family: Theme.fontFamily; font.pixelSize: 16 }
                         Item { Layout.fillWidth: true }
+                        Text {
+                            text: engineSwitch.checked ? "Quickshell" : "Waybar"
+                            color: Theme.primary
+                            opacity: 0.7
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 14
+                            Layout.rightMargin: 8
+                        }
                         ML4WSwitch {
-                            id: waybarSwitch
+                            id: engineSwitch
                             property bool ready: false
+                            // Read the configured engine (defaults to waybar).
                             Process {
-                                command: ["bash", "-c", "test -f ~/.config/ml4w/settings/waybar-disabled && echo 0 || echo 1"]
+                                command: ["bash", "-c", "sb=$(tr -d '[:space:]' < ~/.config/ml4w/settings/statusbar 2>/dev/null); [ \"$sb\" = quickshell ] && echo 1 || echo 0"]
                                 running: root.isOpen
                                 stdout: StdioCollector {
                                     onStreamFinished: {
-                                        console.log("Test for Waybar: " + this.text.trim())
-                                        waybarSwitch.checked = (this.text.trim() === "1")
-                                        waybarSwitch.ready = true
+                                        engineSwitch.checked = (this.text.trim() === "1")
+                                        engineSwitch.ready = true
                                     }
                                 }
                             }
                             onClicked: {
                                 if (!ready) return;
-                                let fileCmd = checked
-                                ? "rm -f ~/.config/ml4w/settings/waybar-disabled"
-                                : "touch ~/.config/ml4w/settings/waybar-disabled"
-                                console.log("Waybar cmd: " + fileCmd)
-                                Quickshell.execDetached(["bash", "-c", fileCmd + ";" + Quickshell.env("HOME") + "/.config/waybar/launch.sh"])
+                                // Persist the selection, then apply it live:
+                                // enable the chosen bar and disable the other.
+                                let cmd = checked
+                                    ? "echo quickshell > ~/.config/ml4w/settings/statusbar; qs ipc call statusbar enable; touch ~/.config/ml4w/settings/waybar-disabled; " + Quickshell.env("HOME") + "/.config/waybar/launch.sh"
+                                    : "echo waybar > ~/.config/ml4w/settings/statusbar; rm -f ~/.config/ml4w/settings/waybar-disabled; " + Quickshell.env("HOME") + "/.config/waybar/launch.sh; qs ipc call statusbar disable"
+                                console.log("Status Bar Engine cmd: " + cmd)
+                                Quickshell.execDetached(["bash", "-c", cmd])
                             }
                         }
-
-                        SettingsWheel {
-                            onClicked: waybarMenu.open()
-                            Menu {
-                                id: waybarMenu
-                                y: parent.height
-                                implicitWidth: 220
-                                padding: 8
-
-                                background: Rectangle { color: Theme.background; border.color: Theme.primary; border.width: 1; radius: 8 }
-                                ML4WMenuItem { text: "Select Waybar Theme"; onClicked: {
-                                        Quickshell.execDetached(["bash", "-c", Quickshell.env("HOME") + "/.config/waybar/themeswitcher.sh"])
-                                    }
-                                }
-                                ML4WMenuItem { text: "Edit Quicklinks"; onClicked: {
-                                        root.isOpen = false
-                                        Quickshell.execDetached(["gnome-text-editor", Quickshell.env("HOME") + "/.config/ml4w/settings/waybar-quicklinks.json"])
-                                    }
-                                }
-                                ML4WMenuItem { text: "Reload Waybar"; onClicked: {
-                                        Quickshell.execDetached(["bash", "-c", Quickshell.env("HOME") + "/.config/waybar/launch.sh"])
-                                    }
-                                }
-                            }
-                        }
+                        Item { implicitWidth: 28 }
                     }
 
-                    // --- STATUSBAR (Quickshell) ---
+                    // --- STATUS BAR ---
+                    // Single toggle for whichever bar ML4W OS is configured to
+                    // use (read from ~/.config/ml4w/settings/statusbar): either
+                    // waybar or the quickshell statusbar. The scripts handle the
+                    // per-bar specifics; this row only reflects/flips the state.
                     RowLayout {
                         Layout.fillWidth: true
-                        Text { text: "Statusbar"; color: Theme.primary; font.family: Theme.fontFamily; font.pixelSize: 16 }
+                        Text { text: "Status Bar"; color: Theme.primary; font.family: Theme.fontFamily; font.pixelSize: 16 }
                         Item { Layout.fillWidth: true }
                         ML4WSwitch {
                             id: statusbarSwitch
                             property bool ready: false
-                            // Read the current state from the "enabled" flag in
-                            // statusbar.json (the single source of truth). A
-                            // missing file or a missing/true flag counts as on.
+                            property string activeBar: "waybar"
+                            // Read the active bar and its current on/off state in
+                            // one shot ("<bar> <0|1>"): for quickshell the
+                            // "enabled" flag in the master statusbar.json, for
+                            // waybar the presence of the waybar-disabled marker.
                             Process {
-                                command: ["bash", "-c", "grep -q '\"enabled\"[[:space:]]*:[[:space:]]*false' ~/.config/ml4w/settings/statusbar.json && echo 0 || echo 1"]
-                                running: root.isOpen
+                                id: statusbarStateProc
+                                command: ["bash", "-c", "sb=$(tr -d '[:space:]' < ~/.config/ml4w/settings/statusbar 2>/dev/null); [ -n \"$sb\" ] || sb=waybar; if [ \"$sb\" = quickshell ]; then f=~/.config/ml4w-statusbar/statusbar.json; [ -f \"$f\" ] || f=~/.config/ml4w/settings/statusbar.json; grep -q '\"enabled\"[[:space:]]*:[[:space:]]*false' \"$f\" && s=0 || s=1; else test -f ~/.config/ml4w/settings/waybar-disabled && s=0 || s=1; fi; echo \"$sb $s\""]
                                 stdout: StdioCollector {
                                     onStreamFinished: {
-                                        console.log("Test for Statusbar: " + this.text.trim())
-                                        statusbarSwitch.checked = (this.text.trim() === "1")
+                                        let parts = this.text.trim().split(" ")
+                                        statusbarSwitch.activeBar = parts[0]
+                                        statusbarSwitch.checked = (parts[1] === "1")
                                         statusbarSwitch.ready = true
                                     }
                                 }
                             }
+                            // Re-read the state periodically while the sidebar is
+                            // open so the switch tracks external toggles (e.g. the
+                            // SUPER+CTRL+B keybinding) live, not just on reopen.
+                            // triggeredOnStart gives the initial read on open.
+                            Timer {
+                                interval: 1000
+                                repeat: true
+                                running: root.isOpen
+                                triggeredOnStart: true
+                                onTriggered: statusbarStateProc.running = true
+                            }
                             onClicked: {
                                 if (!ready) return;
-                                // The statusbar owns the file write; just tell it
-                                // the new state via IPC. `checked` already
-                                // reflects the post-click position.
-                                let ipcCmd = checked
-                                ? "qs ipc call statusbar enable"
-                                : "qs ipc call statusbar disable"
-                                console.log("Statusbar cmd: " + ipcCmd)
-                                Quickshell.execDetached(["bash", "-c", ipcCmd])
+                                // Send an absolute command matching the switch's
+                                // post-click position (rather than a blind toggle)
+                                // so the switch always reflects the real bar state,
+                                // even if the bar was toggled elsewhere meanwhile.
+                                let cmd = activeBar === "quickshell"
+                                    ? (checked ? "qs ipc call statusbar enable"
+                                               : "qs ipc call statusbar disable")
+                                    : (checked ? "rm -f ~/.config/ml4w/settings/waybar-disabled; " + Quickshell.env("HOME") + "/.config/waybar/launch.sh"
+                                               : "touch ~/.config/ml4w/settings/waybar-disabled; " + Quickshell.env("HOME") + "/.config/waybar/launch.sh")
+                                console.log("Status Bar cmd: " + cmd)
+                                Quickshell.execDetached(["bash", "-c", cmd])
                             }
                         }
 
@@ -709,18 +736,95 @@ PanelWindow {
                                 implicitWidth: 220
                                 padding: 8
 
-                                background: Rectangle { color: Theme.background; border.color: Theme.primary; border.width: 1; radius: 8 }
-                                ML4WMenuItem { text: "Reload Statusbar"; onClicked: {
-                                        Quickshell.execDetached(["bash", "-c", "qs ipc call statusbar reload"])
+                                // Only offer "Edit Settings" once the user has an
+                                // ml4w-statusbar override file to edit; the shipped
+                                // statusbar.json is not meant to be edited directly.
+                                property bool overrideExists: false
+                                Process {
+                                    command: ["bash", "-c", "[ -f ~/.config/ml4w-statusbar/statusbar.json ] && echo 1 || echo 0"]
+                                    running: root.isOpen
+                                    stdout: StdioCollector {
+                                        onStreamFinished: {
+                                            statusbarMenu.overrideExists = (this.text.trim() === "1")
+                                        }
                                     }
                                 }
-                                ML4WMenuItem { text: "Edit Settings"; onClicked: {
+
+                                background: Rectangle { color: Theme.background; border.color: Theme.primary; border.width: 1; radius: 8 }
+                                ML4WMenuItem { text: "Reload Status Bar"; onClicked: {
+                                        // Reads the settings file and reloads the
+                                        // matching bar.
+                                        Quickshell.execDetached(["bash", "-c", "~/.config/ml4w/scripts/ml4w-reload-statusbar"])
+                                    }
+                                }
+                                ML4WMenuItem {
+                                    text: "Select Waybar Theme"
+                                    visible: statusbarSwitch.activeBar === "waybar"
+                                    height: visible ? implicitHeight : 0
+                                    onClicked: {
+                                        Quickshell.execDetached(["bash", "-c", Quickshell.env("HOME") + "/.config/waybar/themeswitcher.sh"])
+                                    }
+                                }
+                                ML4WMenuItem {
+                                    text: "Edit Quicklinks"
+                                    visible: statusbarSwitch.activeBar === "waybar"
+                                    height: visible ? implicitHeight : 0
+                                    onClicked: {
                                         root.isOpen = false
-                                        Quickshell.execDetached(["bash", "-c", Quickshell.env("HOME") + "/.config/ml4w/settings/editor.sh " + Quickshell.env("HOME") + "/.config/ml4w/settings/statusbar.json"])
+                                        Quickshell.execDetached(["gnome-text-editor", Quickshell.env("HOME") + "/.config/ml4w/settings/waybar-quicklinks.json"])
+                                    }
+                                }
+                                ML4WMenuItem {
+                                    text: "Edit Settings"
+                                    visible: statusbarMenu.overrideExists
+                                    height: visible ? implicitHeight : 0
+                                    onClicked: {
+                                        root.isOpen = false
+                                        // Edit the master file: the ml4w-statusbar override when it
+                                        // exists, otherwise the shipped statusbar.json.
+                                        Quickshell.execDetached(["bash", "-c", "f=~/.config/ml4w-statusbar/statusbar.json; [ -f \"$f\" ] || f=~/.config/ml4w/settings/statusbar.json; ~/.config/ml4w/settings/editor.sh \"$f\""])
                                     }
                                 }
                             }
                         }
+                    }
+
+                    // --- STATUSBAR ALWAYS EXPANDED (Quickshell) ---
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Text { text: "Statusbar Expanded"; color: Theme.primary; font.family: Theme.fontFamily; font.pixelSize: 16 }
+                        Item { Layout.fillWidth: true }
+                        ML4WSwitch {
+                            id: statusbarExpandedSwitch
+                            property bool ready: false
+                            // Read the current state from the "alwaysExpanded" flag
+                            // in the master file: the ml4w-statusbar override when it
+                            // exists, otherwise the shipped statusbar.json. A missing
+                            // file or flag counts as off.
+                            Process {
+                                command: ["bash", "-c", "f=~/.config/ml4w-statusbar/statusbar.json; [ -f \"$f\" ] || f=~/.config/ml4w/settings/statusbar.json; grep -q '\"alwaysExpanded\"[[:space:]]*:[[:space:]]*true' \"$f\" && echo 1 || echo 0"]
+                                running: root.isOpen
+                                stdout: StdioCollector {
+                                    onStreamFinished: {
+                                        console.log("Test for Statusbar Expanded: " + this.text.trim())
+                                        statusbarExpandedSwitch.checked = (this.text.trim() === "1")
+                                        statusbarExpandedSwitch.ready = true
+                                    }
+                                }
+                            }
+                            onClicked: {
+                                if (!ready) return;
+                                // The statusbar owns the file write; just tell it
+                                // the new state via IPC. `checked` already
+                                // reflects the post-click position.
+                                let ipcCmd = checked
+                                ? "qs ipc call statusbar alwaysExpand"
+                                : "qs ipc call statusbar autoCollapse"
+                                console.log("Statusbar Expanded cmd: " + ipcCmd)
+                                Quickshell.execDetached(["bash", "-c", ipcCmd])
+                            }
+                        }
+                        Item { implicitWidth: 28 }
                     }
 
                     // --- DOCK ---

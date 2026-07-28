@@ -1,5 +1,6 @@
 import Quickshell
 import Quickshell.Wayland
+import Quickshell.Hyprland
 import Quickshell.Io
 import QtQuick
 import QtQuick.Layouts
@@ -11,33 +12,72 @@ PanelWindow {
 
     // --- WAYLAND CONFIGURATION ---
     WlrLayershell.layer: WlrLayer.Top
-    // Grab the keyboard while expanded so the IPC toggle (SUPER + SPACE) can
-    // focus the bar for Left/Right/Return navigation without touching the
-    // mouse. Exclusive is required for this programmatic grab; to keep apps
-    // usable, expanded mode behaves like a transient menu: it auto-collapses
-    // (releasing the keyboard) as soon as a module is run (Return) or the
-    // user cancels (Escape).
-    WlrLayershell.keyboardFocus: root.barExpanded
-        ? WlrKeyboardFocus.Exclusive
-        : WlrKeyboardFocus.None
+    // Keyboard focus is owned by the HyprlandFocusGrab below (the same primitive
+    // the Calendar/Power popups use), not by the layer-shell focus mode. A
+    // WlrKeyboardFocus.Exclusive grab held the keyboard until Escape and left
+    // running apps dead; OnDemand never grabbed from the keybinding at all. The
+    // focus grab gives the bar the keyboard while expanded *and* fires onCleared
+    // when the pointer/keyboard goes to another window, which is what hands focus
+    // back to the app (and collapses the bar). Leave the layer-shell mode at its
+    // default (None) so the two mechanisms don't fight.
+
+    // Grabs the keyboard for the bar while it is expanded so SUPER + SPACE can
+    // drive Left/Right/Return navigation, and releases it the moment the user
+    // interacts with another window (clicking/entering an app) — which returns
+    // the keyboard to that app and collapses the bar.
+    HyprlandFocusGrab {
+        windows: [root]
+        active: root.barExpanded
+        onCleared: root.barExpanded = false
+    }
 
     // --- USER SETTINGS ---
-    // Loaded from ~/.config/ml4w/settings/statusbar.json. The object holds the
-    // built-in defaults and is overwritten (key by key) whenever the file is
-    // read, so a partial or missing file still leaves every value defined.
-    property var settings: ({
-        "bar":    { "height": 40, "reservedHeight": 72, "enabled": true },
+    // One of two files is the "master" that feeds the settings object below:
+    //
+    //   1. ~/.config/ml4w-statusbar/statusbar.json — the user override. When this
+    //      file EXISTS it is the master: every value is read from it and the
+    //      Sidebar switches write their changes (enabled / alwaysExpanded) back
+    //      into it. The shipped file is ignored while it exists.
+    //   2. ~/.config/ml4w/settings/statusbar.json — the shipped fallback, used
+    //      only when the override file is absent. It carries the dynamic state
+    //      the SidebarApp writes (bar.enabled and bar.alwaysExpanded).
+    //
+    // The active master file is merged over the built-in defaults, so a partial
+    // or entirely missing file still leaves every value defined.
+    readonly property var defaultSettings: ({
+        "bar":    { "height": 40, "reservedHeight": 72, "enabled": true, "alwaysExpanded": false },
         "pill":   { "collapsedWidth": 0, "expandedWidth": 680, "radius": 12, "animationDuration": 350 },
         "modules":{ "left": ["terminal", "workspaces"],
                     "center": ["launcher", "clock", "swaync"],
-                    "right": ["updates", "systemtray", "logo", "power"] },
+                    "right": ["updates", "battery", "powerprofile", "volume", "systemtray", "logo", "power"] },
         "border": { "width": 2, "colorTop": "", "colorBottom": "" },
-        "opacity":{ "collapsed": 0.5, "expanded": 0.8 },
-        "clock":  { "format": "HH:mm" }
+        "opacity":{ "collapsed": 0.6, "expanded": 0.8 },
+        "clock":  { "format": "HH:mm", "dateFormat": "ddd, dd MMM" },
+        "workspaces": { "count": 5 }
     })
 
-    // Read the settings file synchronously at startup. Changes are not picked
-    // up automatically; trigger a re-read explicitly with
+    property var settings: defaultSettings
+
+    // True while the user override file is present. Decides which file is the
+    // master for both reads (applySettings) and writes (setEnabled /
+    // setAlwaysExpanded).
+    property bool overrideExists: false
+
+    // User override / master file. When it loads it becomes the source of truth;
+    // when it is absent (loadFailed) the shipped file takes over. printErrors is
+    // off so a missing override does not log an error on every startup/reload.
+    FileView {
+        id: overrideFile
+        path: Quickshell.env("HOME") + "/.config/ml4w-statusbar/statusbar.json"
+        blockLoading: true
+        printErrors: false
+        onLoaded: { root.overrideExists = true; root.applySettings() }
+        onLoadFailed: { root.overrideExists = false; root.applySettings() }
+    }
+
+    // Shipped fallback holding the dynamic state (enabled / alwaysExpanded), used
+    // only when the override file is absent. Changes are not picked up
+    // automatically; trigger a re-read explicitly with
     //   qs ipc call statusbar reload
     FileView {
         id: settingsFile
@@ -46,32 +86,100 @@ PanelWindow {
         onLoaded: root.applySettings()
     }
 
-    // Force a re-read of the settings file and re-apply it. reload() refreshes
-    // the FileView from disk; applySettings parses and merges the result.
+    // The active master file: the override when it exists, otherwise the shipped
+    // file. The Sidebar switches write here and applySettings reads from here.
+    function masterFile() {
+        return root.overrideExists ? overrideFile : settingsFile
+    }
+
+    // Force a re-read of both settings files and re-apply them. reload()
+    // refreshes each FileView from disk (re-firing onLoaded/onLoadFailed, which
+    // re-runs applySettings with an up-to-date overrideExists).
     function reloadSettings(): void {
+        overrideFile.reload()
         settingsFile.reload()
         applySettings()
     }
 
-    // Merge the file contents over the defaults. The leading /* ... */ comment
-    // block is stripped so the body stays valid for JSON.parse. An explicit
-    // text can be passed (e.g. right after setEnabled writes the file) so the
-    // merge does not depend on the FileView buffer having refreshed yet.
-    function applySettings(text): void {
+    // Parse a settings JSON document that may contain a /* ... */ comment block
+    // and — being hand-edited — trailing commas before a closing } or ], which
+    // strict JSON.parse rejects. Returns the parsed object, or undefined when the
+    // text is empty or cannot be parsed even after that cleanup. Never throws.
+    function parseSettings(src) {
+        if (!src)
+            return undefined
+        let raw = src.replace(/\/\*[\s\S]*?\*\//g, "")
+        if (raw.trim() === "")
+            return undefined
         try {
-            let src = (text !== undefined) ? text : settingsFile.text()
-            let raw = src.replace(/\/\*[\s\S]*?\*\//g, "")
-            let parsed = JSON.parse(raw)
-            let merged = JSON.parse(JSON.stringify(root.settings))
-            for (let group in parsed)
-                for (let key in parsed[group])
-                    if (merged[group] !== undefined)
-                        merged[group][key] = parsed[group][key]
-            root.settings = merged
+            return JSON.parse(raw)
         } catch (e) {
-            console.warn("statusbar.json: could not parse settings,"
-                + " keeping previous values:", e)
+            try {
+                // Tolerate trailing commas: ",}" / ",]" (optional whitespace).
+                return JSON.parse(raw.replace(/,(\s*[}\]])/g, "$1"))
+            } catch (e2) {
+                console.warn("statusbar settings: could not parse a file,"
+                    + " ignoring it:", e2)
+                return undefined
+            }
         }
+    }
+
+    // Merge one JSON document (given as text) over an already-built settings
+    // object, key by key. Empty or unparseable text is ignored so a
+    // missing/partial file never clears previously merged values.
+    function mergeSettings(merged, src): void {
+        let parsed = parseSettings(src)
+        if (parsed === undefined)
+            return
+        for (let group in parsed)
+            for (let key in parsed[group])
+                if (merged[group] !== undefined)
+                    merged[group][key] = parsed[group][key]
+    }
+
+    // Rebuild the settings object: the built-in defaults with the master file
+    // merged on top. An explicit masterText can be passed (e.g. right after a
+    // switch writes the master file) so the merge does not depend on the FileView
+    // buffer having refreshed yet.
+    function applySettings(masterText): void {
+        let merged = JSON.parse(JSON.stringify(root.defaultSettings))
+        let text = (masterText !== undefined) ? masterText : root.masterFile().text()
+        mergeSettings(merged, text)
+        root.settings = merged
+    }
+
+    // Persist a bar.<key> boolean into the master file and return the updated
+    // text. A regex replace is used when the key is already present (so the
+    // file's formatting/comments are kept); when the key is missing (e.g. an
+    // override file that did not list it) it falls back to a JSON rewrite of the
+    // parsed document. If the file cannot be parsed at all the write is skipped
+    // rather than replaced with an empty object, so a malformed hand-edited
+    // override is never wiped — its current text is returned unchanged.
+    function persistBarFlag(key, on): string {
+        let file = root.masterFile()
+        let src = file.text()
+        let re = new RegExp('("' + key + '"\\s*:\\s*)(true|false)')
+        let updated
+        if (re.test(src)) {
+            updated = src.replace(re, "$1" + (on ? "true" : "false"))
+        } else {
+            let obj = root.parseSettings(src)
+            if (obj === undefined && src && src.trim() !== "") {
+                // Unparseable and non-empty: don't destroy the user's file.
+                console.warn("statusbar settings: master file is not valid"
+                    + " JSON; leaving it untouched instead of overwriting.")
+                return src
+            }
+            if (typeof obj !== "object" || obj === null)
+                obj = {}
+            if (obj.bar === undefined)
+                obj.bar = {}
+            obj.bar[key] = on
+            updated = JSON.stringify(obj, null, 4) + "\n"
+        }
+        file.setText(updated)
+        return updated
     }
 
     property int barHeight: settings.bar.height
@@ -90,47 +198,74 @@ PanelWindow {
     // than above (windows tile 20px higher).
     exclusiveZone: barEnabled ? reservedHeight - 20 : 0
 
-    // Persist the enabled state into statusbar.json and apply it. The flag is
-    // flipped with a regex on the raw text so the comment header and the rest
-    // of the file's formatting are preserved. applySettings re-parses the
+    // Persist the enabled state into the master file (override when present,
+    // otherwise the shipped file) and apply it. applySettings re-parses the
     // updated text, which updates settings.bar.enabled and therefore the
     // barEnabled binding above.
     function setEnabled(on: bool): void {
-        let updated = settingsFile.text().replace(
-            /("enabled"\s*:\s*)(true|false)/,
-            "$1" + (on ? "true" : "false"))
-        settingsFile.setText(updated)
-        applySettings(updated)
+        applySettings(persistBarFlag("enabled", on))
     }
 
-    // Keep the pill expanded regardless of hover. Toggled via IPC
-    // ("qs ipc call statusbar expand") and bound to SUPER + SPACE in Hyprland.
+    // Keep the pill expanded regardless of hover. Set via IPC
+    // ("qs ipc call statusbar focus") which is bound to SUPER + SPACE in
+    // Hyprland, and cleared on Escape, after running a module, or when the
+    // focus grab is released because the user interacted with another window.
     property bool barExpanded: false
+
+    // When set in statusbar.json the pill never collapses: it stays in its
+    // expanded (full-width) state independent of hover or the IPC toggle. This
+    // is purely visual — unlike barExpanded it does not grab the keyboard — so
+    // the left/right module areas remain permanently visible.
+    property bool alwaysExpanded: settings.bar.alwaysExpanded
+
+    // Persist the alwaysExpanded state into the master file and apply it.
+    // Mirrors setEnabled.
+    function setAlwaysExpanded(on: bool): void {
+        applySettings(persistBarFlag("alwaysExpanded", on))
+    }
 
     // --- MODULE PLACEMENT ---
     // Each module name in the settings file maps to the component placed into
     // the left/center/right groups. Unknown names load nothing.
     Component { id: cTerminal;   TerminalModule {} }
-    Component { id: cWorkspaces; WorkspacesModule {} }
+    Component {
+        id: cWorkspaces
+        WorkspacesModule {
+            minWorkspaces: root.settings.workspaces.count
+        }
+    }
     Component { id: cLauncher;   LauncherModule {} }
     Component {
         id: cClock
         ClockModule {
             expanded: pill.expanded
             timeFormat: root.settings.clock.format
+            dateFormat: root.settings.clock.dateFormat
         }
     }
     Component { id: cSwaync;     SwayncModule {} }
+    // True while a system-tray context menu is open. Kept at window scope so
+    // the pill can pin itself expanded while a menu is up (the tray lives in
+    // the right area, which only exists while expanded).
+    property bool trayMenuOpen: false
     Component {
         id: cSystemTray
         SystemTrayModule {
             // Rebuild keyboard navigation when the tray empties or repopulates
             // (it collapses out of the layout when it has no items).
             onCollapsedChanged: Qt.callLater(root.rebuildNavItems)
+            // Surface the open-menu state up to the window so the pill stays
+            // expanded for as long as a tray menu is showing.
+            Binding {
+                target: root
+                property: "trayMenuOpen"
+                value: menuOpen
+            }
         }
     }
     Component { id: cLogo;       Ml4wLogoModule {} }
     Component { id: cPower;      PowerModule {} }
+    Component { id: cVolume;     VolumeModule {} }
     Component {
         id: cUpdates
         UpdatesModule {
@@ -139,6 +274,15 @@ PanelWindow {
             onCollapsedChanged: Qt.callLater(root.rebuildNavItems)
         }
     }
+    Component {
+        id: cBattery
+        BatteryModule {
+            // Rebuild the keyboard navigation list when the module hides or
+            // reappears (it only shows while running on battery power).
+            onCollapsedChanged: Qt.callLater(root.rebuildNavItems)
+        }
+    }
+    Component { id: cPowerProfile; PowerProfileModule {} }
 
     readonly property var moduleComponents: ({
         "terminal":   cTerminal,
@@ -149,7 +293,10 @@ PanelWindow {
         "systemtray": cSystemTray,
         "logo":       cLogo,
         "power":      cPower,
-        "updates":    cUpdates
+        "updates":      cUpdates,
+        "volume":       cVolume,
+        "battery":      cBattery,
+        "powerprofile": cPowerProfile
     })
 
     // --- KEYBOARD NAVIGATION ---
@@ -231,6 +378,17 @@ PanelWindow {
         root.focusIndex = (root.focusIndex + dir + n) % n
     }
 
+    // Forward an Up/Down press to the keyboard-selected module if it exposes a
+    // step() function (e.g. the volume module), so the arrows adjust it in place
+    // without leaving keyboard-navigation mode.
+    function stepFocused(dir: int): void {
+        if (root.focusIndex < 0 || root.focusIndex >= root.navItems.length)
+            return
+        let m = root.navItems[root.focusIndex]
+        if (typeof m.step === "function")
+            m.step(dir)
+    }
+
     function activateFocused(): void {
         if (root.focusIndex >= 0 && root.focusIndex < root.navItems.length)
             root.navItems[root.focusIndex].activate()
@@ -246,8 +404,20 @@ PanelWindow {
         // subcommand of "qs ipc" and would never reach the function.
         function enable(): void { root.setEnabled(true) }
         function disable(): void { root.setEnabled(false) }
+        // Persist and apply the alwaysExpanded (permanently expanded) mode,
+        // toggled from the SidebarApp switch.
+        function alwaysExpand(): void { root.setAlwaysExpanded(true) }
+        function autoCollapse(): void { root.setAlwaysExpanded(false) }
         // Re-read statusbar.json from disk (used by the SidebarApp switch).
         function refresh(): void { root.reloadSettings() }
+        // Expand the bar (if needed) and grab the keyboard for navigation.
+        // Bound to SUPER + SPACE. Idempotent: when the bar is already expanded
+        // it only re-grabs keyboard focus instead of toggling back to collapsed,
+        // so the keybinding always lands in keyboard-navigation mode.
+        function focus(): void {
+            root.barExpanded = true
+            keyHandler.forceActiveFocus()
+        }
         // Toggle between collapsed and expanded mode.
         function expand(): void { root.barExpanded = !root.barExpanded }
         function collapse(): void { root.barExpanded = false }
@@ -283,11 +453,26 @@ PanelWindow {
 
         // Collapsed = sized to content, Expanded = fixed width.
         property bool expanded: hoverHandler.hovered || root.barExpanded
+            || root.alwaysExpanded || root.trayMenuOpen
         // 0 in the settings file means "hug the center content".
         property real collapsedWidth: root.settings.pill.collapsedWidth > 0
             ? root.settings.pill.collapsedWidth
             : centerArea.implicitWidth + 32
-        property real expandedWidth: root.settings.pill.expandedWidth
+
+        // Minimum width the content needs so the centered center area never
+        // overlaps the left/right areas. The center stays centered, so each
+        // side must clear half of it: the bar has to be at least as wide as the
+        // center plus twice the wider of the two side areas (whichever side
+        // would collide first), plus the 16px edge margins and some breathing
+        // room. Computed live so adding workspaces (or any module growing)
+        // pushes the bar wider instead of clipping.
+        property real contentWidth: centerArea.implicitWidth
+            + 2 * Math.max(leftArea.implicitWidth, rightArea.implicitWidth)
+            + 64
+        // expandedWidth from the settings file is treated as a minimum: the
+        // pill grows past it when the content needs more room.
+        property real expandedWidth: Math.max(
+            root.settings.pill.expandedWidth, contentWidth)
 
         width: expanded ? expandedWidth : collapsedWidth
         height: expanded ? root.barHeight + 10 : root.barHeight
@@ -313,10 +498,13 @@ PanelWindow {
         // Captures arrow keys (navigate), Return (execute) and Escape
         // (collapse) while the bar is in expanded mode.
         FocusScope {
+            id: keyHandler
             anchors.fill: parent
             focus: root.barExpanded
             Keys.onLeftPressed: root.moveFocus(-1)
             Keys.onRightPressed: root.moveFocus(1)
+            Keys.onUpPressed: root.stepFocused(1)
+            Keys.onDownPressed: root.stepFocused(-1)
             Keys.onReturnPressed: root.activateFocused()
             Keys.onEnterPressed: root.activateFocused()
             Keys.onEscapePressed: root.barExpanded = false

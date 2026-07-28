@@ -1,6 +1,6 @@
 [
   {
-    "group":"Status Bar",
+    "group":"Waybar",
     "description":"Configuration of the Waybar status bar.",
     "settings":[{
       "name": "Show App Menu",
@@ -128,6 +128,17 @@
         "file": "~/.config/hypr/conf/window.lua",
         "type": "files",
         "folder": "~/.config/hypr/conf/windows",
+        "mode": "replace",
+        "match": "local name = \".*\"",
+        "default": "default.lua",
+        "filetypes": ".lua"
+    },{
+        "name": "Layout Variants",
+        "id": "variant_layout",
+        "instructions": "Choose your preferred layout variant:",
+        "file": "~/.config/hypr/conf/layout.lua",
+        "type": "files",
+        "folder": "~/.config/hypr/conf/layouts",
         "mode": "replace",
         "match": "local name = \".*\"",
         "default": "default.lua",
