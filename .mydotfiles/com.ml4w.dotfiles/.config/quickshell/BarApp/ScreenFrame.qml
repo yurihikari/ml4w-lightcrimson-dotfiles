@@ -21,6 +21,11 @@ Item {
         exclusionMode: WlrLayershell.Ignore
         color: "transparent"
 
+        // Only the visible 10px strip takes input. The window is 30px tall to
+        // fit the corner curves, and without a mask its transparent top 20px
+        // swallowed clicks on the bottom edge of windows (and opened the dock).
+        mask: Region { item: bottomBar }
+
         // Subtle shadow cast upward onto the windows, so the frame reads as raised.
         Shadow {
             anchors.fill: bottomBar
@@ -37,7 +42,9 @@ Item {
         }
 
         // OPTIMIZATION: FramebufferObject + paint only on color change (not every frame)
+        // Corner pieces hide while a drawer has taken that corner over (FrameCorners).
         Canvas {
+            visible: FrameCorners.bottomLeft === 0
             opacity: 0.8; x: 10; y: 0; width: 20; height: 20
             renderTarget: Canvas.FramebufferObject
             property color syncColor: Theme.background
@@ -52,6 +59,7 @@ Item {
         }
 
         Canvas {
+            visible: FrameCorners.bottomRight === 0
             opacity: 0.8; x: parent.width - 30; y: 0; width: 20; height: 20
             renderTarget: Canvas.FramebufferObject
             property color syncColor: Theme.background
@@ -66,7 +74,7 @@ Item {
         }
 
         MouseArea {
-            anchors.fill: parent
+            anchors.fill: bottomBar
             onClicked: dockPopup.active = !dockPopup.active
         }
     }
@@ -94,7 +102,7 @@ Item {
         screen: root.screen
         anchors { top: true; bottom: true; right: true }
         margins { top: 40; bottom: 10 }
-        width: 11
+        width: 10
         WlrLayershell.layer: WlrLayer.Top
         exclusionMode: WlrLayershell.Ignore
         color: "transparent"

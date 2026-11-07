@@ -281,24 +281,22 @@ BarPopup {
         }
     }
 
+    // Hangs from the bar as part of the frame (fill, blur and border as before).
+    FrameDrawer {
+        open: root.active
+        onClosed: root.isAnimating = false
+        hAlign: "right"
+        hMargin: 230
+        panelWidth: kbCard.width
+        panelHeight: kbCard.height
+        radius: 24
+
     Item {
-        anchors.top: parent.top; anchors.right: parent.right
-        anchors.topMargin: 45; anchors.rightMargin: 230
+        id: kbCard
         width: 420; height: 660
-
-        transformOrigin: Item.Top
-        opacity: root.active ? 1.0 : 0.0
-        scale: root.active ? 1.0 : 0.95
-        Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic; onRunningChanged: if(!running && !root.active) root.isAnimating = false } }
-        Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
-
-        Shadow { radius: 24 }
-
-        Rectangle { anchors.fill: parent; radius: 24; color: Theme.background; opacity: 0.8 }
 
         Rectangle {
             anchors.fill: parent; radius: 24; color: "transparent"
-            border.color: Theme.withAlpha(Theme.primary, 0.8); border.width: 2
             MouseArea { anchors.fill: parent }
 
             ColumnLayout {
@@ -472,4 +470,5 @@ BarPopup {
             }
         }
     }
+    } // FrameDrawer
 }

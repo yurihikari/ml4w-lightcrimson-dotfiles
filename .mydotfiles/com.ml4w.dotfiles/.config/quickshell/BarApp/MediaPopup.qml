@@ -170,39 +170,20 @@ BarPopup {
     }
 
     // --- MAIN POPUP CONTAINER ---
+    // Hangs from the bar as part of the frame (fill, blur and border colour as before).
+    FrameDrawer {
+        open: popup.active
+        onClosed: popup.isAnimating = false
+        hAlign: "center"
+        panelWidth: container.width
+        panelHeight: container.height
+        borderColor: Theme.withAlpha(Theme.primary, 0.64)
+
     Rectangle {
         id: container
         width: 560; height: 410 // Slightly expanded for breathing room
-        anchors.horizontalCenter: parent.horizontalCenter
         radius: 30; color: "transparent"
 
-        // 3. Smooth Entrance / Exit Animations
-        transformOrigin: Item.Top
-        opacity: popup.active ? 1.0 : 0.0
-        scale: popup.active ? 1.0 : 0.90
-        y: popup.active ? 45 : 25 
-
-        Behavior on opacity { 
-            NumberAnimation { 
-                duration: 250; easing.type: Easing.OutCubic 
-                onRunningChanged: if (!running && !popup.active) popup.isAnimating = false 
-            } 
-        }
-        Behavior on scale { NumberAnimation { duration: 400; easing.type: Easing.OutExpo } }
-        Behavior on y { NumberAnimation { duration: 400; easing.type: Easing.OutExpo } }
-
-        Shadow {}
-
-        // Blur-friendly background
-        Rectangle {
-            anchors.fill: parent
-            color: Theme.background
-            border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.8)
-            border.width: 2
-            radius: 30
-            opacity: 0.8 // Standardized Hyprland blur opacity
-        }
-        
         MouseArea { anchors.fill: parent } // Prevent click-through
 
         // --- SINK SELECTOR OVERLAY ---
@@ -721,4 +702,5 @@ BarPopup {
             }
         }
     }
+    } // FrameDrawer
 }

@@ -345,36 +345,26 @@ BarPopup {
     // ═══════════════════════════════════════════════════════════════════════
     //  CONTAINER — wider on Performance tab
     // ═══════════════════════════════════════════════════════════════════════
+    // Flush against the right frame, it takes over the frame's top-right corner
+    // (the frame hides its own corner while this is out, via FrameCorners).
+    FrameDrawer {
+        id: drawer
+        open: popup.active
+        onClosed: popup.isAnimating = false
+        hAlign: "right"
+        hMargin: 10
+        panelWidth: container.width
+        panelHeight: container.height
+        borderColor: Theme.withAlpha(Theme.primary, 0.64)
+
     Rectangle {
         id: container
         width:  popup.currentTab === "Performance" ? 700 : 420
         height: popup.currentTab === "Performance" ? 720 : 580
         Behavior on width  { NumberAnimation { duration: 220; easing.type: Easing.OutQuart } }
         Behavior on height { NumberAnimation { duration: 220; easing.type: Easing.OutQuart } }
-
-        anchors.top: parent.top; anchors.topMargin: 45
-        anchors.right: parent.right; anchors.rightMargin: 15
         radius: 30; color: "transparent"
 
-        // Wayland-Safe Entrance/Exit Animations
-        transformOrigin: Item.TopRight
-        opacity: popup.active ? 1.0 : 0.0
-        scale: popup.active ? 1.0 : 0.90
-
-        Behavior on opacity { 
-            NumberAnimation { 
-                duration: 250; easing.type: Easing.OutCubic 
-                onRunningChanged: if (!running && !popup.active) popup.isAnimating = false 
-            } 
-        }
-        Behavior on scale { NumberAnimation { duration: 350; easing.type: Easing.OutExpo } }
-
-        Shadow {}
-
-        Rectangle {
-            anchors.fill: parent; color: Theme.background; border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.8);
-            border.width: 2; radius: 30; opacity: 0.8; 
-        }
         MouseArea { anchors.fill: parent }
 
         ColumnLayout {
@@ -1263,4 +1253,5 @@ BarPopup {
             }
         }
     }
+    } // FrameDrawer
 }

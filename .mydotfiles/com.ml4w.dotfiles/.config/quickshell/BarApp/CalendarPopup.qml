@@ -10,10 +10,6 @@ BarPopup {
     id: root
     ipcTarget: "bar-calendar"
 
-    // Keep the window mapped through the outro fade. This popup drives its exit
-    // off the container opacity rather than the shared isAnimating flag.
-    visible: active || mainContent.opacity > 0
-
     // Keyboard focus handler for ESC (when no text input is focused)
     FocusScope {
         anchors.fill: parent
@@ -389,41 +385,23 @@ BarPopup {
         }
     }
 
-    // Elevation shadow — a sibling because mainContent clips (a child shadow
-    // would be cut off). Tracks the container's geometry and fade.
-    Shadow {
-        anchors.fill: mainContent
-        radius: 30
-        opacity: mainContent.opacity
-        visible: mainContent.visible
-    }
-
     // ─── UNIFIED MAIN CONTAINER ───────────────────────────────────────────
+    // Hangs from the bar as part of the frame (fill, blur and border as before).
+    FrameDrawer {
+        open: root.active
+        onClosed: root.isAnimating = false
+        hAlign: "right"
+        hMargin: 155
+        panelWidth: mainContent.width
+        panelHeight: mainContent.height
+
     Rectangle {
         id: mainContent
-        anchors.top:        parent.top
-        anchors.topMargin:  45
-        anchors.right:      parent.right
-        anchors.rightMargin: 155
-        
         width: 900
         height: 580
         radius: 30
-        color: Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.8)
-        border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.8)
-        border.width: 2
+        color: "transparent"
         clip: true 
-
-        opacity: root.active ? 1 : 0.0
-        Behavior on opacity {
-            NumberAnimation { duration: 250; easing.type: Easing.OutExpo }
-        }
-        transform: Translate {
-            y: root.active ? 0 : -20
-            Behavior on y {
-                NumberAnimation { duration: 250; easing.type: Easing.OutExpo }
-            }
-        }
 
         // ── LIGHTWEIGHT WEATHER BACKGROUND ANIMATIONS ────────────────────────
         Item {
@@ -1591,4 +1569,5 @@ BarPopup {
             }
         }
     }
+    } // FrameDrawer
 }

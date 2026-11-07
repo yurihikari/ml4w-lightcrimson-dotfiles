@@ -18,12 +18,14 @@ PanelWindow {
     WlrLayershell.layer: WlrLayer.Overlay
     exclusionMode: WlrLayershell.Ignore
     
-    implicitWidth: 420 // 380 + 40
     color: "transparent"
 
     // --- POSITIONING ---
+    // Covers the screen: the panel is a drawer sliding out of the left frame
+    // (FrameDrawer below), and its outline runs round the whole frame.
     anchors {
         left: true
+        right: true
         top: true
         bottom: true
     }
@@ -56,18 +58,10 @@ PanelWindow {
 
     // --- ANIMATION LOGIC ---
     property bool isOpen: false
-    visible: isOpen || slideAnim.running
-    
-    margins { left: root.currentMargin }
-    property real currentMargin: isOpen ? 0 : -470 
-
-    Behavior on currentMargin {
-        NumberAnimation {
-            id: slideAnim
-            duration: 250
-            easing.type: Easing.OutQuint 
-        }
-    }
+    // Stays mapped until the drawer has slid back into the frame.
+    property bool animating: false
+    onIsOpenChanged: if (isOpen) animating = true
+    visible: isOpen || animating
 
     // --- IPC HANDLER ---
     IpcHandler {
@@ -278,39 +272,28 @@ PanelWindow {
         }
     }
 
+    // A click outside the panel closes it (the window covers the screen).
+    MouseArea { anchors.fill: parent; onClicked: root.isOpen = false }
+
+    // Slides out of the left frame as part of it (fill, blur and border come
+    // from the drawer, like the other frame popups).
+    FrameDrawer {
+        open: root.isOpen
+        onClosed: root.animating = false
+        edge: "left"
+        panelWidth: 380
+        duration: 300
+
     Item {
         anchors.fill: parent
-        anchors.margins: 20
 
-        // Elevation shadow, sits behind the panel background (sibling so the
-        // rect's own `clip` doesn't cut it off).
-        Shadow { anchors.fill: mainBgRect; radius: 30 }
+        MouseArea { anchors.fill: parent } // Keep clicks on the panel from closing it
 
         Rectangle {
             id: mainBgRect
             anchors.fill: parent
-            // Translucency lives on the fill so the border alpha stays exactly 0.8
-            // (a rect-wide opacity would compound it down and dim the contents).
-            color: Theme.withAlpha(Theme.background, 0.8)
-            border.color: Theme.withAlpha(Theme.primary, 0.8)
-            border.width: 2
-            radius: 30
+            color: "transparent"
             clip: true
-
-            // Gradient border (outer)
-            gradient: Gradient {
-                orientation: Gradient.Vertical
-                GradientStop { position: 0.0; color: Theme.primary }
-                GradientStop { position: 1.0; color: Theme.on_primary }
-            }
-
-            // Background fill (inner), inset by the border thickness
-            Rectangle {
-                anchors.fill: parent
-                anchors.margins: 2
-                radius: parent.radius - anchors.margins
-                color: Theme.withAlpha(Theme.background, 0.8)
-            }
 
         ColumnLayout {
             anchors.fill: parent
@@ -734,4 +717,5 @@ PanelWindow {
         }
     }
 }
+    } // FrameDrawer
 }

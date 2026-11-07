@@ -135,47 +135,27 @@ BarPopup {
     // ══════════════════════════════════════════════════════════════════════════
     // UNIFIED EXPANDING CONTAINER (Zero-Jitter Architecture)
     // ══════════════════════════════════════════════════════════════════════════
-    Item {
-        anchors.fill: parent
+    // Hangs from the bar as part of the frame (fill, blur and border as before).
+    // Right-aligned, so the hover expansion still grows it to the left.
+    FrameDrawer {
+        open: root.active
+        onClosed: root.isAnimating = false
+        hAlign: "right"
+        hMargin: 155
+        panelWidth: mainCard.width
+        panelHeight: mainCard.height
+        borderColor: Theme.withAlpha(Theme.primary, 0.64)
 
         Rectangle {
             id: mainCard
-            anchors.top: parent.top
-            anchors.right: parent.right
-            anchors.rightMargin: 155
             height: 640
             
-            // Dynamic width expansion. 
-            // Because it is anchored to the right, it smoothly grows to the left!
+            // Dynamic width expansion (the drawer is right-aligned, so it grows to the left).
             width: root.hoveredClipId !== "" ? 820 : 440
             Behavior on width { NumberAnimation { duration: 350; easing.type: Easing.OutExpo } }
-            
-            anchors.topMargin: root.active ? 45 : 20
-            Behavior on anchors.topMargin { NumberAnimation { duration: 400; easing.type: Easing.OutExpo } }
 
             color: "transparent"
             radius: 30
-
-            // Entrance Opacity & Animation tracking
-            opacity: root.active ? 1.0 : 0.0
-            Behavior on opacity { 
-                NumberAnimation { 
-                    duration: 250; easing.type: Easing.OutCubic 
-                    onRunningChanged: if (!running && !root.active) root.isAnimating = false 
-                } 
-            }
-
-            Shadow {}
-
-            // The blurred background layer (0.8 opacity for Hyprland to blur!)
-            Rectangle {
-                anchors.fill: parent
-                radius: 30
-                color: Theme.background
-                opacity: 0.8 
-                border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.8)
-                border.width: 2
-            }
 
             MouseArea { anchors.fill: parent } // Prevent click-through closing
 

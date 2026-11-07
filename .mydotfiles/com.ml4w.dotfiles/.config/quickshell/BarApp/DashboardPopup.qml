@@ -168,38 +168,22 @@ BarPopup {
     // ═══════════════════════════════════════════════════════════════════════
     //  WRAPPER FOR SMOOTH ANIMATIONS
     // ═══════════════════════════════════════════════════════════════════════
+    // Flush against the left frame, it takes over the frame's top-left corner
+    // (the frame hides its own corner while this is out, via FrameCorners).
+    FrameDrawer {
+        id: drawer
+        open: popup.active
+        onClosed: popup.isAnimating = false
+        hAlign: "left"
+        hMargin: 10
+        panelWidth: mainContent.width
+        panelHeight: mainContent.height
+        borderColor: Theme.withAlpha(Theme.primary, 0.64)
+
     Item {
         id: mainContent
         width: 520
         height: mainColumn.implicitHeight + 48 // Dynamic height
-        anchors.left: parent.left
-        anchors.leftMargin: 15
-
-        // 3. Smooth Entrance / Exit Animations
-        anchors.top: parent.top
-        anchors.topMargin: popup.active ? 45 : 25
-        transformOrigin: Item.TopLeft // Scales from the correct corner
-        opacity: popup.active ? 1.0 : 0.0
-        scale: popup.active ? 1.0 : 0.90
-        
-        Behavior on opacity { 
-            NumberAnimation { 
-                duration: 250; easing.type: Easing.OutCubic 
-                onRunningChanged: if (!running && !popup.active) popup.isAnimating = false 
-            } 
-        }
-        Behavior on scale { NumberAnimation { duration: 400; easing.type: Easing.OutExpo } }
-        Behavior on anchors.topMargin { NumberAnimation { duration: 400; easing.type: Easing.OutExpo } }
-
-
-        Shadow {}
-
-        Rectangle {
-            anchors.fill: parent
-            color: Theme.background; opacity: 0.8
-            border.color: Theme.withAlpha(Theme.primary, 0.8); border.width: 2
-            radius: 30
-        }
 
         MouseArea { anchors.fill: parent; onClicked: {} } // Eat clicks
 
@@ -446,4 +430,5 @@ BarPopup {
             }
         }
     }
+    } // FrameDrawer
 }
