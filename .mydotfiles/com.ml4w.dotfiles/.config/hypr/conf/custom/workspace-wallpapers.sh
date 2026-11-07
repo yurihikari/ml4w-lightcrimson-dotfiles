@@ -249,6 +249,12 @@ if ! flock -n 9; then
     exit 0
 fi
 
+# Keep the log from growing forever (it gets a line per workspace switch).
+if [[ -f "$LOG_FILE" ]] && (( $(stat -c %s "$LOG_FILE") > 1048576 )); then
+    tail -n 2000 "$LOG_FILE" > "$LOG_FILE.tmp" && mv "$LOG_FILE.tmp" "$LOG_FILE"
+    log "Log trimmed to its last 2000 lines"
+fi
+
 if ! require jq hyprctl awww socat; then
     log "Daemon cannot start: missing dependencies (need jq, hyprctl, awww, socat)."
     exit 1
