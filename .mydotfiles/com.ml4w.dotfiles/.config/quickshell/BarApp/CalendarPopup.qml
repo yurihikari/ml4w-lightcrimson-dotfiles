@@ -387,7 +387,7 @@ BarPopup {
 
     // ─── UNIFIED MAIN CONTAINER ───────────────────────────────────────────
     // Hangs from the bar as part of the frame (fill, blur and border as before).
-    FrameDrawer {
+    PopoutContent {
         open: root.active
         onClosed: root.isAnimating = false
         hAlign: "right"
@@ -596,8 +596,8 @@ BarPopup {
                     Layout.fillWidth: true
                     height: 32
                     radius: 16
-                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05)
-                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.3)
+                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.08)
+                    border.color: "transparent" /* was primary @ 0.3; surfaces use tone, not outlines */
                     border.width: 1
 
                     RowLayout {
@@ -1422,8 +1422,8 @@ BarPopup {
                             height: 32
                             radius: 16
                             Layout.margins: 10
-                            color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05)
-                            border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.3)
+                            color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.08)
+                            border.color: "transparent" /* was primary @ 0.3; surfaces use tone, not outlines */
                             border.width: 1
 
                             RowLayout {
@@ -1548,7 +1548,7 @@ BarPopup {
                                 width: timeDiffTxt.implicitWidth + 30
                                 radius: 14
                                 color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
-                                border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.2)
+                                border.color: "transparent" /* was primary @ 0.2; surfaces use tone, not outlines */
                                 border.width: 1
                                 
                                 Text {
@@ -1569,5 +1569,5 @@ BarPopup {
             }
         }
     }
-    } // FrameDrawer
+    } // PopoutContent
 }

@@ -5,7 +5,7 @@ import qs.CustomTheme
 import qs.BarApp.services
 import qs.BarApp.components
 
-BarPopup {
+BarPopupWindow {
     id: root
     ipcTarget: "bar-power"
     onOpened: root.selectedIndex = 0

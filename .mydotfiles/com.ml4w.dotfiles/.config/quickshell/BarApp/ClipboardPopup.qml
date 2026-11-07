@@ -137,7 +137,7 @@ BarPopup {
     // ══════════════════════════════════════════════════════════════════════════
     // Hangs from the bar as part of the frame (fill, blur and border as before).
     // Right-aligned, so the hover expansion still grows it to the left.
-    FrameDrawer {
+    PopoutContent {
         open: root.active
         onClosed: root.isAnimating = false
         hAlign: "right"
@@ -204,8 +204,8 @@ BarPopup {
                         Layout.fillHeight: true
                         visible: !root.hoveredIsImage
                         radius: 20
-                        color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.04)
-                        border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+                        color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.08)
+                        border.color: "transparent" /* was primary @ 0.1; surfaces use tone, not outlines */
                         border.width: 1
 
                         Flickable {
@@ -249,7 +249,7 @@ BarPopup {
                         visible: root.hoveredIsImage
                         radius: 20
                         color: Qt.rgba(0, 0, 0, 0.15)
-                        border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+                        border.color: "transparent" /* was primary @ 0.1; surfaces use tone, not outlines */
                         border.width: 1
                         clip: true
 

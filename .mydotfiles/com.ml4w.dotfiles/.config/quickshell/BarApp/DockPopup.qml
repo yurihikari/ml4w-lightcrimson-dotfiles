@@ -442,7 +442,6 @@ PanelWindow {
         hAlign: "center"
         panelWidth: container.width
         panelHeight: container.height
-        radius: 28
         borderWidth: 1.5
         borderColor: Theme.withAlpha(Theme.primary, 0.64)
 
@@ -464,8 +463,8 @@ PanelWindow {
                 implicitHeight: 46
                 radius: height / 2
                 // Subtle inset "track" the active segment slides over
-                color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.06)
-                border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.12)
+                color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.08)
+                border.color: "transparent" /* was primary @ 0.12; surfaces use tone, not outlines */
                 border.width: 1
 
                 Row {

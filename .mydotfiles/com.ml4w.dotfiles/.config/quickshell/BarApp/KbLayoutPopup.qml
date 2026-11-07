@@ -282,14 +282,13 @@ BarPopup {
     }
 
     // Hangs from the bar as part of the frame (fill, blur and border as before).
-    FrameDrawer {
+    PopoutContent {
         open: root.active
         onClosed: root.isAnimating = false
         hAlign: "right"
         hMargin: 230
         panelWidth: kbCard.width
         panelHeight: kbCard.height
-        radius: 24
 
     Item {
         id: kbCard
@@ -458,7 +457,7 @@ BarPopup {
                     Layout.fillWidth: true; height: 40; radius: 12
                     color: editHover.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.12)
                                                    : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05)
-                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.2); border.width: 1
+                    border.color: "transparent" /* was primary @ 0.2; surfaces use tone, not outlines */; border.width: 1
                     Behavior on color { ColorAnimation { duration: 150 } }
                     RowLayout {
                         anchors.centerIn: parent; spacing: 8
@@ -470,5 +469,5 @@ BarPopup {
             }
         }
     }
-    } // FrameDrawer
+    } // PopoutContent
 }

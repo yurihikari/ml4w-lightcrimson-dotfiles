@@ -170,7 +170,7 @@ BarPopup {
     // ═══════════════════════════════════════════════════════════════════════
     // Flush against the left frame, it takes over the frame's top-left corner
     // (the frame hides its own corner while this is out, via FrameCorners).
-    FrameDrawer {
+    PopoutContent {
         id: drawer
         open: popup.active
         onClosed: popup.isAnimating = false
@@ -198,7 +198,7 @@ BarPopup {
                 Rectangle {
                     width: 92; height: 92; radius: 22
                     color: Theme.withAlpha(Theme.primary, 0.08)
-                    border.color: Theme.withAlpha(Theme.primary, 0.15)
+                    border.color: "transparent" /* was primary @ 0.15; surfaces use tone, not outlines */
                     border.width: 1
 
                     Image {
@@ -237,7 +237,7 @@ BarPopup {
                     Rectangle {
                         height: 22; radius: 11; Layout.preferredWidth: kernelLbl.implicitWidth + 18
                         color: Theme.withAlpha(Theme.primary, 0.10)
-                        border.color: Theme.withAlpha(Theme.primary, 0.18); border.width: 1
+                        border.color: "transparent" /* was primary @ 0.18; surfaces use tone, not outlines */; border.width: 1
                         visible: popup.kernelStr !== ""
                         Text {
                             id: kernelLbl; anchors.centerIn: parent; text: "󰌽  " + popup.kernelStr
@@ -430,5 +430,5 @@ BarPopup {
             }
         }
     }
-    } // FrameDrawer
+    } // PopoutContent
 }

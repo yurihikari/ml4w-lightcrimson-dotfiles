@@ -347,7 +347,7 @@ BarPopup {
     // ═══════════════════════════════════════════════════════════════════════
     // Flush against the right frame, it takes over the frame's top-right corner
     // (the frame hides its own corner while this is out, via FrameCorners).
-    FrameDrawer {
+    PopoutContent {
         id: drawer
         open: popup.active
         onClosed: popup.isAnimating = false
@@ -539,7 +539,7 @@ BarPopup {
                                 Rectangle {
                                     Layout.fillWidth: true; height: 28; radius: 8
                                     color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
-                                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.3); border.width: 1
+                                    border.color: "transparent" /* was primary @ 0.3; surfaces use tone, not outlines */; border.width: 1
                                     RowLayout {
                                         anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 8; spacing: 6
                                         Text { text: "󰌆"; color: Theme.primary; opacity: 0.5; font.pixelSize: 11 }
@@ -581,7 +581,7 @@ BarPopup {
                 // Advanced Network Settings Button
                 Rectangle {
                     Layout.fillWidth: true; height: 34; radius: 10
-                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.3); border.width: 1; color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 1)
+                    border.color: "transparent" /* was primary @ 0.3; surfaces use tone, not outlines */; border.width: 1; color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 1)
                     
                     scale: advNetMouse.pressed ? 0.98 : (advNetMouse.containsMouse ? 1.02 : 1.0)
                     opacity: advNetMouse.containsMouse ? 0.8 : 1.0
@@ -684,7 +684,7 @@ BarPopup {
                 // BT Manager Button
                 Rectangle {
                     Layout.fillWidth: true; height: 34; radius: 10
-                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.3); border.width: 1; color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 1)
+                    border.color: "transparent" /* was primary @ 0.3; surfaces use tone, not outlines */; border.width: 1; color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 1)
                     
                     scale: btManMouse.pressed ? 0.98 : (btManMouse.containsMouse ? 1.02 : 1.0)
                     opacity: btManMouse.containsMouse ? 0.8 : 1.0
@@ -779,8 +779,8 @@ BarPopup {
                     width: parent ? parent.width : 0
                     height: 110
                     radius: 14
-                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05)
-                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.12)
+                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.08)
+                    border.color: "transparent" /* was primary @ 0.12; surfaces use tone, not outlines */
                     border.width: 1
 
                     RowLayout {
@@ -876,8 +876,8 @@ BarPopup {
                     width: parent ? parent.width : 0
                     height: 56
                     radius: 14
-                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05)
-                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.12)
+                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.08)
+                    border.color: "transparent" /* was primary @ 0.12; surfaces use tone, not outlines */
                     border.width: 1
 
                     RowLayout {
@@ -919,8 +919,8 @@ BarPopup {
                     width: parent ? parent.width : 0
                     height: 130
                     radius: 14
-                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05)
-                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.12)
+                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.08)
+                    border.color: "transparent" /* was primary @ 0.12; surfaces use tone, not outlines */
                     border.width: 1
 
                     ColumnLayout {
@@ -1158,7 +1158,7 @@ BarPopup {
                         Layout.fillWidth: true; Layout.preferredWidth: 1
                         height: 56; radius: 14
                         color: Theme.background
-                        border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.2)
+                        border.color: "transparent" /* was primary @ 0.2; surfaces use tone, not outlines */
                         border.width: 1
 
                         RowLayout {
@@ -1253,5 +1253,5 @@ BarPopup {
             }
         }
     }
-    } // FrameDrawer
+    } // PopoutContent
 }

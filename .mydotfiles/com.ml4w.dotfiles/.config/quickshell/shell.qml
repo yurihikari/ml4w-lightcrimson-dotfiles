@@ -25,12 +25,8 @@ ShellRoot {
         }
     }
 
-    Variants {
-        model: Quickshell.screens
-        delegate: Component {
-            MainBar {}
-        }
-    }
+    // The bar lives inside the screen frame (ScreenFrame draws frame + bar as
+    // one surface and hosts the bar's content).
     Variants {
         model: Quickshell.screens
         delegate: Component {

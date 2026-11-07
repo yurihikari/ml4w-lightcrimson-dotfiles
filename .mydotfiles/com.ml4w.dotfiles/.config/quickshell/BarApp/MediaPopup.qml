@@ -46,7 +46,7 @@ BarPopup {
         
         // Soft glass styling
         color: btnMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.04)
-        border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+        border.color: "transparent" /* was primary @ 0.1; surfaces use tone, not outlines */
         border.width: 1
 
         scale: btnMouse.pressed ? 0.9 : (btnMouse.containsMouse ? 1.08 : 1.0)
@@ -171,7 +171,7 @@ BarPopup {
 
     // --- MAIN POPUP CONTAINER ---
     // Hangs from the bar as part of the frame (fill, blur and border colour as before).
-    FrameDrawer {
+    PopoutContent {
         open: popup.active
         onClosed: popup.isAnimating = false
         hAlign: "center"
@@ -241,7 +241,7 @@ BarPopup {
                 Rectangle {
                     Layout.preferredWidth: 140; Layout.preferredHeight: 40; radius: 20
                     color: closeSinkMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05)
-                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.2); border.width: 1; Layout.alignment: Qt.AlignHCenter
+                    border.color: "transparent" /* was primary @ 0.2; surfaces use tone, not outlines */; border.width: 1; Layout.alignment: Qt.AlignHCenter
                     
                     scale: closeSinkMouse.pressed ? 0.95 : (closeSinkMouse.containsMouse ? 1.05 : 1.0)
                     Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
@@ -677,7 +677,7 @@ BarPopup {
                     Layout.preferredWidth: 220; height: 44; radius: 22
                     
                     color: sinkBtnMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.04)
-                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15); border.width: 1
+                    border.color: "transparent" /* was primary @ 0.15; surfaces use tone, not outlines */; border.width: 1
                     
                     scale: sinkBtnMouse.pressed ? 0.96 : (sinkBtnMouse.containsMouse ? 1.03 : 1.0)
                     Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
@@ -702,5 +702,5 @@ BarPopup {
             }
         }
     }
-    } // FrameDrawer
+    } // PopoutContent
 }

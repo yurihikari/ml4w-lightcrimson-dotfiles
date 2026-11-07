@@ -9,23 +9,14 @@ import qs.CustomTheme
 import qs.BarApp.services
 import qs.BarApp.components
 
-PanelWindow {
+// The bar's content. It lives inside the screen frame's window (ScreenFrame),
+// which draws the bar's background as part of the one frame shape, reserves
+// its space and decides where it takes input.
+Item {
     id: bar
-    anchors { top: true; left: true; right: true }
-    property var modelData
-    screen: modelData
-
-    height: 60
-    WlrLayershell.layer: WlrLayer.Top
-    exclusionMode: WlrLayershell.Exclusive
-    exclusiveZone: height - 30
-    WlrLayershell.keyboardFocus: WlrLayershell.None
-    color: "transparent"
-
-    // Only the drawn 40px bar takes input. The window is 60px tall to fit the
-    // corner curves, and without a mask its transparent bottom 20px swallowed
-    // clicks on the top edge of windows.
-    mask: Region { x: 0; y: 0; width: bar.width; height: 40 }
+    property var screen
+    width: parent ? parent.width : 0
+    height: 40
 
     // All system data + the command runner now live in the Sys singleton.
 
@@ -56,8 +47,6 @@ PanelWindow {
     // ══════════════════════════════════════════════════════════════════════════
     // UI LAYOUT
     // ══════════════════════════════════════════════════════════════════════════
-    Rectangle { anchors.top: parent.top; width: parent.width; height: 40; color: Theme.background; opacity: 0.8 }
-
     // Center pill — media info
     Rectangle {
         id: centerPill
@@ -65,7 +54,8 @@ PanelWindow {
         anchors.top: parent.top; anchors.topMargin: 5
         height: 30; width: Math.min(centerRow.implicitWidth + 30, 450); radius: 15; z: 5
         scale: centerMouse.pressed ? 0.96 : (centerMouse.containsMouse ? 1.02 : 1.0)
-        color: centerMouse.containsMouse ? Theme.withAlpha(Theme.background, 0.95) : Theme.background
+        // Same material as the frame: a tint on top of it, not an opaque island.
+        color: Theme.withAlpha(Theme.primary, centerMouse.containsMouse ? 0.14 : 0.08)
         Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
         Behavior on color { ColorAnimation { duration: 200 } }
 
@@ -112,7 +102,7 @@ PanelWindow {
             // Workspaces pill
             Rectangle {
                 height: 30; width: wsRow.width + 20; radius: 15
-                color: Theme.background; anchors.verticalCenter: parent.verticalCenter
+                color: Theme.withAlpha(Theme.primary, 0.08); anchors.verticalCenter: parent.verticalCenter
                 Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
 
                 Row {
@@ -213,8 +203,8 @@ PanelWindow {
                 anchors.verticalCenter: parent.verticalCenter
                 visible: SystemTray.items.values.length > 0
 
-                // Solid base so the gradient doesn't double-blend with the transparent bar background
-                color: Theme.background
+                // No opaque base: the gradient sits on the frame like the other pills
+                color: "transparent"
 
                 // Gradient overlay using dynamic theme colors
                 Rectangle {
@@ -507,7 +497,7 @@ PanelWindow {
             // SYSTEM PILL
             Rectangle {
                 height: 30; width: sysRow.implicitWidth + 24; radius: 15
-                color: sysMouse.containsMouse ? Theme.withAlpha(Theme.background, 0.95) : Theme.background
+                color: Theme.withAlpha(Theme.primary, sysMouse.containsMouse ? 0.14 : 0.08)
                 anchors.verticalCenter: parent.verticalCenter
                 scale: sysMouse.pressed ? 0.96 : (sysMouse.containsMouse ? 1.02 : 1.0)
                 Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
@@ -547,32 +537,17 @@ PanelWindow {
         }
     }
 
-    // --- CANVAS CORNERS ---
-    // Hidden while a drawer flush against that corner is out (FrameCorners):
-    // it draws the same corner, and both at once would stack the 0.8 fill.
-    Canvas {
-        visible: FrameCorners.topLeft === 0
-        opacity: 0.8; id: leftCorner; x: 10; y: 40; width: 20; height: 20
-        renderTarget: Canvas.FramebufferObject
-        property color syncColor: Theme.background; onSyncColorChanged: requestPaint()
-        onPaint: { var ctx = getContext("2d"); ctx.reset(); ctx.fillStyle = Theme.background; ctx.moveTo(0, 0); ctx.lineTo(20, 0); ctx.arcTo(0, 0, 0, 20, 20); ctx.fill() }
-    }
-    Canvas {
-        visible: FrameCorners.topRight === 0
-        opacity: 0.8; id: rightCorner; x: parent.width - 30; y: 40; width: 20; height: 20
-        renderTarget: Canvas.FramebufferObject
-        property color syncColor: Theme.background; onSyncColorChanged: requestPaint()
-        onPaint: { var ctx = getContext("2d"); ctx.reset(); ctx.fillStyle = Theme.background; ctx.moveTo(20, 0); ctx.lineTo(0, 0); ctx.arcTo(20, 0, 20, 20, 20); ctx.fill() }
-    }
-
     // --- NATIVE WINDOWS ---
-    MediaPopup { id: mediaPopup }
-    SystemPopup { id: systemPopup }
-    CalendarPopup { id: calendarPopup }
-    ClipboardPopup { id: clipboardPopup }
+    // One shared popout surface for the bar popups: switching between them
+    // morphs it instead of closing one window and opening another.
+    PopoutHost { id: popoutHost; screen: bar.screen }
+    MediaPopup { id: mediaPopup; host: popoutHost }
+    SystemPopup { id: systemPopup; host: popoutHost }
+    CalendarPopup { id: calendarPopup; host: popoutHost }
+    ClipboardPopup { id: clipboardPopup; host: popoutHost }
+    DashboardPopup { id: dashPopup; host: popoutHost }
+    KbLayoutPopup { id: keyboardPopup; host: popoutHost }
     PowerPopup { id: powerPopup }
-    DashboardPopup { id: dashPopup }
-    KbLayoutPopup { id: keyboardPopup }
 
     // ══════════════════════════════════════════════════════════════════════════
     // SYSTEM TRAY MENU (renders SNI DBusMenu with recursive submenus)
@@ -721,7 +696,6 @@ PanelWindow {
             freeX: Math.min(Math.max(52, trayMenu.anchorX - menuBox.width / 2), trayMenu.width - menuBox.width - 52)
             panelWidth: menuBox.width
             panelHeight: menuBox.height
-            radius: 16
             duration: 300
 
         Rectangle {
@@ -789,7 +763,6 @@ PanelWindow {
             hMargin: 290
             panelWidth: 230
             panelHeight: 46
-            radius: 23
             duration: 300
 
             Rectangle {
