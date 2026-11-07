@@ -116,17 +116,39 @@ Item {
         onTriggered: root._go = root.open && root._sized
     }
 
+    // Motion curves (Material 3 "emphasized"): opening shoots out and then
+    // settles softly, closing eases off and then picks up speed into the frame.
+    // (An exponential ease stopped abruptly; the same curve for closing did
+    // nearly all of its travel in the first frame or two and read as a vanish.)
+    readonly property var curveEnter: [0.05, 0.7, 0.1, 1.0, 1, 1]
+    readonly property var curveExit: [0.3, 0.0, 0.8, 0.15, 1, 1]
+
     property real progress: _go ? 1 : 0
     Behavior on progress {
         NumberAnimation {
-            // Opening snaps out (OutExpo). Closing with the same curve did
-            // nearly all of its travel in the first frame or two, so it read as
-            // a vanish; InOutCubic keeps the slide back into the frame visible.
-            duration: root.open ? root.duration : Math.round(root.duration * 0.8)
-            easing.type: root.open ? Easing.OutExpo : Easing.InOutCubic
+            duration: root.open ? root.duration : Math.round(root.duration * 0.75)
+            easing.type: Easing.BezierSpline
+            easing.bezierCurve: root.open ? root.curveEnter : root.curveExit
             onRunningChanged: if (!running && !root.open) root.closed()
         }
     }
+
+    // The content settles in a beat after the surface: a short fade with a
+    // small drift away from the frame, instead of arriving glued to the panel.
+    // Closing fades it out quickly while the panel slides back.
+    property real contentReveal: _go ? 1 : 0
+    Behavior on contentReveal {
+        SequentialAnimation {
+            PauseAnimation { duration: root.open ? 70 : 0 }
+            NumberAnimation {
+                duration: root.open ? 320 : 130
+                easing.type: Easing.BezierSpline
+                easing.bezierCurve: root.open ? root.curveEnter : [0.4, 0.0, 1.0, 1.0, 1, 1]
+            }
+        }
+    }
+    // Drift distance (px), towards the frame while hidden
+    property real contentDrift: 10
 
     // The outline doesn't travel with the drawer: it fades in once the drawer
     // has (nearly) landed, and fades out quickly as soon as it starts closing.
@@ -358,6 +380,15 @@ Item {
                 height: root.horizontal ? root.panelHeight : area.height
                 x: root.edge === "left" ? root.revealed - root.panelWidth : 0
                 y: root.edge === "top" ? root.revealed - root.panelHeight : 0
+
+                // Settle-in (see contentReveal): fade plus a drift that comes
+                // out of the frame the drawer hangs from.
+                opacity: root.contentReveal
+                transform: Translate {
+                    readonly property real d: (1 - root.contentReveal) * root.contentDrift
+                    x: root.edge === "left" ? -d : (root.edge === "right" ? d : 0)
+                    y: root.edge === "top" ? -d : (root.edge === "bottom" ? d : 0)
+                }
             }
         }
     }

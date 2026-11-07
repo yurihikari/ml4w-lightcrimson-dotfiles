@@ -41,12 +41,27 @@ Item {
     // The popup the popout shows stays fully visible (it slides with the
     // popout when it closes); one it switched away from fades out.
     readonly property bool shown: host !== null && host.current === root
+    // Only animate while the popout switches popups: the outgoing content fades
+    // out quickly, the incoming one fades in a beat later with a small drift.
+    // (Opening from closed is handled by the drawer's own settle-in.)
+    readonly property bool _switching: host !== null && host.switching
     opacity: shown ? 1 : 0
     Behavior on opacity {
-        NumberAnimation {
-            duration: 180
-            easing.type: Easing.OutCubic
-            onRunningChanged: if (!running && !root.shown && !root.active) root.isAnimating = false
+        enabled: root._switching || !root.shown
+        SequentialAnimation {
+            PauseAnimation { duration: root.shown ? 90 : 0 }
+            NumberAnimation {
+                duration: root.shown ? 260 : 140
+                easing.type: Easing.OutCubic
+            }
+            ScriptAction { script: if (!root.shown && !root.active) root.isAnimating = false }
+        }
+    }
+    transform: Translate {
+        y: root.shown ? 0 : 8
+        Behavior on y {
+            enabled: root._switching
+            NumberAnimation { duration: 360; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.05, 0.7, 0.1, 1.0, 1, 1] }
         }
     }
     visible: (active || isAnimating) && opacity > 0

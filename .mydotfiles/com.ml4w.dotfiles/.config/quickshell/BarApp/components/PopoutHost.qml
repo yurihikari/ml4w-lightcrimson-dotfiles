@@ -69,14 +69,16 @@ PanelWindow {
     // Glide only while switching popups. Otherwise follow the popup directly,
     // so its own size animations (tabs, hover expansion) aren't eased twice.
     property bool switching: false
-    Timer { id: switchDone; interval: 450; onTriggered: host.switching = false }
+    Timer { id: switchDone; interval: 480; onTriggered: host.switching = false }
 
     property real curX: targetX
     property real curW: targetW
     property real curH: targetH
-    Behavior on curX { enabled: host.switching; NumberAnimation { duration: 420; easing.type: Easing.OutExpo } }
-    Behavior on curW { enabled: host.switching; NumberAnimation { duration: 420; easing.type: Easing.OutExpo } }
-    Behavior on curH { enabled: host.switching; NumberAnimation { duration: 420; easing.type: Easing.OutExpo } }
+    // Same emphasized curve as the drawers: quick to leave, long soft settle.
+    readonly property var morphCurve: [0.05, 0.7, 0.1, 1.0, 1, 1]
+    Behavior on curX { enabled: host.switching; NumberAnimation { duration: 460; easing.type: Easing.BezierSpline; easing.bezierCurve: host.morphCurve } }
+    Behavior on curW { enabled: host.switching; NumberAnimation { duration: 460; easing.type: Easing.BezierSpline; easing.bezierCurve: host.morphCurve } }
+    Behavior on curH { enabled: host.switching; NumberAnimation { duration: 460; easing.type: Easing.BezierSpline; easing.bezierCurve: host.morphCurve } }
 
     // Click outside the popout
     MouseArea {
