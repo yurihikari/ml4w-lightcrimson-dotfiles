@@ -200,17 +200,34 @@ case "$1" in
         exit 0
         ;;
     --record-current)
-        # ML4W hook: pin the just-set global wallpaper to the focused workspace,
-        # WITHOUT re-applying (ML4W already set the image). We sync this monitor's
-        # state so the daemon won't redundantly re-apply on the next event.
+        # ML4W hook: ML4W just painted the new wallpaper on EVERY monitor (its
+        # `awww img` call has no -o), which clobbers the per-workspace wallpapers
+        # on any monitor not showing the focused workspace. So we:
+        #   1. Pin the new wallpaper to the focused workspace, so returning to it
+        #      doesn't snap back to a stale per-workspace assignment.
+        #   2. Mark the focused monitor as already-correct (no flicker), then
+        #      invalidate every OTHER monitor's now-stale state and re-apply, so
+        #      they snap back to their per-workspace wallpapers immediately.
+        #
+        # Without step 2, other monitors kept the global image until a daemon
+        # restart: their stale state still matched the per-workspace wallpaper, so
+        # the daemon's anti-flicker check skipped the repaint on workspace events.
         if [[ -z "$2" ]]; then log "--record-current needs <path>"; exit 1; fi
         require jq hyprctl || exit 0
         ws="$(active_workspace_of_focused_monitor)"
         [[ -z "$ws" ]] && exit 0
         config_set "$ws" "$2"
         focused_mon="$(hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.focused==true) | .name' | head -n1)"
+        # Focused monitor is already correct — record it so it isn't repainted.
         [[ -n "$focused_mon" ]] && echo "$2" > "$STATE_DIR/monitor-$focused_mon"
-        log "Recorded global change: workspace $ws -> $2"
+        # Drop every other monitor's stale state so set_wallpapers repaints them.
+        for sf in "$STATE_DIR"/monitor-*; do
+            [[ -e "$sf" ]] || continue
+            [[ -n "$focused_mon" && "$sf" == "$STATE_DIR/monitor-$focused_mon" ]] && continue
+            rm -f "$sf"
+        done
+        log "Recorded global change: workspace $ws -> $2; re-applying other monitors"
+        set_wallpapers
         exit 0
         ;;
     --apply-now)
