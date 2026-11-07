@@ -1,23 +1,33 @@
+import Quickshell
+import Quickshell.Io
 import QtQuick
 import QtQuick.Layouts
-import QtQuick.Controls
 import qs.CustomTheme
 import qs.BarApp.services
 import qs.BarApp.components
 
+// Power menu (META+X, the bar's power button). A centered modal over a frosted
+// full-screen backdrop: a clock header, then the actions as tiles that rise in
+// one after another. Reboot and shutdown light up in the error colour so the
+// destructive ones read differently.
+//
+// Keys: left/right (or h/l, Tab) to choose, Enter/Space to confirm, Esc to
+// cancel. Hovering a tile also selects it.
 BarPopupWindow {
     id: root
     ipcTarget: "bar-power"
-    onOpened: root.selectedIndex = 0
+    onOpened: {
+        root.selectedIndex = 0
+        uptimeReader.running = true
+    }
 
-    // Keyboard selection state
     property int selectedIndex: 0
     property var powerActions: [
-        { icon: "󰌾", label: "Lock",     action: ["hyprlock"] },
-        { icon: "󰤄", label: "Suspend",  action: ["systemctl", "suspend"] },
-        { icon: "󰍃", label: "Log Out",  action: ["hyprctl", "dispatch", "hl.dsp.exit()"] },
-        { icon: "󰑓", label: "Reboot",   action: ["systemctl", "reboot"] },
-        { icon: "󰐥", label: "Shutdown", action: ["systemctl", "poweroff"] }
+        { icon: "󰌾", label: "Lock",     action: ["hyprlock"],                             danger: false },
+        { icon: "󰤄", label: "Suspend",  action: ["systemctl", "suspend"],                 danger: false },
+        { icon: "󰍃", label: "Log Out",  action: ["hyprctl", "dispatch", "hl.dsp.exit()"], danger: false },
+        { icon: "󰑓", label: "Reboot",   action: ["systemctl", "reboot"],                  danger: true },
+        { icon: "󰐥", label: "Shutdown", action: ["systemctl", "poweroff"],                danger: true }
     ]
 
     function activate(i) {
@@ -25,7 +35,24 @@ BarPopupWindow {
         root.active = false
     }
 
-    // Keyboard navigation + activation
+    // ── Header data ─────────────────────────────────────────────────────────
+    SystemClock { id: clock; precision: SystemClock.Minutes }
+
+    property string uptimeStr: ""
+    readonly property string userName: Quickshell.env("USER") || ""
+    Process {
+        id: uptimeReader
+        command: ["cat", "/proc/uptime"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const s = Math.floor(parseFloat(this.text.split(" ")[0]) || 0)
+                const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60)
+                root.uptimeStr = d > 0 ? d + "d " + h + "h " + m + "m" : (h > 0 ? h + "h " + m + "m" : m + "m")
+            }
+        }
+    }
+
+    // ── Keyboard ────────────────────────────────────────────────────────────
     FocusScope {
         anchors.fill: parent
         focus: root.active
@@ -43,103 +70,165 @@ BarPopupWindow {
         }
     }
 
-    // --- FULLSCREEN BLUR BACKGROUND ---
+    // ── Frosted backdrop ────────────────────────────────────────────────────
+    // 0.8 so Hyprland blurs everything behind it (the quickshell layer rule).
     Rectangle {
         anchors.fill: parent
         color: Theme.background
-        // 2. Animate background fade
         opacity: root.active ? 0.8 : 0.0
-        Behavior on opacity { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
-    }
-
-    // --- REUSABLE POWER BUTTON COMPONENT ---
-    component PowerButton: Rectangle {
-        id: btn
-        property string icon: ""
-        property string label: ""
-        property var action: []
-        property int idx: 0
-        // Highlighted by either mouse hover or keyboard selection
-        property bool highlighted: mouseArea.containsMouse || root.selectedIndex === idx
-
-        Layout.preferredWidth: 110
-        Layout.preferredHeight: 120
-        radius: 20
-
-        // 3. Smooth color transitions
-        color: highlighted ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : Theme.surface_container_high
-        border.color: highlighted ? Theme.primary : "transparent"
-        border.width: 1
-
-        // 4. Tactile click & hover scale
-        scale: mouseArea.pressed ? 0.92 : (highlighted ? 1.05 : 1.0)
-
-        Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
-        Behavior on color { ColorAnimation { duration: 200 } }
-        Behavior on border.color { ColorAnimation { duration: 200 } }
-
-        ColumnLayout {
-            anchors.centerIn: parent; spacing: 10
-            Text { text: btn.icon; color: Theme.primary; font.pixelSize: 32; Layout.alignment: Qt.AlignHCenter }
-            Text { text: btn.label; color: Theme.primary; font.pixelSize: 12; font.bold: true; opacity: 0.8; Layout.alignment: Qt.AlignHCenter }
-        }
-
-        MouseArea {
-            id: mouseArea
-            anchors.fill: parent
-            hoverEnabled: true
-            // Keep keyboard selection in sync when hovering with the mouse
-            onContainsMouseChanged: if (containsMouse) root.selectedIndex = btn.idx
-            onClicked: root.activate(btn.idx)
-        }
-    }
-
-    // --- BUTTONS CONTAINER (Animated) ---
-    Rectangle {
-        id: container
-        width: 5 * 110 + 4 * 15 + 60
-        height: 180
-        anchors.centerIn: parent
-        radius: 30
-        color: "transparent"
-
-        // 5. Entrance/Exit animations for the main container
-        opacity: root.active ? 1.0 : 0.0
-        scale: root.active ? 1.0 : 0.85
-        y: root.active ? parent.height/2 - height/2 : parent.height/2 - height/2 + 30 // Slide up effect
-        
-        Behavior on opacity { 
-            NumberAnimation { 
-                duration: 250; easing.type: Easing.OutCubic 
-                onRunningChanged: if (!running && !root.active) root.isAnimating = false 
-            } 
-        }
-        Behavior on scale { NumberAnimation { duration: 400; easing.type: Easing.OutExpo } }
-        Behavior on y { NumberAnimation { duration: 400; easing.type: Easing.OutExpo } }
-
-        Shadow {}
-
-        Rectangle {
-            anchors.fill: parent; color: Theme.background; border.color: Theme.withAlpha(Theme.primary, 0.8)
-            border.width: 2; radius: 30; opacity: 0.95
-        }
-
-        MouseArea { anchors.fill: parent }
-
-        RowLayout {
-            anchors.fill: parent; anchors.margins: 30; spacing: 15
-            Repeater {
-                model: root.powerActions
-                PowerButton {
-                    required property int index
-                    required property var modelData
-                    idx: index
-                    icon: modelData.icon
-                    label: modelData.label
-                    action: modelData.action
-                }
+        Behavior on opacity {
+            NumberAnimation {
+                duration: root.active ? 320 : 220
+                easing.type: Easing.OutCubic
+                onRunningChanged: if (!running && !root.active) root.isAnimating = false
             }
         }
     }
-    
+
+    // ── Content ─────────────────────────────────────────────────────────────
+    ColumnLayout {
+        id: content
+        anchors.centerIn: parent
+        spacing: 0
+
+        // Header
+        ColumnLayout {
+            Layout.alignment: Qt.AlignHCenter
+            spacing: 4
+            opacity: root.active ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: root.active ? 380 : 160; easing.type: Easing.OutCubic } }
+            transform: Translate {
+                y: root.active ? 0 : -14
+                Behavior on y { NumberAnimation { duration: 500; easing.type: Easing.OutExpo } }
+            }
+
+            Text {
+                Layout.alignment: Qt.AlignHCenter
+                text: Qt.formatDateTime(clock.date, "HH:mm")
+                color: Theme.primary
+                font.family: Theme.fontFamily
+                font.pixelSize: 76
+                font.weight: Font.Light
+            }
+            Text {
+                Layout.alignment: Qt.AlignHCenter
+                text: Qt.formatDateTime(clock.date, "dddd, MMMM d")
+                color: Theme.primary
+                opacity: 0.75
+                font.family: Theme.fontFamily
+                font.pixelSize: 15
+            }
+            Text {
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: 2
+                visible: text !== ""
+                text: [root.uptimeStr !== "" ? "up " + root.uptimeStr : "", root.userName].filter(s => s !== "").join("  ·  ")
+                color: Theme.primary
+                opacity: 0.45
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+            }
+        }
+
+        // Actions
+        RowLayout {
+            Layout.alignment: Qt.AlignHCenter
+            Layout.topMargin: 56
+            spacing: 22
+
+            // One tile per action
+            Repeater {
+                model: root.powerActions
+                delegate: Item {
+                    id: tile
+                    required property int index
+                    required property var modelData
+                    readonly property int idx: index
+                    readonly property string icon: modelData.icon
+                    readonly property string label: modelData.label
+                    readonly property bool danger: modelData.danger
+                    readonly property bool selected: root.selectedIndex === idx
+                    readonly property color accent: danger ? Theme.error : Theme.primary
+                    readonly property color accentText: danger ? Theme.on_error : Theme.on_primary
+
+                    implicitWidth: 104
+                    implicitHeight: face.height + 14 + caption.implicitHeight
+
+                    // Staggered entrance: rise and fade in one after another.
+                    opacity: root.active ? 1 : 0
+                    Behavior on opacity {
+                        SequentialAnimation {
+                            PauseAnimation { duration: root.active ? 60 + tile.idx * 45 : 0 }
+                            NumberAnimation { duration: root.active ? 300 : 160; easing.type: Easing.OutCubic }
+                        }
+                }
+                transform: Translate {
+                    y: root.active ? 0 : 26
+                    Behavior on y {
+                        SequentialAnimation {
+                            PauseAnimation { duration: root.active ? 60 + tile.idx * 45 : 0 }
+                            NumberAnimation { duration: root.active ? 460 : 160; easing.type: Easing.OutExpo }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    id: face
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: 88; height: 88
+                    radius: 28
+                    color: tile.selected ? tile.accent : Theme.withAlpha(tile.accent, tileMouse.containsMouse ? 0.16 : 0.08)
+                    scale: tileMouse.pressed ? 0.93 : (tile.selected ? 1.06 : 1.0)
+                    Behavior on color { ColorAnimation { duration: 180 } }
+                    Behavior on scale { NumberAnimation { duration: 260; easing.type: Easing.OutBack } }
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: tile.icon
+                        color: tile.selected ? tile.accentText : tile.accent
+                        font.pixelSize: 32
+                        Behavior on color { ColorAnimation { duration: 180 } }
+                    }
+                }
+
+                Text {
+                    id: caption
+                    anchors.top: face.bottom
+                    anchors.topMargin: 14
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: tile.label
+                    color: tile.selected ? tile.accent : Theme.primary
+                    opacity: tile.selected ? 1 : 0.6
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 13
+                    font.bold: true
+                    Behavior on opacity { NumberAnimation { duration: 180 } }
+                    Behavior on color { ColorAnimation { duration: 180 } }
+                }
+
+                MouseArea {
+                    id: tileMouse
+                    anchors.fill: face
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    // Keep the keyboard selection in sync with the mouse
+                    onContainsMouseChanged: if (containsMouse) root.selectedIndex = tile.idx
+                    onClicked: root.activate(tile.idx)
+                }
+                }
+            }
+        }
+
+        // Keyboard hint
+        Text {
+            Layout.alignment: Qt.AlignHCenter
+            Layout.topMargin: 44
+            text: "←  →  choose    ·    Enter  confirm    ·    Esc  cancel"
+            color: Theme.primary
+            opacity: root.active ? 0.4 : 0
+            Behavior on opacity { NumberAnimation { duration: root.active ? 600 : 150 } }
+            font.family: Theme.fontFamily
+            font.pixelSize: 11
+        }
+    }
 }
