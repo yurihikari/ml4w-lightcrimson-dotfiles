@@ -39,6 +39,14 @@
     /* box-shadow: 0px 8px 20px 0px rgba(0, 0, 0, 0.15); */
 }
 
+/* GTK >= 4.24 requests compositor blur itself (ext-background-effect-v1), and
+   Hyprland then ignores the layer rules in hypr/conf/custom/style.lua. The blur
+   region has to come from CSS. On popups GTK only reports it from the window
+   node; the region still follows the cards (gaps and rounded corners stay clear). */
+.floating-notifications {
+    backdrop-filter: blur(20px);
+}
+
 /* Critical Toast */
 .floating-notifications.background .notification-row .notification-background .notification.critical {
     background-color: alpha(#ff6b6b, 0.15);
@@ -99,4 +107,22 @@
 }
 
 .floating-notifications.background .notification-row .notification-background .close-button:hover {
-    background-color: alpha(#ff6b6b,
+    background-color: alpha(#ff6b6b, 0.8);
+    color: @background;
+    border-radius: 12px;
+}
+
+.floating-notifications.background .notification-row .notification-background .close-button:active {
+    background-color: @primary;
+    color: @background;
+}
+
+/* === Progress bars === */
+.notification.critical progress {
+    background-color: #ff6b6b;
+}
+
+.notification.low progress,
+.notification.normal progress {
+    background-color: @primary;
+}

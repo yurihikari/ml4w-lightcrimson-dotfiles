@@ -3,7 +3,7 @@
 @import '../../colors.css';
 
 /* === Derived dynamic colors === */
-@define-color base alpha(@surface, 0.85);
+@define-color base alpha(@surface, 0.8); /* same 0.8 glass as the Quickshell panels */
 @define-color surface_custom alpha(@surface_container_high, 0.05);
 @define-color hovercolor alpha(@primary, 0.1);
 @define-color activecolor @primary_container;
@@ -35,6 +35,9 @@
     border: 2px solid alpha(@primary, 0.8);
     margin: 8px;
     margin-right: 18px;
+    /* GTK >= 4.24 requests compositor blur itself (ext-background-effect-v1);
+       Hyprland then ignores layer rules, so the blur region must come from here. */
+    backdrop-filter: blur(20px);
 }
 
 /* === Buttons grid === */
@@ -134,10 +137,6 @@
 
 .widget-mpris-player {
   border-radius: 24px;
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  overflow: hidden;
 }
 
 .widget-mpris-album-art {
