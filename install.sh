@@ -74,6 +74,28 @@ fi
 chmod +x "$TARGET_STORAGE/.config/hypr/conf/custom/workspace-wallpapers.sh" 2>/dev/null || true
 
 # ==========================================
+# 4b. QUICKSHELL OVERVIEW (META+Tab)
+# ==========================================
+# ML4W moved the window overview out of the dotfiles into its own repo. The
+# profile install above doesn't fetch it (only ML4W's full setup does), but the
+# META+Tab keybind, ml4w-autostart and matugen all expect it here.
+# The ML4W dock / power menu / walker are deliberately NOT installed: this
+# setup has its own dock and power menu in the Quickshell bar.
+echo -e "\n========================================"
+echo "🪟 Installing Quickshell Overview (META+Tab)"
+echo "========================================"
+QSO_DIR="$HOME/.local/share/quickshell-overview"
+if [ -d "$QSO_DIR/.git" ]; then
+    git -C "$QSO_DIR" pull --ff-only || echo "⚠️ Warning: Could not update quickshell-overview."
+elif [ -d "$QSO_DIR" ]; then
+    echo "⚠️ $QSO_DIR exists but is not a git repository; leaving it alone."
+else
+    mkdir -p "$(dirname "$QSO_DIR")"
+    git clone https://github.com/Shanu-Kumawat/quickshell-overview "$QSO_DIR" \
+        || echo "⚠️ Warning: Failed to clone quickshell-overview. META+Tab won't work until it's installed."
+fi
+
+# ==========================================
 # 5. SPECIFIC FILE FAILSAFES
 # ==========================================
 # The rsync command above technically copies all of this already if they are inside 
@@ -139,6 +161,8 @@ echo "
    • META+P → Colorpicker (hyprpicker)
    • META+R → Radial menu
    • META+ALT+M → Display manager
+   • META+Tab → Window overview (quickshell-overview)
+   • META+CTRL+C → Calculator (META+C is taken by the calendar)
    • Quickshell popups: META+M (media), META+C (calendar),
      META+N (network/system), META+I (dashboard), META+A (dock),
      META+SHIFT+V (clipboard), META+SHIFT+K (keyboard), META+X (power)

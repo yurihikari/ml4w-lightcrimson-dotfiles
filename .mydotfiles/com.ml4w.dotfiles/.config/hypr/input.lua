@@ -4,8 +4,8 @@
 
 hl.config({
     input = {
-        kb_layout    = "us",
-        kb_variant   = "",
+        kb_layout  = "us",
+        kb_variant = "intl",
         kb_model     = "",
         kb_options   = "grp:alt_shift_toggle",
         kb_rules     = "",
@@ -15,7 +15,7 @@ hl.config({
         sensitivity  = 0, -- -1.0 - 1.0, 0 means no modification.
 
         touchpad     = {
-            natural_scroll = true,
+            natural_scroll = false,
         },
     },
 })
