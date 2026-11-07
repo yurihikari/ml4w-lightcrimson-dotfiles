@@ -18,7 +18,7 @@ hl.env("PATH", HOME .. "/.cargo/bin:" .. current_path)
 -- Pavucontrol
 hl.window_rule({
     name = "pavucontrol",
-    match = {class = "*org.pulseaudio.pavucontrol*"},
+    match = {class = ".*org.pulseaudio.pavucontrol.*"},
     float = true,
     center = true,
     size = "700 600"
@@ -31,7 +31,17 @@ hl.window_rule({
     float = true,
     center = true,
     pin = true,
-    size = "700 600"
+    size = "700 640"
+})
+
+-- ML4W Dock Settings (Quickshell dock dialog)
+hl.window_rule({
+    name = "ml4w-dock-settings",
+    match = {title = "ML4W Dock Settings"},
+    float = true,
+    center = true,
+    pin = true,
+    size = "480 300"
 })
 
 -- ML4W Settings App
@@ -42,16 +52,6 @@ hl.window_rule({
     center = true,
     pin = true,
     size = "900 600"
-})
-
--- Waypaper
-hl.window_rule({
-    name = "waypaper",
-    match = {class = "*waypaper*"},
-    float = true,
-    center = true,
-    pin = true,
-    size = "900 700"
 })
 
 -- Newelle
@@ -156,6 +156,25 @@ hl.window_rule({
     size = "1000 700"
 })
 
+-- Window Mode (tiling|floating), set from the sidebar via ml4w-window-mode.
+-- Stored in ~/.config/ml4w/settings/window-mode (missing = tiling). The rule
+-- floats every new window and is switched at runtime with
+-- `hyprctl eval "set_window_mode('floating')"`, so no reload is needed.
+window_mode_rule = hl.window_rule({
+    name = "ml4w-window-mode-floating",
+    match = {class = ".*"},
+    float = true
+})
+
+function set_window_mode(mode)
+    window_mode_rule:set_enabled(mode == "floating")
+end
+
+local window_mode_file = io.open(HOME .. "/.config/ml4w/settings/window-mode", "r")
+local window_mode = window_mode_file and window_mode_file:read("*l") or "tiling"
+if window_mode_file then window_mode_file:close() end
+set_window_mode(window_mode)
+
 -- Picture-in-Picture
 hl.window_rule({
     name = "Picture-in-Picture",
@@ -168,6 +187,21 @@ hl.window_rule({
     no_initial_focus = true,
     suppress_event = "activate"
 })
+
+-- XWayland Video Bridge
+hl.window_rule({
+    name = "xwaylandvideobridge",
+    match = { class = "^(xwaylandvideobridge)$" },
+    opacity = "0.0 override 0.0 override",
+    no_anim = true,
+    no_initial_focus = true,
+    max_size = "1 1",
+    no_blur = true,
+    float = true
+})
+
+-- ML4W Power Menu (slides in on its own)
+hl.layer_rule({ match = { namespace = "ml4w-powermenu" }, no_anim = true })
 
 -- Wayland variables
 hl.env("OZONE_PLATFORM", "wayland")

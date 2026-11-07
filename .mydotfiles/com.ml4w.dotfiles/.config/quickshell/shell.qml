@@ -4,9 +4,7 @@ import Quickshell
 import Quickshell.Io
 import QtQuick
 import "WelcomeApp"
-import "PowerApp"
 import "SidebarApp"
-import "CalendarApp"
 import "WallpaperApp"
 import "WorkspaceWallpaperAPP"
 import "StatusbarApp"
@@ -40,10 +38,9 @@ ShellRoot {
         }
     }
     WelcomeWindow {}
-    PowerWindow {}
     SidebarWindow {}
-    CalendarWindow {}
     WallpaperWindow {}
+    WallpaperCarousel {}
     WorkspaceWallpaperWindow {}
     RadialMenuPopup {}
     DisplayManagerWindow { id: displayManager }

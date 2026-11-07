@@ -32,6 +32,18 @@ fi
 # Start nmapplet
 nm-applet --indicator &
 
+# Quickshell reads its icon theme from QS_ICON_THEME, not from GTK. Hyprland
+# normally exports it (conf/environment.lua); fall back to reading the GTK
+# settings here so a manual run of this script still themes the dock icons.
+if [ -z "$QS_ICON_THEME" ]; then
+    GTK_SETTINGS="$HOME/.config/gtk-3.0/settings.ini"
+    if [ -f "$GTK_SETTINGS" ]; then
+        ICON_THEME="$(grep 'gtk-icon-theme-name' "$GTK_SETTINGS" | sed 's/.*\s*=\s*//')"
+        [ -n "$ICON_THEME" ] && export QS_ICON_THEME="$ICON_THEME"
+    fi
+fi
+info "Quickshell icon theme: ${QS_ICON_THEME:-<unset>}"
+
 # Kill any existing qs instances
 killall qs 2>/dev/null || true
 
@@ -55,7 +67,7 @@ sleep 0.5
 info "Quickshell ready"
 
 # Apply wallpaper theming on every start — qs is guaranteed ready for IPC calls.
-# Theming (matugen colors, quickshell reload, nwg-dock launch) must always run.
+# Theming (matugen colors, quickshell reload) must always run.
 # Only the awww image set is skipped when already cached, to avoid a flicker.
 if [[ -z $(find "$AWWW_CACHE_FOLDER" -mindepth 1 -maxdepth 1 -type f -print -quit 2>/dev/null) ]]; then
     info "Set wallpaper to cache file $(cat $CACHE_FILE)"
@@ -72,8 +84,29 @@ info "ML4W Dotfiles Settings started"
 
 # Start Quickshell Overview
 info "Starting Quickshell Overview"
-qs -p $HOME/.config/quickshell/overview &
+qs -p $HOME/.local/share/quickshell-overview &
 info "Quickshell Overview started"
+
+# Start Hypr App Switcher
+info "Starting Hypr App Switcher"
+qs -p $HOME/.local/share/hypr-app-switcher &
+info "Hypr App Switcher started"
+
+# Start ML4W Dock
+info "Starting ML4W Dock"
+ml4w-dock start &
+info "ML4W Dock started"
+
+# Start ML4W Power Menu
+info "Starting ML4W Power Menu"
+ml4w-powermenu start &
+info "ML4W Power Menu started"
+
+# Start ML4W Walker (starts elephant first, then walker -- see
+# ml4w-walker's own start command)
+info "Starting ML4W Walker"
+ml4w-walker start &
+info "ML4W Walker started"
 
 # Start ML4W Welcome App
 info "Starting ML4W Welcome App"

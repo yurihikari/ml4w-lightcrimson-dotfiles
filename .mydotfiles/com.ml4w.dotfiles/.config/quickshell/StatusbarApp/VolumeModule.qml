@@ -6,7 +6,8 @@ import QtQuick.Layouts
 import qs.CustomTheme
 
 // Shows the default output sink's volume next to a speaker icon.
-//   • left click / Return   → open pavucontrol
+//   • left click / Return   → choose the default output (or "More Settings"
+//                             → volume.settingsCommand, pavucontrol by default)
 //   • right click           → mute (volume 0); right click again restores it
 //   • mouse wheel (hovered)  → raise/lower the volume in 5% steps
 //   • Up / Down arrows (keyboard-focused) → raise/lower the volume
@@ -30,6 +31,10 @@ Rectangle {
 
     // Set by the keyboard navigation in StatusbarWindow.
     property bool focused: false
+    property bool outputMenuOpen: false
+    // Shell command behind the output menu's "More Settings" entry
+    // (volume.settingsCommand); empty hides the entry.
+    property string settingsCommand: "pavucontrol"
 
     // Keep the sink's audio (volume/muted) properties live and writable.
     PwObjectTracker { objects: sink !== null ? [sink] : [] }
@@ -56,9 +61,35 @@ Rectangle {
             sink.audio.muted = !sink.audio.muted
     }
 
-    // Left click / keyboard Return: open the volume control GUI.
+    // Select this sink as default and move all currently playing streams to it.
+    function selectSink(node): void {
+        if (node === null || node.name === "")
+            return
+        Pipewire.preferredDefaultAudioSink = node
+        // WirePlumber changes the default for new streams. Move existing streams
+        // too, so every app follows the output selected here immediately.
+        Quickshell.execDetached([
+            "bash", "-c",
+            'pactl set-default-sink "$1" && pactl list short sink-inputs | cut -f1 | while read id; do pactl move-sink-input "$id" "$1"; done',
+            "quickshell-audio-output", node.name
+        ])
+        outputMenuOpen = false
+    }
+
+    // Left click / keyboard Return: show available audio outputs.
     function activate(): void {
-        Quickshell.execDetached(["pavucontrol"])
+        outputMenuOpen = !outputMenuOpen
+    }
+
+    // "More Settings" in the output menu: open the configured audio control app.
+    function openSettings(): void {
+        if (settingsCommand !== "")
+            Quickshell.execDetached(["bash", "-c", settingsCommand])
+        outputMenuOpen = false
+    }
+
+    function closeOutputMenu(): void {
+        outputMenuOpen = false
     }
 
     readonly property bool active: mouseArea.containsMouse || volume.focused
@@ -127,4 +158,5 @@ Rectangle {
         }
         onWheel: wheel => volume.step(wheel.angleDelta.y > 0 ? 1 : -1)
     }
+
 }

@@ -1,0 +1,56 @@
+/*
+Default configuration file for the Quickshell Statusbar.
+
+This file documents the built-in defaults (kept in sync with defaultSettings in
+StatusbarWindow.qml). The statusbar itself reads a single file:
+
+  ~/.config/ml4w-statusbar/config.json
+
+It is created empty on first start and merged over
+the built-in defaults below, so it only needs to carry the values you want to
+change. The statusbar writes enabled / alwaysExpanded / autohide back into it.
+*/
+{
+    "bar": {
+        "height": 40,
+        "reservedHeight": 72,
+        "enabled": true,
+        "alwaysExpanded": true,
+        "autohide": false,
+        "hideDelay": 400
+    },
+    "pill": {
+        "collapsedWidth": 0,
+        "expandedWidth": 680,
+        "radius": 12,
+        "animationDuration": 350
+    },
+    "modules": {
+        "left":   ["terminal", "workspaces"],
+        "center": ["launcher", "clock", "swaync"],
+        "right":  ["updates", "battery", "powerprofile", "volume", "systemtray", "logo", "power"]
+    },
+    "border": {
+        "width": 2,
+        "colorTop": "",
+        "colorBottom": ""
+    },
+    "opacity": {
+        "collapsed": 0.6,
+        "expanded": 0.8
+    },
+    "clock": {
+        "format": "HH:mm",
+        "dateFormat": "ddd, dd MMM",
+        "calendarCommand": ""
+    },
+    "volume": {
+        "settingsCommand": "pavucontrol"
+    },
+    "workspaces": {
+        "count": 5
+    },
+    "systemtray": {
+        "chip": true
+    }
+}

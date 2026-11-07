@@ -29,7 +29,7 @@ PanelWindow {
     }
 
     margins { 
-        top: 52
+        top: 0
         bottom: 0
     }
 
@@ -78,35 +78,6 @@ PanelWindow {
         function isOpen(): bool { return root.isOpen }
     }
 
-    property string defaultWallpaperFolder: Quickshell.env("HOME") + "/.config/ml4w/wallpapers"
-    property string wallpaperSettingFile: Quickshell.env("HOME") + "/.config/ml4w/settings/wallpaper-folder"
-
-    // Start as default in case file does not exist
-    property string wallpaperFolder: defaultWallpaperFolder
-
-    FileView {
-        id: wallpaperDirSettingFileHandler
-        path: Qt.url(root.wallpaperSettingFile)
-        blockLoading: true
-        watchChanges: true
-        onFileChanged: {
-            this.reload();
-            const settingValue = this.text().trim()
-            console.log("Wallpaper directory setting changed on disk; attempting to load directory \"" + settingValue + "\"")
-            updateWallpaperFolder(settingValue)
-        }
-        onLoaded: {
-            const settingValue = this.text().trim()
-            console.log("Loading wallpaper directory \"" + settingValue + "\"")
-            updateWallpaperFolder(settingValue)
-        }
-        onSaved: {
-            const settingValue = this.text().trim()
-            console.log("Wallpaper directory setting saved successfully; reloading from directory \"" + settingValue + "\"")
-            updateWallpaperFolder(this.text().trim())
-        }
-    }
-
     property string defaultTransitionEffect: "simple"
     property string transitionEffectSettingFile: Quickshell.env("HOME") + "/.config/ml4w/settings/wallpaper-transition-effect"
     property var transitionEffects: ["simple", "left", "right", "top", "bottom", "center", "any", "random", "none"]
@@ -140,10 +111,6 @@ PanelWindow {
         return actionText + " Advanced Options"
     }
 
-    function updateWallpaperFolder(dirString): void {
-        root.wallpaperFolder = dirString.replace(/~|\$HOME/g, Quickshell.env("HOME"))
-    }
-
     function updateTransitionEffect(effectString): void {
         const cleaned = effectString.trim();
         if (root.transitionEffects.indexOf(cleaned) !== -1) {
@@ -172,14 +139,16 @@ PanelWindow {
     }
 
 
-    component SettingsWheel: Button {
+    component IconButton: Button {
+        id: iconButton
+        property string iconSource
         implicitWidth: 28
         implicitHeight: 28
         background: Rectangle { color: "transparent" }
         contentItem: Item {
             Image {
                 anchors.centerIn: parent
-                source: "../shared/icons/settings.svg"
+                source: iconButton.iconSource
                 width: 18
                 height: 18
                 sourceSize.width: 18
@@ -354,6 +323,15 @@ PanelWindow {
                 Layout.topMargin: 5
                 spacing: 10
 
+                // Carousel Button
+                IconButton {
+                    iconSource: "../shared/icons/carousel.svg"
+                    onClicked: {
+                        root.isOpen = false
+                        Quickshell.execDetached(["qs", "ipc", "call", "wallpaper-carousel", "open"])
+                    }
+                }
+
                 // Search Input
                 TextField {
                     id: searchInput
@@ -376,7 +354,8 @@ PanelWindow {
                 }
 
                 // Settings Wheel & Menu
-                SettingsWheel {
+                IconButton {
+                    iconSource: "../shared/icons/settings.svg"
                     onClicked: wallpaperMenu.open()
                     
                     Menu {
@@ -420,7 +399,7 @@ PanelWindow {
                         ML4WMenuItem { 
                             text: "Reload Images"
                             onClicked: {
-                                folderLoader.running = true;
+                                WallpaperService.reloadImages()
                             } 
                         }
 
@@ -474,12 +453,9 @@ PanelWindow {
                         Accessible.role: Accessible.EditableText
 
                         placeholderText: "Specify wallpaper directory"
-                        text: wallpaperDirSettingFileHandler.text().trim()
+                        text: WallpaperService.wallpaperFolderSetting
 
-                        onAccepted: {
-                            console.log("Updating wallpaper directory to \"" + this.text + "\"")
-                            wallpaperDirSettingFileHandler.setText(this.text)
-                        }
+                        onAccepted: WallpaperService.setWallpaperFolder(this.text)
 
                         background: Rectangle {
                             anchors.fill: parent
@@ -631,7 +607,7 @@ PanelWindow {
                 }
 
                 model: FolderListModel {
-                    folder: "file://" + root.wallpaperFolder
+                    folder: "file://" + WallpaperService.wallpaperFolder
                     showDirs: false
                     caseSensitive: false
                     
@@ -740,24 +716,16 @@ PanelWindow {
                             cursorShape: Qt.PointingHandCursor
                             
                             onClicked: {
-                                let scriptPath = Quickshell.env("HOME") + "/.config/ml4w/scripts/ml4w-wallpaper";
-                                let options = ""
+                                const args = []
                                 if (advancedOptions.visible) {
                                     const outputSelection = outputMonitorSelector.currentValue
-                                    const outputParams = outputSelection.isSingleOutput
-                                        ? " --monitor " + outputSelection.name
-                                        : ""
-                                    const positioningParams = " --crop-gravity " + wallpaperPositioningSelector.currentText
-                                    const themingParams = shouldUpdateTheming.checked
-                                        ? ""
-                                        : " --skip-theming"
-                                    options = `${outputParams}${positioningParams}${themingParams}`
+                                    if (outputSelection.isSingleOutput)
+                                        args.push("--monitor", outputSelection.name)
+                                    args.push("--crop-gravity", wallpaperPositioningSelector.currentText)
+                                    if (!shouldUpdateTheming.checked)
+                                        args.push("--skip-theming")
                                 }
-                                Quickshell.execDetached([
-                                    "bash",
-                                    "-c",
-                                    scriptPath + " '" + model.filePath + "'" + options
-                                ]);
+                                WallpaperService.apply(model.filePath, args)
                             }
                         }
                     }

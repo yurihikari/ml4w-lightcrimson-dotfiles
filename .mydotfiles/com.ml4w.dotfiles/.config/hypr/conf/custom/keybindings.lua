@@ -8,7 +8,12 @@ hl.bind(mainMod .. " + SHIFT + E", hl.dsp.exec_cmd("qs ipc call workspacewallpap
 
 -- Bar popup toggles (Quickshell IPC)
 hl.bind(mainMod .. " + M", hl.dsp.exec_cmd("qs ipc call bar-media toggle"), { description = "Toggle media popup" })
+-- ML4W binds SUPER+C to the calculator and SUPER+CTRL+C to its own calendar;
+-- take SUPER+C back for the bar calendar and keep the calculator on SUPER+CTRL+C.
+hl.unbind(mainMod .. " + C")
+hl.unbind(mainMod .. " + CTRL + C")
 hl.bind(mainMod .. " + C", hl.dsp.exec_cmd("qs ipc call bar-calendar toggle"), { description = "Toggle calendar popup" })
+hl.bind(mainMod .. " + CTRL + C", hl.dsp.exec_cmd("~/.config/ml4w/settings/calculator.sh"), { description = "Open the calculator" })
 hl.bind(mainMod .. " + SHIFT + V", hl.dsp.exec_cmd("qs ipc call bar-clipboard toggle"), { description = "Toggle clipboard popup" })
 hl.bind(mainMod .. " + I", hl.dsp.exec_cmd("qs ipc call bar-dashboard toggle"), { description = "Toggle system info popup" })
 hl.bind(mainMod .. " + N", hl.dsp.exec_cmd("qs ipc call bar-system toggle"), { description = "Toggle network/system popup" })

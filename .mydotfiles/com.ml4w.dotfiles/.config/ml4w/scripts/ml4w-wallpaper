@@ -54,6 +54,7 @@ show_help() {
     echo "  --skip                 Alias for \"--skip-wallpaper\"."
     echo "  --monitor              Specify which input to apply wallpaper change (default applies to all outputs)"
     echo "  --crop-gravity         Specify where to anchor wallpaper image in case cropping is needed (values from 'awww img --crop-gravity; default is center)"
+    echo "  --transition TYPE      Override the transition effect setting for this call (values from 'awww img --transition-type', e.g. none)"
     echo "  --help                 Show this help message and exit."
 }
 
@@ -114,7 +115,9 @@ run_matugen() {
     else
         local theme_pref
         theme_pref=$(grep -E '^gtk-application-prefer-dark-theme=' "$HOME/.config/gtk-3.0/settings.ini" 2>/dev/null | awk -F'=' '{print $2}')
-        [ "$theme_pref" = "0" ] && mode="light"
+        case "$theme_pref" in
+            0|false) mode="light" ;;
+        esac
     fi
 
     local bin="matugen"
@@ -137,12 +140,6 @@ reload_waybar() {
     nohup bash -c "$HOME/.config/waybar/launch.sh" > /dev/null 2>&1 &
     disown
     info "Waybar restarted"
-}
-
-reload_nwg_dock() {
-    nohup bash -c "$HOME/.config/nwg-dock-hyprland/launch.sh" >/dev/null 2>&1 &
-    disown
-    info "nwg-dock-hyprland reloaded"
 }
 
 reload_quickshell() {
@@ -214,6 +211,8 @@ while [[ $# -gt 0 ]]; do
             MONITOR_OUTPUT="$2"; shift 2 ;;
         --crop-gravity)
             AWWW_CROP_GRAVITY="$2"; shift 2 ;;
+        --transition)
+            SETTINGS_TRANSITION_EFFECT="$2"; shift 2 ;;
         --help)
             show_help; exit 0 ;;
         -*)
@@ -240,10 +239,6 @@ if [[ ! -f "$IMAGE_PATH" ]]; then
     error "Image file does not exist -> $IMAGE_PATH"; exit 1
 fi
 
-mkdir -p "$CACHE_FOLDER"
-echo "$IMAGE_PATH" > "$CACHE_FILE"
-info "Cache updated: $IMAGE_PATH"
-
 # ============================================================
 # Main
 # ============================================================
@@ -253,9 +248,13 @@ set_wallpaper
 if "$SKIP_THEMING"; then
     info "Updating theming skipped"
 else
+    # Update cache file for future theming updates
+    mkdir -p "$CACHE_FOLDER"
+    echo "$IMAGE_PATH" > "$CACHE_FILE"
+    info "Cache updated: $IMAGE_PATH"
+
     run_matugen
     reload_waybar
-    reload_nwg_dock
     reload_quickshell
     reload_pywalfox
     reload_swaync

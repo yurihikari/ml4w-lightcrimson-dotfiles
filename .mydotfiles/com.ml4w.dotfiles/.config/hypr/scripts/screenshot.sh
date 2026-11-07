@@ -44,6 +44,9 @@ source "$HOME/.config/ml4w/scripts/ml4w-notification-handler"
 APP_NAME="Screen Capture"
 NOTIFICATION_ICON="camera-photo-symbolic"
 
+# Delay to let the launcher close before the capture (seconds)
+MENU_CLOSE_DELAY="0.6"
+
 # Screenshot Editor
 export GRIMBLAST_EDITOR="$(cat ~/.config/ml4w/settings/screenshot-editor)"
 
@@ -122,6 +125,12 @@ option_capture_1="Capture Everything"
 option_capture_2="Capture Active Display"
 option_capture_3="Capture Selection"
 
+option_quick_1="Capture Everything (Copy & Save)"
+option_quick_2="Capture Active Display (Copy & Save)"
+option_quick_3="Capture Selection (Copy & Save)"
+
+option_divider="────────────────────"
+
 option_time_1="5s"
 option_time_2="10s"
 option_time_3="20s"
@@ -137,12 +146,12 @@ save='Save'
 copy_save='Copy & Save'
 edit='Edit'
 
-# Rofi CMD
+# Launcher CMD
 rofi_cmd() {
-    rofi -dmenu -replace -config ~/.config/rofi/config-screenshot.rasi -i -no-show-icons -l 2 -width 30 -p "Take screenshot"
+    $HOME/.config/ml4w/scripts/ml4w-launcher dmenu -c ~/.config/rofi/config-screenshot.rasi -l 2 -p "Take screenshot" --rofi-args "-no-show-icons -width 30" --walker-args "--height 285"
 }
 
-# Pass variables to rofi dmenu
+# Pass variables to the launcher
 run_rofi() {
     echo -e "$option_1\n$option_2" | rofi_cmd
 }
@@ -151,7 +160,7 @@ run_rofi() {
 # Choose Timer
 # CMD
 timer_cmd() {
-    rofi -dmenu -replace -config ~/.config/rofi/config-screenshot.rasi -i -no-show-icons -l 5 -width 30 -p "Choose timer"
+    $HOME/.config/ml4w/scripts/ml4w-launcher dmenu -c ~/.config/rofi/config-screenshot.rasi -l 5 -p "Choose timer" --rofi-args "-no-show-icons -width 30" --walker-args "--height 285"
 }
 
 # Ask for confirmation
@@ -187,18 +196,32 @@ timer_run() {
 # Chose Screenshot Type
 # CMD
 type_screenshot_cmd() {
-    rofi -dmenu -replace -config ~/.config/rofi/config-screenshot.rasi -i -no-show-icons -l 3 -width 30 -p "Type of screenshot"
+    $HOME/.config/ml4w/scripts/ml4w-launcher dmenu -c ~/.config/rofi/config-screenshot.rasi -l 7 -p "Type of screenshot" --rofi-args "-no-show-icons -width 30" --walker-args "--height 440"
 }
 
 # Ask for confirmation
 type_screenshot_exit() {
-    echo -e "$option_capture_1\n$option_capture_2\n$option_capture_3" | type_screenshot_cmd
+    # Rofi can make the divider non-selectable; walker shows it as a plain entry
+    local divider="$option_divider"
+    if [[ "$($HOME/.config/ml4w/scripts/ml4w-launcher which)" == "rofi" ]]; then
+        divider="$option_divider\0nonselectable\x1ftrue"
+    fi
+    printf "%b\n" "$option_quick_1" "$option_quick_2" "$option_quick_3" "$divider" "$option_capture_1" "$option_capture_2" "$option_capture_3" | type_screenshot_cmd
 }
 
 # Confirm and execute
 type_screenshot_run() {
     selected_type_screenshot="$(type_screenshot_exit)"
-    if [[ "$selected_type_screenshot" == "$option_capture_1" ]]; then
+    if [[ "$selected_type_screenshot" == "$option_quick_1" ]]; then
+        option_type_screenshot=screen
+        quick_copy_save
+    elif [[ "$selected_type_screenshot" == "$option_quick_2" ]]; then
+        option_type_screenshot=output
+        quick_copy_save
+    elif [[ "$selected_type_screenshot" == "$option_quick_3" ]]; then
+        option_type_screenshot=area
+        quick_copy_save
+    elif [[ "$selected_type_screenshot" == "$option_capture_1" ]]; then
         option_type_screenshot=screen
         ${1}
     elif [[ "$selected_type_screenshot" == "$option_capture_2" ]]; then
@@ -217,7 +240,7 @@ type_screenshot_run() {
 # Choose to save or copy photo
 # CMD
 copy_save_editor_cmd() {
-    rofi -dmenu -replace -config ~/.config/rofi/config-screenshot.rasi -i -no-show-icons -l 4 -width 30 -p "How to save"
+    $HOME/.config/ml4w/scripts/ml4w-launcher dmenu -c ~/.config/rofi/config-screenshot.rasi -l 4 -p "How to save" --rofi-args "-no-show-icons -width 30" --walker-args "--height 285"
 }
 
 # Ask for confirmation
@@ -275,7 +298,7 @@ timer() {
 
 # take shots
 takescreenshot() {
-    sleep 1
+    sleep "$MENU_CLOSE_DELAY"
     # Force a saved file even for "copy" so we can also preview + clipboard it.
     local action="$option_chosen"
     [[ "$action" == "copy" ]] && action="copysave"
@@ -291,19 +314,26 @@ takescreenshot_timer() {
     takescreenshot
 }
 
+# Immediate screenshot, copied to clipboard and saved
+quick_copy_save() {
+    option_chosen=copysave
+    image_format=png
+    takescreenshot
+    exit
+}
+
 # Execute Command
 run_cmd() {
     if [[ "$1" == '--opt1' ]]; then
-        type_screenshot_run
         copy_save_editor_run "takescreenshot"
     elif [[ "$1" == '--opt2' ]]; then
         timer_run
-        type_screenshot_run
         copy_save_editor_run "takescreenshot_timer"
     fi
 }
 
 # Actions
+type_screenshot_run
 chosen="$(run_rofi)"
 case ${chosen} in
     $option_1)
