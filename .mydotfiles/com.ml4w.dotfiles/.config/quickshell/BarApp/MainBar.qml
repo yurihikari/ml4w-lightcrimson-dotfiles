@@ -91,21 +91,23 @@ Item {
         Row {
             Layout.alignment: Qt.AlignLeft; spacing: 8
 
-            // Logo
-            Text {
+            // Logo: a pill-sized box (same height as the bar pills) with the
+            // glyph centred, so the active highlight is a proper pill that
+            // keeps the usual gap to the workspaces pill.
+            Item { width: 6; height: 1 }   // left padding (was leading spaces)
+            Item {
                 id: logoIcon
-                text: "   󰣇"; color: Theme.primary; font.pixelSize: 24; anchors.verticalCenter: parent.verticalCenter
-                // Only behind the glyph (the text starts with padding spaces)
-                BarActiveBg {
-                    active: dashPopup.active
-                    anchors.centerIn: undefined
-                    anchors.right: parent.right; anchors.rightMargin: -7
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: 38; height: 32
-                }
-                opacity: 1; scale: logoMouse.pressed ? 0.85 : (logoMouse.containsMouse ? 1.15 : 1.0)
-                Behavior on opacity { NumberAnimation { duration: 150 } }
+                width: 44; height: 30
+                anchors.verticalCenter: parent.verticalCenter
+                scale: logoMouse.pressed ? 0.9 : (logoMouse.containsMouse ? 1.08 : 1.0)
                 Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+
+                BarActiveBg { active: dashPopup.active; padX: 0; padY: 0 }
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "󰣇"; color: Theme.primary; font.pixelSize: 24
+                }
                 MouseArea { id: logoMouse; anchors.fill: parent; hoverEnabled: true; acceptedButtons: Qt.LeftButton | Qt.RightButton; onClicked: dashPopup.active = !dashPopup.active }
             }
 
