@@ -28,6 +28,11 @@ Item {
     // Set by the PopoutContent inside the popup.
     property var spec: null
 
+    // The bar item this popup belongs to (set where the popup is declared).
+    // The popout grows out of it when opening and shrinks back into it when
+    // closing; the bar highlights it while the popup is open.
+    property Item anchorItem: null
+
     signal backdropClicked()
     signal opened()
 

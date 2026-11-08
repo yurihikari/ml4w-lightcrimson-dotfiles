@@ -55,7 +55,8 @@ Item {
         height: 30; width: Math.min(centerRow.implicitWidth + 30, 450); radius: 15; z: 5
         scale: centerMouse.pressed ? 0.96 : (centerMouse.containsMouse ? 1.02 : 1.0)
         // Same material as the frame: a tint on top of it, not an opaque island.
-        color: Theme.withAlpha(Theme.primary, centerMouse.containsMouse ? 0.14 : 0.08)
+        // Brighter while its popup is open (the popout grows out of it).
+        color: Theme.withAlpha(Theme.primary, mediaPopup.active ? 0.22 : (centerMouse.containsMouse ? 0.14 : 0.08))
         Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
         Behavior on color { ColorAnimation { duration: 200 } }
 
@@ -92,7 +93,16 @@ Item {
 
             // Logo
             Text {
+                id: logoIcon
                 text: "   󰣇"; color: Theme.primary; font.pixelSize: 24; anchors.verticalCenter: parent.verticalCenter
+                // Only behind the glyph (the text starts with padding spaces)
+                BarActiveBg {
+                    active: dashPopup.active
+                    anchors.centerIn: undefined
+                    anchors.right: parent.right; anchors.rightMargin: -7
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 38; height: 32
+                }
                 opacity: 1; scale: logoMouse.pressed ? 0.85 : (logoMouse.containsMouse ? 1.15 : 1.0)
                 Behavior on opacity { NumberAnimation { duration: 150 } }
                 Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
@@ -345,6 +355,8 @@ Item {
 
                     property color _primary: Theme.primary
 
+                    BarActiveBg { active: keyboardPopup.active; padX: 4; padY: 1 }
+
                     Item {
                         id: kbIconWrapper
                         width: 28; height: 28
@@ -385,7 +397,9 @@ Item {
 
             // CLIPBOARD
             Text {
+                id: clipIcon
                 text: "󰅌"; color: Theme.primary; font.pixelSize: 18
+                BarActiveBg { active: clipboardPopup.active; padX: 9; padY: 4 }
                 anchors.verticalCenter: parent.verticalCenter; verticalAlignment: Text.AlignVCenter
                 opacity: 1; scale: clipMouse.pressed ? 0.85 : (clipMouse.containsMouse ? 1.15 : 1.0)
                 Behavior on opacity { NumberAnimation { duration: 150 } }
@@ -462,6 +476,8 @@ Item {
                 property color _primary: Theme.primary
                 Timer { interval: 1000; running: true; repeat: true; onTriggered: clockContainer.time = new Date() }
 
+                BarActiveBg { active: calendarPopup.active; padX: 8; padY: -1 }
+
                 Column {
                     id: clockCol
                     anchors.left: parent.left
@@ -496,8 +512,9 @@ Item {
 
             // SYSTEM PILL
             Rectangle {
+                id: sysPill
                 height: 30; width: sysRow.implicitWidth + 24; radius: 15
-                color: Theme.withAlpha(Theme.primary, sysMouse.containsMouse ? 0.14 : 0.08)
+                color: Theme.withAlpha(Theme.primary, systemPopup.active ? 0.22 : (sysMouse.containsMouse ? 0.14 : 0.08))
                 anchors.verticalCenter: parent.verticalCenter
                 scale: sysMouse.pressed ? 0.96 : (sysMouse.containsMouse ? 1.02 : 1.0)
                 Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
@@ -541,12 +558,13 @@ Item {
     // One shared popout surface for the bar popups: switching between them
     // morphs it instead of closing one window and opening another.
     PopoutHost { id: popoutHost; screen: bar.screen }
-    MediaPopup { id: mediaPopup; host: popoutHost }
-    SystemPopup { id: systemPopup; host: popoutHost }
-    CalendarPopup { id: calendarPopup; host: popoutHost }
-    ClipboardPopup { id: clipboardPopup; host: popoutHost }
-    DashboardPopup { id: dashPopup; host: popoutHost }
-    KbLayoutPopup { id: keyboardPopup; host: popoutHost }
+    // anchorItem: the bar item each popup grows out of (and is highlighted).
+    MediaPopup { id: mediaPopup; host: popoutHost; anchorItem: centerPill }
+    SystemPopup { id: systemPopup; host: popoutHost; anchorItem: sysPill }
+    CalendarPopup { id: calendarPopup; host: popoutHost; anchorItem: clockContainer }
+    ClipboardPopup { id: clipboardPopup; host: popoutHost; anchorItem: clipIcon }
+    DashboardPopup { id: dashPopup; host: popoutHost; anchorItem: logoIcon }
+    KbLayoutPopup { id: keyboardPopup; host: popoutHost; anchorItem: kbContainer }
     PowerPopup { id: powerPopup }
 
     // ══════════════════════════════════════════════════════════════════════════
