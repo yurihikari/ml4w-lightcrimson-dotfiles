@@ -1,0 +1,15 @@
+{
+  "_comment": "Edit this file to customize your radial menu. Save and reopen the menu to apply. Icons can be a freedesktop name, absolute path, or empty.",
+  "recent": [
+    { "name": "Files",    "exec": "nemo",       "icon": "system-file-manager" },
+    { "name": "Browser",  "exec": "brave",    "icon": "brave" },
+    { "name": "Terminal", "exec": "kitty",      "icon": "kitty" },
+    { "name": "Editor",   "exec": "code",       "icon": "code" }
+  ],
+  "frequent": [
+    { "name": "Settings", "exec": "nwg-look",   "icon": "preferences-desktop" },
+    { "name": "Music",    "exec": "pear-desktop",    "icon": "pear-desktop" },
+    { "name": "Discord",  "exec": "vesktop",    "icon": "discord" },
+    { "name": "System",   "exec": "kitty -e btop", "icon": "utilities-system-monitor" }
+  ]
+}
