@@ -20,7 +20,9 @@ PanelWindow {
     property bool isAnimating: false
     visible: active || isAnimating
 
-    anchors { bottom: true; left: true; right: true }
+    // Covers the screen so the dock's outline can run round the frame, and so
+    // a click anywhere outside the dock closes it (like the bar popups).
+    anchors { top: true; bottom: true; left: true; right: true }
     WlrLayershell.layer: WlrLayer.Overlay
     exclusionMode: WlrLayershell.Ignore
     WlrLayershell.keyboardFocus: active ? WlrLayershell.OnDemand : WlrLayershell.None
@@ -46,20 +48,8 @@ PanelWindow {
     }
     // ───────────────────────────────────────────────────────────────────────
 
-    implicitHeight: 580
-    width: screen ? screen.width : 800
-
-    margins { bottom: popup.currentBottomMargin }
-    property real currentBottomMargin: active ? 0 : -580
-
-    Behavior on currentBottomMargin {
-        NumberAnimation {
-            id: slideAnim
-            duration: 350
-            easing.type: Easing.OutExpo
-            onRunningChanged: if (!running && !popup.active) popup.isAnimating = false
-        }
-    }
+    // The window stays put; the dock rises out of the bottom frame (FrameDrawer
+    // below) and the window unmaps once that has slid back in.
 
     // ── GLOBAL STATE ─────────────────────────────────────────────────────────
     property int    activeTab:    0
@@ -443,30 +433,23 @@ PanelWindow {
     }
 
     // ── CONTAINER ────────────────────────────────────────────────────────────
+    // Rises out of the bottom frame as part of it (fill, blur and border as before).
+    FrameDrawer {
+        open: popup.active
+        onClosed: popup.isAnimating = false
+        edge: "bottom"
+        duration: 350
+        hAlign: "center"
+        panelWidth: container.width
+        panelHeight: container.height
+        borderWidth: 1.5
+        borderColor: Theme.withAlpha(Theme.primary, 0.64)
+
     Rectangle {
         id: container
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: 40
-        anchors.left: parent.left
-        anchors.leftMargin: parent.width > 700 ? parent.width / 2 - 350 : 40
-        anchors.right: parent.right
-        anchors.rightMargin: parent.width > 700 ? parent.width / 2 - 350 : 40
+        width: popup.width > 700 ? 700 : popup.width - 80
         height: 520
         radius: 28; color: "transparent"; clip: false
-        
-        // Smooth Opacity Fade on the Container
-        opacity: popup.active ? 1.0 : 0.0
-        Behavior on opacity {
-            NumberAnimation { duration: 250; easing.type: Easing.OutCubic }
-        }
-
-        Shadow { radius: 28 }
-
-        Rectangle {
-            anchors.fill: parent; radius: parent.radius
-            color: Theme.background; opacity: 0.8
-            border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.8); border.width: 1.5
-        }
         // Prevents clicks from falling through the container and closing the menu
         MouseArea { anchors.fill: parent; onClicked: {} }
 
@@ -480,8 +463,8 @@ PanelWindow {
                 implicitHeight: 46
                 radius: height / 2
                 // Subtle inset "track" the active segment slides over
-                color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.06)
-                border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.12)
+                color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.08)
+                border.color: "transparent" /* was primary @ 0.12; surfaces use tone, not outlines */
                 border.width: 1
 
                 Row {
@@ -1467,4 +1450,5 @@ PanelWindow {
             }
         }
     }
+    } // FrameDrawer
 }

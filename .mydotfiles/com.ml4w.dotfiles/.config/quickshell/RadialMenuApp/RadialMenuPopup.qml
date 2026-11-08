@@ -95,9 +95,12 @@ PanelWindow {
 
     Process {
         id: configReader
-        running: true   // load once at startup
+        running: true   // load at startup, and again every time the menu opens
+        // Always the file in the config folder: a relative path resolved
+        // against wherever qs happened to be started from, so the menu read
+        // (and created) a different file depending on how it was launched.
         command: ["bash", "-c",
-            "f=\"./radial-menu.json\"\n" +
+            "f=\"$HOME/.config/quickshell/radial-menu.json\"\n" +
             "mkdir -p \"$(dirname \"$f\")\"\n" +
             "if [ ! -f \"$f\" ]; then\n" +
             "  cat > \"$f\" <<'EOF'\n" +
@@ -270,6 +273,12 @@ PanelWindow {
         // Reset command input and grab keyboard focus
         cmdInput.text = ""
         focusTimer.restart()
+
+        // Pick up edits to radial-menu.json ("save and reopen the menu")
+        if (!configReader.running) {
+            popup._configBuf = ""
+            configReader.running = true
+        }
         
         cursorReader.running = true
     }

@@ -18,13 +18,15 @@ PanelWindow {
     WlrLayershell.layer: WlrLayer.Overlay
     exclusionMode: WlrLayershell.Ignore
 
-    implicitWidth: 420 // 380 + 40
     color: "transparent"
 
     property bool isHyprlandSettingsInstalled: false
     property bool isHyprsunsetInstalled: false
 
+    // Covers the screen: the panel is a drawer sliding out of the right frame
+    // (FrameDrawer below), and its outline runs round the whole frame.
     anchors {
+        left: true
         right: true
         top: true
         bottom: true
@@ -58,18 +60,10 @@ PanelWindow {
 
     // --- ANIMATION LOGIC ---
     property bool isOpen: false
-    visible: isOpen || slideAnim.running
-
-    margins { right: root.currentMargin }
-    property real currentMargin: isOpen ? 0 : -470
-
-    Behavior on currentMargin {
-        NumberAnimation {
-            id: slideAnim
-            duration: 350
-            easing.type: Easing.OutQuint
-        }
-    }
+    // Stays mapped until the drawer has slid back into the frame.
+    property bool animating: false
+    onIsOpenChanged: if (isOpen) animating = true
+    visible: isOpen || animating
 
     IpcHandler {
         target: "sidebar"
@@ -223,23 +217,21 @@ PanelWindow {
     // ==========================================
     // MAIN PANEL BACKGROUND
     // ==========================================
+    // A click outside the panel closes it (the window covers the screen).
+    MouseArea { anchors.fill: parent; onClicked: root.isOpen = false }
+
+    // Slides out of the right frame as part of it (fill, blur and border as before).
+    FrameDrawer {
+        open: root.isOpen
+        onClosed: root.animating = false
+        edge: "right"
+        panelWidth: 380
+        duration: 350
+
     Item {
         anchors.fill: parent
-        anchors.margins: 20
 
-        // Elevation shadow, sits behind the panel background.
-        Shadow { anchors.fill: mainBgRect; radius: 30 }
-
-        Rectangle {
-            id: mainBgRect
-            anchors.fill: parent
-            // Translucency lives on the fill so the border alpha stays exactly 0.8
-            // (a rect-wide opacity would compound it down).
-            color: Theme.withAlpha(Theme.background, 0.8)
-            border.color: Theme.withAlpha(Theme.primary, 0.8)
-            border.width: 2
-            radius: 30
-        }
+        MouseArea { anchors.fill: parent } // Keep clicks on the panel from closing it
 
         ColumnLayout {
             anchors.fill: parent
@@ -1365,4 +1357,5 @@ PanelWindow {
             }
         }
     }
+    } // FrameDrawer
 }

@@ -263,7 +263,11 @@ fi
 send_notification "Wallpaper Updated" "$(basename "$IMAGE_PATH")${MONITOR_OUTPUT:+ on output $MONITOR_OUTPUT}"
 info "Done"
 
+# Pin a newly chosen wallpaper to the focused workspace (per-workspace
+# wallpapers). Only when a wallpaper was actually set: --skip-wallpaper runs are
+# theme refreshes (login, Quickshell restarts), and pinning there overwrote the
+# focused workspace's own wallpaper with the global one every time.
 WS_WALLPAPER_SCRIPT="$HOME/.config/hypr/conf/custom/workspace-wallpapers.sh"
-if [ -x "$WS_WALLPAPER_SCRIPT" ]; then
+if [ "$SKIP_WALLPAPER" != true ] && [ -x "$WS_WALLPAPER_SCRIPT" ]; then
     "$WS_WALLPAPER_SCRIPT" --record-current "$IMAGE_PATH" >/dev/null 2>&1 || true
 fi

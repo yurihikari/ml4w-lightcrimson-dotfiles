@@ -26,7 +26,8 @@ This dotfiles only install the default profile of ML4W, and then apply some of m
 ### 🐚 Custom Quickshell Bar (replaces Waybar)
 A fully custom [Quickshell](https://quickshell.outfoxxed.me/) desktop shell, built from scratch and used instead of ML4W's Waybar.
 
-   - **Top bar (MainBar):** workspaces with live app icons, system tray with full menu support, a center media pill, mic/brightness/volume ring controls (scroll to adjust), keyboard-layout indicator, notification (SwayNC) toggle, clock, and a system pill (network / Wi-Fi / Bluetooth / battery)
+   - **Top bar (MainBar):** workspaces with live app icons, system tray with full menu support, a center media pill, mic/brightness/volume ring controls (scroll to adjust), keyboard-layout indicator, notification bell (click: center, right-click: Do Not Disturb), clock, and a system pill (network / Wi-Fi / Bluetooth / battery)
+   - **Built-in notification daemon** (replaces SwayNC) — toasts with images, actions and inline replies, urgency-based timeouts, Do Not Disturb (critical notifications still show)
    - **Instant OSD** overlay for volume, mic and brightness changes
    - **Rounded screen frame** drawing soft corners around every monitor
    - **Multi-monitor aware** — popups open on the monitor where your mouse currently is
@@ -38,6 +39,7 @@ A fully custom [Quickshell](https://quickshell.outfoxxed.me/) desktop shell, bui
    - **Dashboard** (`META+I`) — system info at a glance (kernel, resources, mounted disks & drives)
    - **Dock** (`META+A`) — app launcher with fuzzy search + full keyboard navigation, plus quick notes, a to-do list and a screenshot tool with thumbnails
    - **Clipboard** (`META+SHIFT+V`) — clipboard history (cliphist)
+   - **Notifications** (bell icon, `qs ipc call bar-notifications toggle`) — notification center grouped by app, Do Not Disturb, quick toggles (Wi-Fi, Bluetooth, sound, lock), SwayNC-style keyboard shortcuts
    - **Keyboard Layout** (`META+SHIFT+K`) — switch keyboard layout / variant
    - **Power** (`META+X`) — power menu (lock / suspend / log out / reboot / shutdown) with keyboard selection
    - **Radial Menu** (`META+R`) and **Display Manager** (`META+ALT+M`)

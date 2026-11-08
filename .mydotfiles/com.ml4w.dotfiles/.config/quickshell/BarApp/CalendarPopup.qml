@@ -5,14 +5,11 @@ import QtQuick.Layouts
 import QtQuick.Controls
 import qs.CustomTheme
 import qs.BarApp.components
+import qs.BarApp.services
 
 BarPopup {
     id: root
     ipcTarget: "bar-calendar"
-
-    // Keep the window mapped through the outro fade. This popup drives its exit
-    // off the container opacity rather than the shared isAnimating flag.
-    visible: active || mainContent.opacity > 0
 
     // Keyboard focus handler for ESC (when no text input is focused)
     FocusScope {
@@ -389,41 +386,23 @@ BarPopup {
         }
     }
 
-    // Elevation shadow — a sibling because mainContent clips (a child shadow
-    // would be cut off). Tracks the container's geometry and fade.
-    Shadow {
-        anchors.fill: mainContent
-        radius: 30
-        opacity: mainContent.opacity
-        visible: mainContent.visible
-    }
-
     // ─── UNIFIED MAIN CONTAINER ───────────────────────────────────────────
+    // Hangs from the bar as part of the frame (fill, blur and border as before).
+    PopoutContent {
+        open: root.active
+        onClosed: root.isAnimating = false
+        hAlign: "right"
+        hMargin: PanelStyle.rightMargin
+        panelWidth: mainContent.width
+        panelHeight: mainContent.height
+
     Rectangle {
         id: mainContent
-        anchors.top:        parent.top
-        anchors.topMargin:  45
-        anchors.right:      parent.right
-        anchors.rightMargin: 155
-        
         width: 900
-        height: 580
+        height: PanelStyle.rightHeight
         radius: 30
-        color: Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.8)
-        border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.8)
-        border.width: 2
+        color: "transparent"
         clip: true 
-
-        opacity: root.active ? 1 : 0.0
-        Behavior on opacity {
-            NumberAnimation { duration: 250; easing.type: Easing.OutExpo }
-        }
-        transform: Translate {
-            y: root.active ? 0 : -20
-            Behavior on y {
-                NumberAnimation { duration: 250; easing.type: Easing.OutExpo }
-            }
-        }
 
         // ── LIGHTWEIGHT WEATHER BACKGROUND ANIMATIONS ────────────────────────
         Item {
@@ -600,27 +579,54 @@ BarPopup {
 
         MouseArea { anchors.fill: parent } 
 
-        RowLayout {
+        Item {
             anchors.fill: parent
-            anchors.margins: 25
-            spacing: 25
+            anchors.margins: PanelStyle.pad
+
+        // Plain anchors rather than a ColumnLayout: inside a layout the columns
+        // would honour the hourly strip's minimum width and overflow the panel.
+        PanelHeader {
+            id: calHeader
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            height: PanelStyle.headerHeight
+            icon: "󰃭"
+            title: root.showWorldClock ? "World clock" : "Calendar"
+            subtitle: root.weatherCode !== -1 && !root.wxLoading
+                ? Math.round(root.tempC) + "°  ·  " + root.weatherDesc + (root.displayCity !== "" ? "  ·  " + root.displayCity : "")
+                : Qt.formatDateTime(root.localNow, "dddd, MMMM d")
+
+            // World Clock Toggle
+            PanelButton {
+                icon: root.showWorldClock ? "󰃰" : "󰅐"
+                text: root.showWorldClock ? "Calendar" : "World clock"
+                onClicked: root.showWorldClock = !root.showWorldClock
+            }
+            SectionNav { host: root.host; current: root.ipcTarget }
+        }
+
+        RowLayout {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: calHeader.bottom
+            anchors.topMargin: PanelStyle.gap + 4
+            anchors.bottom: parent.bottom
+            spacing: PanelStyle.pad + 4
 
             // ══════════════════════════════════════════════════════════════════
             //  LEFT — WEATHER PANEL (With Tab System)
             // ══════════════════════════════════════════════════════════════════
             ColumnLayout {
                 Layout.fillHeight: true
+                Layout.fillWidth: false
                 Layout.preferredWidth: 310
                 spacing: 0
 
                 // Search Bar
-                Rectangle {
+                PanelField {
                     Layout.fillWidth: true
-                    height: 32
-                    radius: 16
-                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05)
-                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.3)
-                    border.width: 1
+                    focused: cityField.activeFocus
 
                     RowLayout {
                         anchors.fill: parent
@@ -631,8 +637,8 @@ BarPopup {
                         Text { 
                             text: "󰍉"
                             color: Theme.primary
-                            opacity: 0.5
-                            font.pixelSize: 13
+                            opacity: cityField.activeFocus ? 0.8 : 0.45
+                            font.pixelSize: 16
                             verticalAlignment: Text.AlignVCenter 
                         }
 
@@ -699,14 +705,11 @@ BarPopup {
                 // only shows when the search field is empty.
                 Rectangle {
                     Layout.fillWidth: true
-                    height: 28
-                    radius: 14
+                    height: 32
+                    radius: PanelStyle.radiusControl - 2
                     visible: root.weatherCode !== -1 && root.locationQuery !== "" && !root.wxLoading
-                    color: saveMouse.containsMouse
-                        ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15)
-                        : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.06)
-                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, root.isDefaultLocation ? 0.4 : 0.2)
-                    border.width: 1
+                    color: Theme.withAlpha(Theme.primary,
+                        (root.isDefaultLocation ? 0.14 : 0.06) + (saveMouse.containsMouse ? 0.08 : 0))
                     Behavior on color { ColorAnimation { duration: 150 } }
 
                     RowLayout {
@@ -820,29 +823,29 @@ BarPopup {
                 // ── TAB SWITCHER ──
                 Rectangle {
                     Layout.fillWidth: true
-                    height: 32
-                    radius: 16
-                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05)
+                    height: 36
+                    radius: PanelStyle.radiusControl
+                    color: PanelStyle.cardFill
                     visible: root.weatherCode !== -1 && !root.wxLoading
 
                     RowLayout {
                         anchors.fill: parent
-                        anchors.margins: 4
-                        spacing: 4
+                        anchors.margins: 3
+                        spacing: 3
 
                         Rectangle {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            radius: 12
-                            color: root.weatherTab === 0 ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : "transparent"
+                            radius: PanelStyle.radiusControl - 3
+                            color: root.weatherTab === 0 ? Theme.withAlpha(Theme.primary, 0.20) : "transparent"
                             
                             Behavior on color { ColorAnimation { duration: 150 } }
 
                             Text { 
                                 text: "Today"
                                 color: Theme.primary
-                                opacity: root.weatherTab === 0 ? 1.0 : 0.5
-                                font.pixelSize: 12
+                                opacity: root.weatherTab === 0 ? 1.0 : 0.55
+                                font.pixelSize: 13
                                 font.weight: Font.Bold
                                 anchors.centerIn: parent 
                             }
@@ -852,16 +855,16 @@ BarPopup {
                         Rectangle {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            radius: 12
-                            color: root.weatherTab === 1 ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : "transparent"
+                            radius: PanelStyle.radiusControl - 3
+                            color: root.weatherTab === 1 ? Theme.withAlpha(Theme.primary, 0.20) : "transparent"
                             
                             Behavior on color { ColorAnimation { duration: 150 } }
 
                             Text { 
                                 text: "5-Day Forecast"
                                 color: Theme.primary
-                                opacity: root.weatherTab === 1 ? 1.0 : 0.5
-                                font.pixelSize: 12
+                                opacity: root.weatherTab === 1 ? 1.0 : 0.55
+                                font.pixelSize: 13
                                 font.weight: Font.Bold
                                 anchors.centerIn: parent 
                             }
@@ -903,9 +906,9 @@ BarPopup {
                                 
                                 Rectangle {
                                     Layout.fillWidth: true
-                                    height: 38
-                                    radius: 10
-                                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.06)
+                                    height: 40
+                                    radius: PanelStyle.radiusControl
+                                    color: PanelStyle.cardFill
                                     
                                     RowLayout {
                                         anchors.fill: parent
@@ -1174,13 +1177,16 @@ BarPopup {
                 spacing: 15
 
                 // ── Clock Header (Shared) ──────────────────────────────────
-                RowLayout {
+                // (The world clock toggle lives in the panel header.)
+                Item {
                     Layout.fillWidth: true
-                    
-                    Item { Layout.preferredWidth: 24 }
+                    implicitWidth: clockCol.implicitWidth
+                    implicitHeight: clockCol.implicitHeight
 
                     ColumnLayout {
-                        Layout.fillWidth: true
+                        id: clockCol
+                        anchors.left: parent.left
+                        anchors.right: parent.right
                         spacing: -2
                         
                         Text {
@@ -1203,32 +1209,6 @@ BarPopup {
                         }
                     }
 
-                    // World Clock Toggle Button
-                    Item {
-                        Layout.preferredWidth: 24
-                        Layout.alignment: Qt.AlignTop
-                        Layout.topMargin: 10
-                        
-                        Text {
-                            anchors.centerIn: parent
-                            text: root.showWorldClock ? "󰃰" : "󰅐" 
-                            color: Theme.primary
-                            opacity: toggleWcMouse.containsMouse ? 0.9 : 0.4
-                            font.pixelSize: 20
-                            
-                            Behavior on opacity { 
-                                NumberAnimation { duration: 150 } 
-                            }
-                            
-                            MouseArea {
-                                id: toggleWcMouse
-                                anchors.fill: parent
-                                anchors.margins: -15
-                                hoverEnabled: true
-                                onClicked: root.showWorldClock = !root.showWorldClock
-                            }
-                        }
-                    }
                 }
 
                 Item { 
@@ -1398,9 +1378,8 @@ BarPopup {
                                     Rectangle {
                                         anchors.fill: parent
                                         radius: 18
+                                        // Plain numbers on the panel surface; only today is marked.
                                         color: model.tod ? Theme.primary : "transparent"
-                                        border.color: model.tod ? "transparent" : (model.cur ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : "transparent")
-                                        border.width: 1
                                         visible: model.type === "day"
                                         
                                         Text { 
@@ -1444,8 +1423,8 @@ BarPopup {
                             height: 32
                             radius: 16
                             Layout.margins: 10
-                            color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05)
-                            border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.3)
+                            color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.08)
+                            border.color: "transparent" /* was primary @ 0.3; surfaces use tone, not outlines */
                             border.width: 1
 
                             RowLayout {
@@ -1570,7 +1549,7 @@ BarPopup {
                                 width: timeDiffTxt.implicitWidth + 30
                                 radius: 14
                                 color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
-                                border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.2)
+                                border.color: "transparent" /* was primary @ 0.2; surfaces use tone, not outlines */
                                 border.width: 1
                                 
                                 Text {
@@ -1589,6 +1568,8 @@ BarPopup {
                     }
                 }
             }
-        }
+        } // RowLayout
+        } // Item (header + columns)
     }
+    } // PopoutContent
 }

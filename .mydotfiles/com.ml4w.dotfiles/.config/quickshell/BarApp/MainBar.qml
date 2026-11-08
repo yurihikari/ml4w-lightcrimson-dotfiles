@@ -9,18 +9,14 @@ import qs.CustomTheme
 import qs.BarApp.services
 import qs.BarApp.components
 
-PanelWindow {
+// The bar's content. It lives inside the screen frame's window (ScreenFrame),
+// which draws the bar's background as part of the one frame shape, reserves
+// its space and decides where it takes input.
+Item {
     id: bar
-    anchors { top: true; left: true; right: true }
-    property var modelData
-    screen: modelData
-
-    height: 60
-    WlrLayershell.layer: WlrLayer.Top
-    exclusionMode: WlrLayershell.Exclusive
-    exclusiveZone: height - 30
-    WlrLayershell.keyboardFocus: WlrLayershell.None
-    color: "transparent"
+    property var screen
+    width: parent ? parent.width : 0
+    height: 40
 
     // All system data + the command runner now live in the Sys singleton.
 
@@ -51,8 +47,6 @@ PanelWindow {
     // ══════════════════════════════════════════════════════════════════════════
     // UI LAYOUT
     // ══════════════════════════════════════════════════════════════════════════
-    Rectangle { anchors.top: parent.top; width: parent.width; height: 40; color: Theme.background; opacity: 0.8 }
-
     // Center pill — media info
     Rectangle {
         id: centerPill
@@ -60,7 +54,9 @@ PanelWindow {
         anchors.top: parent.top; anchors.topMargin: 5
         height: 30; width: Math.min(centerRow.implicitWidth + 30, 450); radius: 15; z: 5
         scale: centerMouse.pressed ? 0.96 : (centerMouse.containsMouse ? 1.02 : 1.0)
-        color: centerMouse.containsMouse ? Theme.withAlpha(Theme.background, 0.95) : Theme.background
+        // Same material as the frame: a tint on top of it, not an opaque island.
+        // Brighter while its popup is open (the popout grows out of it).
+        color: Theme.withAlpha(Theme.primary, mediaPopup.active ? 0.22 : (centerMouse.containsMouse ? 0.14 : 0.08))
         Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
         Behavior on color { ColorAnimation { duration: 200 } }
 
@@ -97,7 +93,16 @@ PanelWindow {
 
             // Logo
             Text {
+                id: logoIcon
                 text: "   󰣇"; color: Theme.primary; font.pixelSize: 24; anchors.verticalCenter: parent.verticalCenter
+                // Only behind the glyph (the text starts with padding spaces)
+                BarActiveBg {
+                    active: dashPopup.active
+                    anchors.centerIn: undefined
+                    anchors.right: parent.right; anchors.rightMargin: -7
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 38; height: 32
+                }
                 opacity: 1; scale: logoMouse.pressed ? 0.85 : (logoMouse.containsMouse ? 1.15 : 1.0)
                 Behavior on opacity { NumberAnimation { duration: 150 } }
                 Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
@@ -107,7 +112,7 @@ PanelWindow {
             // Workspaces pill
             Rectangle {
                 height: 30; width: wsRow.width + 20; radius: 15
-                color: Theme.background; anchors.verticalCenter: parent.verticalCenter
+                color: Theme.withAlpha(Theme.primary, 0.08); anchors.verticalCenter: parent.verticalCenter
                 Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
 
                 Row {
@@ -208,8 +213,8 @@ PanelWindow {
                 anchors.verticalCenter: parent.verticalCenter
                 visible: SystemTray.items.values.length > 0
 
-                // Solid base so the gradient doesn't double-blend with the transparent bar background
-                color: Theme.background
+                // No opaque base: the gradient sits on the frame like the other pills
+                color: "transparent"
 
                 // Gradient overlay using dynamic theme colors
                 Rectangle {
@@ -350,6 +355,8 @@ PanelWindow {
 
                     property color _primary: Theme.primary
 
+                    BarActiveBg { active: keyboardPopup.active; padX: 4; padY: 1 }
+
                     Item {
                         id: kbIconWrapper
                         width: 28; height: 28
@@ -390,7 +397,9 @@ PanelWindow {
 
             // CLIPBOARD
             Text {
+                id: clipIcon
                 text: "󰅌"; color: Theme.primary; font.pixelSize: 18
+                BarActiveBg { active: clipboardPopup.active; padX: 9; padY: 4 }
                 anchors.verticalCenter: parent.verticalCenter; verticalAlignment: Text.AlignVCenter
                 opacity: 1; scale: clipMouse.pressed ? 0.85 : (clipMouse.containsMouse ? 1.15 : 1.0)
                 Behavior on opacity { NumberAnimation { duration: 150 } }
@@ -414,6 +423,8 @@ PanelWindow {
                 property color _outline: Theme.outline
                 property color activeColor: Sys.swayncState.includes("notification") ? _tertiary : (Sys.swayncState.includes("dnd") ? _outline : _primary)
 
+                BarActiveBg { active: notifPopup.active; padX: 4; padY: 1 }
+
                 Item {
                     id: notifIconWrapper
                     width: 28; height: 28
@@ -429,7 +440,7 @@ PanelWindow {
 
                 Text {
                     id: notifLabel
-                    text: Sys.swayncState.includes("dnd") ? "DND" : (Sys.swayncState.includes("notification") ? "New" : "Clear")
+                    text: Notifs.dnd ? "DND" : (Notifs.count > 0 ? Notifs.count + " new" : "Clear")
                     color: Theme.secondary
                     font.pixelSize: 11; font.bold: true
                     anchors.left: notifIconWrapper.right
@@ -445,8 +456,9 @@ PanelWindow {
                     id: notifMouse; anchors.fill: parent; anchors.margins: -5; hoverEnabled: true
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
                     onClicked: (mouse) => {
-                        if (mouse.button === Qt.LeftButton) Sys.run(["swaync-client", "-t", "-sw"])
-                        else Sys.run(["swaync-client", "-d", "-sw"])
+                        // Left: notification center, right: Do Not Disturb
+                        if (mouse.button === Qt.LeftButton) notifPopup.active = !notifPopup.active
+                        else Notifs.toggleDnd()
                     }
                 }
             }
@@ -466,6 +478,8 @@ PanelWindow {
                 property var time: new Date()
                 property color _primary: Theme.primary
                 Timer { interval: 1000; running: true; repeat: true; onTriggered: clockContainer.time = new Date() }
+
+                BarActiveBg { active: calendarPopup.active; padX: 8; padY: -1 }
 
                 Column {
                     id: clockCol
@@ -501,8 +515,9 @@ PanelWindow {
 
             // SYSTEM PILL
             Rectangle {
+                id: sysPill
                 height: 30; width: sysRow.implicitWidth + 24; radius: 15
-                color: sysMouse.containsMouse ? Theme.withAlpha(Theme.background, 0.95) : Theme.background
+                color: Theme.withAlpha(Theme.primary, systemPopup.active ? 0.22 : (sysMouse.containsMouse ? 0.14 : 0.08))
                 anchors.verticalCenter: parent.verticalCenter
                 scale: sysMouse.pressed ? 0.96 : (sysMouse.containsMouse ? 1.02 : 1.0)
                 Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
@@ -542,28 +557,21 @@ PanelWindow {
         }
     }
 
-    // --- CANVAS CORNERS ---
-    Canvas {
-        opacity: 0.8; id: leftCorner; x: 10; y: 40; width: 20; height: 20
-        renderTarget: Canvas.FramebufferObject
-        property color syncColor: Theme.background; onSyncColorChanged: requestPaint()
-        onPaint: { var ctx = getContext("2d"); ctx.reset(); ctx.fillStyle = Theme.background; ctx.moveTo(0, 0); ctx.lineTo(20, 0); ctx.arcTo(0, 0, 0, 20, 20); ctx.fill() }
-    }
-    Canvas {
-        opacity: 0.8; id: rightCorner; x: parent.width - 30; y: 40; width: 20; height: 20
-        renderTarget: Canvas.FramebufferObject
-        property color syncColor: Theme.background; onSyncColorChanged: requestPaint()
-        onPaint: { var ctx = getContext("2d"); ctx.reset(); ctx.fillStyle = Theme.background; ctx.moveTo(20, 0); ctx.lineTo(0, 0); ctx.arcTo(20, 0, 20, 20, 20); ctx.fill() }
-    }
-
     // --- NATIVE WINDOWS ---
-    MediaPopup { id: mediaPopup }
-    SystemPopup { id: systemPopup }
-    CalendarPopup { id: calendarPopup }
-    ClipboardPopup { id: clipboardPopup }
+    // One shared popout surface for the bar popups: switching between them
+    // morphs it instead of closing one window and opening another.
+    PopoutHost { id: popoutHost; screen: bar.screen }
+    // anchorItem: the bar item each popup grows out of (and is highlighted).
+    MediaPopup { id: mediaPopup; host: popoutHost; anchorItem: centerPill }
+    SystemPopup { id: systemPopup; host: popoutHost; anchorItem: sysPill }
+    CalendarPopup { id: calendarPopup; host: popoutHost; anchorItem: clockContainer }
+    ClipboardPopup { id: clipboardPopup; host: popoutHost; anchorItem: clipIcon }
+    DashboardPopup { id: dashPopup; host: popoutHost; anchorItem: logoIcon }
+    KbLayoutPopup { id: keyboardPopup; host: popoutHost; anchorItem: kbContainer }
+    NotificationsPopup { id: notifPopup; host: popoutHost; anchorItem: notifContainer }
+    // Notification toasts (the daemon itself is the Notifs singleton)
+    NotificationToasts { screen: bar.screen }
     PowerPopup { id: powerPopup }
-    DashboardPopup { id: dashPopup }
-    KbLayoutPopup { id: keyboardPopup }
 
     // ══════════════════════════════════════════════════════════════════════════
     // SYSTEM TRAY MENU (renders SNI DBusMenu with recursive submenus)
@@ -678,13 +686,16 @@ PanelWindow {
         screen: bar.screen
         anchors { top: true; left: true; right: true; bottom: true }
         color: "transparent"
-        visible: shown
+        // Stays mapped until the menu has slid back into the bar.
+        visible: shown || animating
         WlrLayershell.layer: WlrLayer.Overlay
         // Exclusive so Escape key is always captured when menu is open
         WlrLayershell.keyboardFocus: shown ? WlrLayershell.Exclusive : WlrLayershell.None
         exclusionMode: WlrLayershell.Ignore
 
         property bool shown: false
+        property bool animating: false
+        onShownChanged: if (shown) animating = true
         property real anchorX: 0
 
         function openFor(itemUi, item) {
@@ -700,24 +711,24 @@ PanelWindow {
 
         MouseArea { anchors.fill: parent; onClicked: trayMenu.shown = false }
 
+        // Hangs from the bar under the tray icon, as part of the frame. Kept far
+        // enough from the side frames for its curve and the frame's corner.
+        FrameDrawer {
+            open: trayMenu.shown
+            onClosed: trayMenu.animating = false
+            hAlign: "free"
+            freeX: Math.min(Math.max(52, trayMenu.anchorX - menuBox.width / 2), trayMenu.width - menuBox.width - 52)
+            panelWidth: menuBox.width
+            panelHeight: menuBox.height
+            duration: 300
+
         Rectangle {
             id: menuBox
-            x: Math.min(Math.max(10, trayMenu.anchorX - width / 2), parent.width - width - 10)
-            y: 46
             width: 250
-            height: Math.min(menuCol.implicitHeight + 16, parent.height - 60)
+            height: Math.min(menuCol.implicitHeight + 16, trayMenu.height - 60)
             radius: 16
             clip: true
-
-            color: Theme.withAlpha(Theme.background, 0.8)
-            border.color: Theme.withAlpha(Theme.primary, 0.8)
-            border.width: 2
-
-            opacity: trayMenu.shown ? 1.0 : 0.0
-            scale: trayMenu.shown ? 1.0 : 0.95
-            transformOrigin: Item.Top
-            Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
-            Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+            color: "transparent"
             Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
 
             MouseArea { anchors.fill: parent }
@@ -746,17 +757,20 @@ PanelWindow {
                 }
             }
         }
+        } // FrameDrawer
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // OSD OVERLAY
     // ══════════════════════════════════════════════════════════════════════════
+    // A small tab hanging from the bar, 290px from the right as before. The
+    // window covers the screen so the drawer's outline can run round the frame,
+    // and its empty input mask keeps it from taking any clicks.
     PanelWindow {
         id: osdPopup
         screen: bar.screen
-        anchors { top: true; right: true }
-        margins { top: 45; right: 290 }
-        width: 230; height: 46
+        anchors { top: true; bottom: true; left: true; right: true }
+        mask: Region {}
         color: "transparent"
         WlrLayershell.layer: WlrLayer.Overlay
         exclusionMode: WlrLayershell.Ignore
@@ -766,19 +780,18 @@ PanelWindow {
         visible: active || isAnimating
         onActiveChanged: if(active) isAnimating = true
 
-        Item {
-            anchors.fill: parent
-            transformOrigin: Item.Top
-            opacity: osdPopup.active ? 1.0 : 0.0
-            scale: osdPopup.active ? 1.0 : 0.95
-
-            Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic; onRunningChanged: if(!running && !osdPopup.active) osdPopup.isAnimating = false } }
-            Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+        FrameDrawer {
+            open: osdPopup.active
+            onClosed: osdPopup.isAnimating = false
+            hAlign: "right"
+            hMargin: 290
+            panelWidth: 230
+            panelHeight: 46
+            duration: 300
 
             Rectangle {
-                anchors.fill: parent; radius: 23
-                color: Theme.withAlpha(Theme.background, 0.8)
-                border.color: Theme.withAlpha(Theme.primary, 0.8); border.width: 2
+                width: 230; height: 46; radius: 23
+                color: "transparent"
 
                 RowLayout {
                     anchors.fill: parent; anchors.margins: 12; spacing: 10

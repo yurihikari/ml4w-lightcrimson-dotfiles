@@ -1,57 +1,84 @@
-import Quickshell
 import Quickshell.Wayland
 import Quickshell.Io
 import QtQuick
 
-// Shared scaffold for the bar's full-screen overlay popups.
+// A bar popup. It doesn't own a window: all bar popups share one popout surface
+// (PopoutHost) that grows out of the frame and morphs from one popup to the
+// next. The popup provides the content and a PopoutContent describing where it
+// sits and how big it is.
 //
-// Handles the boilerplate every popup repeated: the Wayland overlay window, the
-// `active`/`isAnimating`/`visible` lifecycle, the IPC handler, and a click-to-
-// close backdrop. The popup's own animated container goes inside as content and
-// is drawn above the backdrop.
-//
-// Wayland-safe exit: keep `isAnimating` true while the outro animation plays,
-// then call endAnimation() from the container's opacity Behavior so the window
-// stays mapped until the fade-out finishes.
-PanelWindow {
+// Same interface as before: `active` opens/closes it, `isAnimating` stays true
+// until it is fully hidden (use `active || isAnimating` to keep things running
+// while visible), `ipcTarget` exposes toggle/open/close, `keyboardFocusValue`
+// is the popout's keyboard focus while this popup is shown, and backdrop clicks
+// close it unless `closeOnBackdrop` is false (then handle onBackdropClicked).
+// Only one popup is open at a time: opening another switches the popout to it.
+Item {
     id: root
+
+    // The PopoutHost this popup lives in (set where the popup is declared).
+    property var host: null
 
     property bool active: false
     property bool isAnimating: false
-
-    // IPC target name, e.g. "bar-media". Exposes toggle/open/close.
     property string ipcTarget: ""
-
-    // Keyboard focus mode while open. Most popups grab Exclusive focus (which is
-    // what actually gives the window keyboard input for FocusScope-based Esc);
-    // some (media, keyboard, dock) want OnDemand or release focus when inactive.
     property var keyboardFocusValue: WlrLayershell.Exclusive
-
-    // When true the backdrop click closes the popup. Set false to handle the
-    // click yourself via onBackdropClicked (e.g. to dismiss a sub-overlay first).
     property bool closeOnBackdrop: true
+
+    // Set by the PopoutContent inside the popup.
+    property var spec: null
+
+    // The bar item this popup belongs to (set where the popup is declared).
+    // The popout grows out of it when opening and shrinks back into it when
+    // closing; the bar highlights it while the popup is open.
+    property Item anchorItem: null
 
     signal backdropClicked()
     signal opened()
 
-    // Content (the animated container) is reparented above the backdrop.
-    default property alias content: holder.data
-
     function open()  { active = true }
     function close() { active = false }
-    // Call from the container's exit-opacity Behavior when it finishes.
     function endAnimation() { if (!active) isAnimating = false }
 
-    visible: active || isAnimating
-    anchors { top: true; bottom: true; left: true; right: true }
-    color: "transparent"
-    WlrLayershell.layer: WlrLayer.Overlay
-    exclusionMode: WlrLayershell.Ignore
-    WlrLayershell.keyboardFocus: root.keyboardFocusValue
+    parent: host ? host.slot : null
+    anchors.fill: parent
 
-    onActiveChanged: if (active) {
-        isAnimating = true
-        opened()
+    // The popup the popout shows stays fully visible (it slides with the
+    // popout when it closes); one it switched away from fades out.
+    readonly property bool shown: host !== null && host.current === root
+    // Only animate while the popout switches popups: the outgoing content fades
+    // out quickly, the incoming one fades in a beat later with a small drift.
+    // (Opening from closed is handled by the drawer's own settle-in.)
+    readonly property bool _switching: host !== null && host.switching
+    opacity: shown ? 1 : 0
+    Behavior on opacity {
+        enabled: root._switching || !root.shown
+        SequentialAnimation {
+            PauseAnimation { duration: root.shown ? 90 : 0 }
+            NumberAnimation {
+                duration: root.shown ? 260 : 140
+                easing.type: Easing.OutCubic
+            }
+            ScriptAction { script: if (!root.shown && !root.active) root.isAnimating = false }
+        }
+    }
+    transform: Translate {
+        y: root.shown ? 0 : 8
+        Behavior on y {
+            enabled: root._switching
+            NumberAnimation { duration: 360; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.05, 0.7, 0.1, 1.0, 1, 1] }
+        }
+    }
+    visible: (active || isAnimating) && opacity > 0
+    // A popup fading out underneath the new one doesn't take input.
+    enabled: active
+
+    onActiveChanged: {
+        if (active) {
+            isAnimating = true
+            opened()
+        }
+        if (host) host.popupActiveChanged(root)
     }
 
     IpcHandler {
@@ -61,14 +88,5 @@ PanelWindow {
         function close(): void { root.active = false }
     }
 
-    // Click-outside-to-close backdrop (below the content).
-    MouseArea {
-        anchors.fill: parent
-        onClicked: {
-            if (root.closeOnBackdrop) root.active = false
-            root.backdropClicked()
-        }
-    }
-
-    Item { id: holder; anchors.fill: parent }
+    Component.onCompleted: if (host) host.register(root)
 }

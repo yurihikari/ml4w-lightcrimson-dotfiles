@@ -49,3 +49,15 @@ hl.window_rule({
     center = true,
     pin = true,
 })
+
+-- Window spacing that matches the screen frame: every window edge sits 10px
+-- from the frame (the frame is 10px wide, the bar reserves 30px but draws 40px)
+-- and 10px from its neighbours, so the frame reads as the outer edge of the
+-- tiling grid. With that 10px gap, the 10px window rounding is concentric with
+-- the frame's 20px inner corners.
+hl.config({
+    general = {
+        gaps_in  = 5,
+        gaps_out = 20,
+    }
+})

@@ -46,7 +46,7 @@ BarPopup {
         
         // Soft glass styling
         color: btnMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.04)
-        border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+        border.color: "transparent" /* was primary @ 0.1; surfaces use tone, not outlines */
         border.width: 1
 
         scale: btnMouse.pressed ? 0.9 : (btnMouse.containsMouse ? 1.08 : 1.0)
@@ -170,39 +170,19 @@ BarPopup {
     }
 
     // --- MAIN POPUP CONTAINER ---
+    // Hangs from the bar as part of the frame (fill, blur and border colour as before).
+    PopoutContent {
+        open: popup.active
+        onClosed: popup.isAnimating = false
+        hAlign: "center"
+        panelWidth: container.width
+        panelHeight: container.height
+
     Rectangle {
         id: container
         width: 560; height: 410 // Slightly expanded for breathing room
-        anchors.horizontalCenter: parent.horizontalCenter
         radius: 30; color: "transparent"
 
-        // 3. Smooth Entrance / Exit Animations
-        transformOrigin: Item.Top
-        opacity: popup.active ? 1.0 : 0.0
-        scale: popup.active ? 1.0 : 0.90
-        y: popup.active ? 45 : 25 
-
-        Behavior on opacity { 
-            NumberAnimation { 
-                duration: 250; easing.type: Easing.OutCubic 
-                onRunningChanged: if (!running && !popup.active) popup.isAnimating = false 
-            } 
-        }
-        Behavior on scale { NumberAnimation { duration: 400; easing.type: Easing.OutExpo } }
-        Behavior on y { NumberAnimation { duration: 400; easing.type: Easing.OutExpo } }
-
-        Shadow {}
-
-        // Blur-friendly background
-        Rectangle {
-            anchors.fill: parent
-            color: Theme.background
-            border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.8)
-            border.width: 2
-            radius: 30
-            opacity: 0.8 // Standardized Hyprland blur opacity
-        }
-        
         MouseArea { anchors.fill: parent } // Prevent click-through
 
         // --- SINK SELECTOR OVERLAY ---
@@ -233,9 +213,7 @@ BarPopup {
                             
                             property bool isCurrent: fullName === popup.currentSinkFull
                             // Glass card look for items
-                            color: isCurrent ? Theme.primary : (sinkDelegateMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.08) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.03))
-                            border.color: isCurrent ? "transparent" : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
-                            border.width: 1
+                            color: isCurrent ? Theme.primary : (sinkDelegateMouse.containsMouse ? Theme.withAlpha(Theme.primary, 0.11) : Theme.withAlpha(Theme.primary, 0.06))
                             
                             scale: sinkDelegateMouse.pressed ? 0.97 : 1.0
                             Behavior on scale { NumberAnimation { duration: 150 } }
@@ -260,7 +238,7 @@ BarPopup {
                 Rectangle {
                     Layout.preferredWidth: 140; Layout.preferredHeight: 40; radius: 20
                     color: closeSinkMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05)
-                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.2); border.width: 1; Layout.alignment: Qt.AlignHCenter
+                    border.color: "transparent" /* was primary @ 0.2; surfaces use tone, not outlines */; border.width: 1; Layout.alignment: Qt.AlignHCenter
                     
                     scale: closeSinkMouse.pressed ? 0.95 : (closeSinkMouse.containsMouse ? 1.05 : 1.0)
                     Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
@@ -302,9 +280,7 @@ BarPopup {
                         radius: 16
                         
                         // Glass pill styling
-                        color: isSelected ? Theme.primary : (pillMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05))
-                        border.color: isSelected ? "transparent" : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15)
-                        border.width: 1
+                        color: isSelected ? Theme.primary : (pillMouse.containsMouse ? Theme.withAlpha(Theme.primary, 0.11) : Theme.withAlpha(Theme.primary, 0.06))
                         
                         scale: pillMouse.pressed ? 0.95 : (pillMouse.containsMouse ? 1.05 : 1.0)
                         Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
@@ -696,7 +672,7 @@ BarPopup {
                     Layout.preferredWidth: 220; height: 44; radius: 22
                     
                     color: sinkBtnMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.04)
-                    border.color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15); border.width: 1
+                    border.color: "transparent" /* was primary @ 0.15; surfaces use tone, not outlines */; border.width: 1
                     
                     scale: sinkBtnMouse.pressed ? 0.96 : (sinkBtnMouse.containsMouse ? 1.03 : 1.0)
                     Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
@@ -721,4 +697,5 @@ BarPopup {
             }
         }
     }
+    } // PopoutContent
 }

@@ -168,38 +168,21 @@ BarPopup {
     // ═══════════════════════════════════════════════════════════════════════
     //  WRAPPER FOR SMOOTH ANIMATIONS
     // ═══════════════════════════════════════════════════════════════════════
+    // Flush against the left frame, it takes over the frame's top-left corner
+    // (the frame hides its own corner while this is out, via FrameCorners).
+    PopoutContent {
+        id: drawer
+        open: popup.active
+        onClosed: popup.isAnimating = false
+        hAlign: "left"
+        hMargin: 10
+        panelWidth: mainContent.width
+        panelHeight: mainContent.height
+
     Item {
         id: mainContent
         width: 520
         height: mainColumn.implicitHeight + 48 // Dynamic height
-        anchors.left: parent.left
-        anchors.leftMargin: 15
-
-        // 3. Smooth Entrance / Exit Animations
-        anchors.top: parent.top
-        anchors.topMargin: popup.active ? 45 : 25
-        transformOrigin: Item.TopLeft // Scales from the correct corner
-        opacity: popup.active ? 1.0 : 0.0
-        scale: popup.active ? 1.0 : 0.90
-        
-        Behavior on opacity { 
-            NumberAnimation { 
-                duration: 250; easing.type: Easing.OutCubic 
-                onRunningChanged: if (!running && !popup.active) popup.isAnimating = false 
-            } 
-        }
-        Behavior on scale { NumberAnimation { duration: 400; easing.type: Easing.OutExpo } }
-        Behavior on anchors.topMargin { NumberAnimation { duration: 400; easing.type: Easing.OutExpo } }
-
-
-        Shadow {}
-
-        Rectangle {
-            anchors.fill: parent
-            color: Theme.background; opacity: 0.8
-            border.color: Theme.withAlpha(Theme.primary, 0.8); border.width: 2
-            radius: 30
-        }
 
         MouseArea { anchors.fill: parent; onClicked: {} } // Eat clicks
 
@@ -214,7 +197,7 @@ BarPopup {
                 Rectangle {
                     width: 92; height: 92; radius: 22
                     color: Theme.withAlpha(Theme.primary, 0.08)
-                    border.color: Theme.withAlpha(Theme.primary, 0.15)
+                    border.color: "transparent" /* was primary @ 0.15; surfaces use tone, not outlines */
                     border.width: 1
 
                     Image {
@@ -253,7 +236,7 @@ BarPopup {
                     Rectangle {
                         height: 22; radius: 11; Layout.preferredWidth: kernelLbl.implicitWidth + 18
                         color: Theme.withAlpha(Theme.primary, 0.10)
-                        border.color: Theme.withAlpha(Theme.primary, 0.18); border.width: 1
+                        border.color: "transparent" /* was primary @ 0.18; surfaces use tone, not outlines */; border.width: 1
                         visible: popup.kernelStr !== ""
                         Text {
                             id: kernelLbl; anchors.centerIn: parent; text: "󰌽  " + popup.kernelStr
@@ -366,12 +349,10 @@ BarPopup {
                 property string folderPath:  ""
 
                 Layout.fillWidth: true; Layout.preferredHeight: 78; radius: 16
-                color: hovered ? Theme.withAlpha(Theme.primary, 0.12) : Theme.withAlpha(Theme.primary, 0.05)
-                border.color: hovered ? Theme.primary : Theme.withAlpha(Theme.primary, 0.15)
-                border.width: hovered ? 1.5 : 1
+                // Tone, not outlines (like every popout surface)
+                color: hovered ? Theme.withAlpha(Theme.primary, 0.14) : Theme.withAlpha(Theme.primary, 0.06)
                 scale: hovered ? 1.04 : 1.0
                 Behavior on color       { ColorAnimation { duration: 120 } }
-                Behavior on border.color { ColorAnimation { duration: 120 } }
                 Behavior on scale       { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
 
                 property bool hovered: false
@@ -417,9 +398,7 @@ BarPopup {
                     property color hoverColor: Theme.primary
                     Layout.fillWidth: true; Layout.preferredHeight: 50; radius: 14
                     
-                    color: pMouse.containsMouse ? hoverColor : Theme.withAlpha(Theme.primary, 0.05)
-                    border.color: pMouse.containsMouse ? hoverColor : Theme.withAlpha(Theme.primary, 0.12)
-                    border.width: 1
+                    color: pMouse.containsMouse ? hoverColor : Theme.withAlpha(Theme.primary, 0.06)
                     scale: pMouse.pressed ? 0.94 : (pMouse.containsMouse ? 1.05 : 1.0)
 
                     Behavior on color { ColorAnimation { duration: 150 } }
@@ -446,4 +425,5 @@ BarPopup {
             }
         }
     }
+    } // PopoutContent
 }
