@@ -80,13 +80,10 @@ echo "Reloading QuickShell..."
 qs ipc call theme-manager reload
 qs -p $HOME/.local/share/ml4w-dotfiles-settings/quickshell ipc call theme-manager reload
 
-# 5. Reload Waybar & SwayNC so the whole system changes instantly
+# 5. Reload Waybar so the whole system changes instantly (notifications are
+#    drawn by Quickshell and follow its theme reload above)
 if pgrep -x "waybar" > /dev/null; then
     pkill -SIGUSR2 waybar
-fi
-
-if type swaync-client >/dev/null 2>&1; then
-    swaync-client -rs
 fi
 
 echo "Theme toggle complete!"

@@ -96,6 +96,20 @@ else
 fi
 
 # ==========================================
+# 4c. NOTIFICATIONS (Quickshell instead of SwayNC)
+# ==========================================
+# The Quickshell bar is the notification daemon (BarApp/services/Notifs.qml).
+# Only one program can own org.freedesktop.Notifications, and SwayNC ships a
+# D-Bus activation file that would start it (and take the name) whenever a
+# notification arrives before Quickshell is up. Masking its user unit blocks
+# that activation; undo with: systemctl --user unmask swaync.service
+echo -e "\n========================================"
+echo "🔔 Handing notifications to Quickshell (masking SwayNC)"
+echo "========================================"
+systemctl --user mask swaync.service || echo "⚠️ Warning: Could not mask swaync.service."
+pkill -x swaync 2>/dev/null || true
+
+# ==========================================
 # 5. SPECIFIC FILE FAILSAFES
 # ==========================================
 # The rsync command above technically copies all of this already if they are inside 

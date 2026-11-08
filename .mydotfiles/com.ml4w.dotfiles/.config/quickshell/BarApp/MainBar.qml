@@ -423,6 +423,8 @@ Item {
                 property color _outline: Theme.outline
                 property color activeColor: Sys.swayncState.includes("notification") ? _tertiary : (Sys.swayncState.includes("dnd") ? _outline : _primary)
 
+                BarActiveBg { active: notifPopup.active; padX: 4; padY: 1 }
+
                 Item {
                     id: notifIconWrapper
                     width: 28; height: 28
@@ -438,7 +440,7 @@ Item {
 
                 Text {
                     id: notifLabel
-                    text: Sys.swayncState.includes("dnd") ? "DND" : (Sys.swayncState.includes("notification") ? "New" : "Clear")
+                    text: Notifs.dnd ? "DND" : (Notifs.count > 0 ? Notifs.count + " new" : "Clear")
                     color: Theme.secondary
                     font.pixelSize: 11; font.bold: true
                     anchors.left: notifIconWrapper.right
@@ -454,8 +456,9 @@ Item {
                     id: notifMouse; anchors.fill: parent; anchors.margins: -5; hoverEnabled: true
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
                     onClicked: (mouse) => {
-                        if (mouse.button === Qt.LeftButton) Sys.run(["swaync-client", "-t", "-sw"])
-                        else Sys.run(["swaync-client", "-d", "-sw"])
+                        // Left: notification center, right: Do Not Disturb
+                        if (mouse.button === Qt.LeftButton) notifPopup.active = !notifPopup.active
+                        else Notifs.toggleDnd()
                     }
                 }
             }
@@ -565,6 +568,9 @@ Item {
     ClipboardPopup { id: clipboardPopup; host: popoutHost; anchorItem: clipIcon }
     DashboardPopup { id: dashPopup; host: popoutHost; anchorItem: logoIcon }
     KbLayoutPopup { id: keyboardPopup; host: popoutHost; anchorItem: kbContainer }
+    NotificationsPopup { id: notifPopup; host: popoutHost; anchorItem: notifContainer }
+    // Notification toasts (the daemon itself is the Notifs singleton)
+    NotificationToasts { screen: bar.screen }
     PowerPopup { id: powerPopup }
 
     // ══════════════════════════════════════════════════════════════════════════

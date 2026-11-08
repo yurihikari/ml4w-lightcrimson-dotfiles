@@ -3,7 +3,7 @@ import qs.CustomTheme
 import qs.BarApp.services
 
 // Small switcher shown in the header of each right-hand section (keyboard,
-// clipboard, calendar, system). It ties them together as sections of one panel:
+// clipboard, notifications, calendar, system). It ties them together as sections of one panel:
 // picking another one opens that popup, and the shared popout morphs to it,
 // just like clicking its icon in the bar.
 Row {
@@ -15,6 +15,7 @@ Row {
     readonly property var sections: [
         { target: "bar-keyboard",  icon: "󰌌", name: "Keyboard" },
         { target: "bar-clipboard", icon: "󰅌", name: "Clipboard" },
+        { target: "bar-notifications", icon: "󰂚", name: "Notifications" },
         { target: "bar-calendar",  icon: "󰃭", name: "Calendar" },
         { target: "bar-system",    icon: "󰤨", name: "System" }
     ]

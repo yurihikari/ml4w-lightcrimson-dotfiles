@@ -52,10 +52,10 @@ hl.on("hyprland.start", function ()
     -- Load GTK settings
     hl.exec_cmd("~/.config/hypr/scripts/gtk.sh")
 
-    -- Start swaync -- skipped where D-Bus activation is already set up
-    -- (marker written by post-ubuntu.sh), since an explicit exec-once
-    -- there raced with it and lost with "already running!".
-    hl.exec_cmd("[ -f ~/.config/ml4w/.swaync-dbus-activated ] || swaync")
+    -- Notifications: handled by Quickshell (BarApp/services/Notifs.qml), which
+    -- owns org.freedesktop.Notifications, so SwayNC is not started here (and
+    -- its D-Bus activation is masked: systemctl --user mask swaync.service).
+    -- hl.exec_cmd("[ -f ~/.config/ml4w/.swaync-dbus-activated ] || swaync")
 
     -- Start hypridle
     hl.exec_cmd("hypridle")

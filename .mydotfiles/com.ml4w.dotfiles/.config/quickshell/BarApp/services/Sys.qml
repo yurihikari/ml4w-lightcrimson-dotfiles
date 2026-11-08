@@ -51,7 +51,12 @@ Singleton {
     property string _clientsBuf: ""
 
     // ── Notifications ───────────────────────────────────────────────────────
-    property string swayncState: "none"
+    // Notification state for the bar icon, in SwayNC's vocabulary
+    // ("notification", "dnd-notification", "dnd-none", "none"). Now comes
+    // from our own daemon (Notifs) instead of `swaync-client -swb`.
+    readonly property string swayncState: Notifs.dnd
+        ? (Notifs.count > 0 ? "dnd-notification" : "dnd-none")
+        : (Notifs.count > 0 ? "notification" : "none")
 
     // ── Media (native MPRIS) ────────────────────────────────────────────────
     property var activePlayer: Mpris.players.values.length > 0 ? Mpris.players.values[0] : null
@@ -197,12 +202,6 @@ Singleton {
                 }
             }
         }
-    }
-
-    Process {
-        id: swayncWatcher; running: true
-        command: ["swaync-client", "-swb"]
-        stdout: SplitParser { onRead: data => { try { let json = JSON.parse(data.trim()); root.swayncState = json.alt } catch (e) {} } }
     }
 
     // ── Refresh timers ──────────────────────────────────────────────────────
