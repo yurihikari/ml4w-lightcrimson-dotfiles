@@ -178,7 +178,6 @@ BarPopup {
         hMargin: 10
         panelWidth: mainContent.width
         panelHeight: mainContent.height
-        borderColor: Theme.withAlpha(Theme.primary, 0.64)
 
     Item {
         id: mainContent
@@ -350,12 +349,10 @@ BarPopup {
                 property string folderPath:  ""
 
                 Layout.fillWidth: true; Layout.preferredHeight: 78; radius: 16
-                color: hovered ? Theme.withAlpha(Theme.primary, 0.12) : Theme.withAlpha(Theme.primary, 0.05)
-                border.color: hovered ? Theme.primary : Theme.withAlpha(Theme.primary, 0.15)
-                border.width: hovered ? 1.5 : 1
+                // Tone, not outlines (like every popout surface)
+                color: hovered ? Theme.withAlpha(Theme.primary, 0.14) : Theme.withAlpha(Theme.primary, 0.06)
                 scale: hovered ? 1.04 : 1.0
                 Behavior on color       { ColorAnimation { duration: 120 } }
-                Behavior on border.color { ColorAnimation { duration: 120 } }
                 Behavior on scale       { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
 
                 property bool hovered: false
@@ -401,9 +398,7 @@ BarPopup {
                     property color hoverColor: Theme.primary
                     Layout.fillWidth: true; Layout.preferredHeight: 50; radius: 14
                     
-                    color: pMouse.containsMouse ? hoverColor : Theme.withAlpha(Theme.primary, 0.05)
-                    border.color: pMouse.containsMouse ? hoverColor : Theme.withAlpha(Theme.primary, 0.12)
-                    border.width: 1
+                    color: pMouse.containsMouse ? hoverColor : Theme.withAlpha(Theme.primary, 0.06)
                     scale: pMouse.pressed ? 0.94 : (pMouse.containsMouse ? 1.05 : 1.0)
 
                     Behavior on color { ColorAnimation { duration: 150 } }

@@ -352,15 +352,16 @@ BarPopup {
         open: popup.active
         onClosed: popup.isAnimating = false
         hAlign: "right"
-        hMargin: 10
+        hMargin: PanelStyle.rightMargin
         panelWidth: container.width
         panelHeight: container.height
-        borderColor: Theme.withAlpha(Theme.primary, 0.64)
 
     Rectangle {
         id: container
-        width:  popup.currentTab === "Performance" ? 700 : 420
-        height: popup.currentTab === "Performance" ? 720 : 580
+        // Same size as the other right-hand sections, except the wider
+        // Performance view with its charts.
+        width:  popup.currentTab === "Performance" ? 700 : PanelStyle.narrowWidth
+        height: popup.currentTab === "Performance" ? 720 : PanelStyle.rightHeight
         Behavior on width  { NumberAnimation { duration: 220; easing.type: Easing.OutQuart } }
         Behavior on height { NumberAnimation { duration: 220; easing.type: Easing.OutQuart } }
         radius: 30; color: "transparent"
@@ -368,37 +369,53 @@ BarPopup {
         MouseArea { anchors.fill: parent }
 
         ColumnLayout {
-            anchors.fill: parent; anchors.margins: 18; spacing: 14
+            anchors.fill: parent; anchors.margins: PanelStyle.pad; spacing: PanelStyle.gap
 
-            // ── Tab bar ───────────────────────────────────────────────────
+            PanelHeader {
+                icon: popup.currentTab === "Network" ? "󰤨"
+                    : popup.currentTab === "Bluetooth" ? "󰂯" : "󰻠"
+                title: popup.currentTab === "Performance" ? "System" : popup.currentTab
+                subtitle: popup.currentTab === "Network"
+                    ? (Sys.connType === "ethernet" ? "Ethernet connected"
+                       : (Sys.wifi !== "" ? Sys.wifi : (Sys.wifiRadio ? "Not connected" : "Wi-Fi off")))
+                    : popup.currentTab === "Bluetooth"
+                    ? (!Sys.bluetooth ? "Off"
+                       : (popup.btDevices.filter(d => d.connected).length > 0
+                          ? popup.btDevices.filter(d => d.connected).length + " connected"
+                          : popup.btDevices.length + " paired"))
+                    : (popup.uptimeStr !== "" ? "Up " + popup.uptimeStr : "Performance")
+                SectionNav { host: popup.host; current: popup.ipcTarget }
+            }
+
+            // ── Tab bar (segmented) ───────────────────────────────────────
             Rectangle {
-                Layout.fillWidth: true; height: 36; radius: 12; color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+                Layout.fillWidth: true; height: 36; radius: PanelStyle.radiusControl; color: PanelStyle.cardFill
                 Row {
-                    anchors.fill: parent; anchors.margins: 4; spacing: 4
+                    anchors.fill: parent; anchors.margins: 3; spacing: 3
                     Repeater {
                         model: ["Network", "Bluetooth", "Performance"]
                         Rectangle {
-                            width: (parent.width - 8) / 3; height: parent.height; radius: 9
-                            color: popup.currentTab === modelData ? Theme.primary : "transparent"
-                            
-                            // Tactile Tab Hover/Press
-                            scale: tabMouse.pressed ? 0.95 : (tabMouse.containsMouse && popup.currentTab !== modelData ? 1.03 : 1.0)
-                            Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+                            readonly property bool isCurrent: popup.currentTab === modelData
+                            width: (parent.width - 6) / 3; height: parent.height; radius: PanelStyle.radiusControl - 3
+                            color: isCurrent ? Theme.withAlpha(Theme.primary, 0.20)
+                                 : (tabMouse.containsMouse ? Theme.withAlpha(Theme.primary, 0.08) : "transparent")
+                            Behavior on color { ColorAnimation { duration: 150 } }
 
                             Text {
                                 anchors.centerIn: parent
                                 text: modelData === "Network"   ? "󰤨  Network"
                                     : modelData === "Bluetooth" ? "󰂯  Bluetooth"
                                     : "󰻠  System"
-                                color: popup.currentTab === modelData ? Theme.background : Theme.primary
-                                font.bold: true; font.pixelSize: 14
-                                opacity: popup.currentTab === modelData ? 1.0 : (tabMouse.containsMouse ? 0.9 : 0.6)
+                                color: Theme.primary
+                                font.bold: true; font.pixelSize: 13
+                                opacity: parent.isCurrent ? 1.0 : (tabMouse.containsMouse ? 0.85 : 0.55)
                                 Behavior on opacity { NumberAnimation { duration: 150 } }
                             }
-                            MouseArea { 
+                            MouseArea {
                                 id: tabMouse
                                 anchors.fill: parent; hoverEnabled: true
-                                onClicked: popup.currentTab = modelData 
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: popup.currentTab = modelData
                             }
                         }
                     }
@@ -410,10 +427,10 @@ BarPopup {
             // ══════════════════════════════════════════════════════════════
             ColumnLayout {
                 visible: popup.currentTab === "Network"
-                Layout.fillWidth: true; spacing: 10
+                Layout.fillWidth: true; Layout.fillHeight: true; spacing: 10
 
                 Rectangle {
-                    Layout.fillWidth: true; height: 48; radius: 14; color: Theme.background
+                    Layout.fillWidth: true; height: 48; radius: PanelStyle.radiusCard; color: PanelStyle.cardFill
                     visible: Sys.connType === "ethernet"
                     RowLayout {
                         anchors.fill: parent; anchors.leftMargin: 14; anchors.rightMargin: 14; spacing: 10
@@ -450,8 +467,8 @@ BarPopup {
                 }
 
                 Rectangle {
-                    Layout.fillWidth: true; height: 300; radius: 14
-                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.04); clip: true
+                    Layout.fillWidth: true; Layout.fillHeight: true; radius: PanelStyle.radiusCard
+                    color: PanelStyle.cardFill; clip: true
 
                     Text {
                         anchors.centerIn: parent
@@ -579,21 +596,12 @@ BarPopup {
                 }
 
                 // Advanced Network Settings Button
-                Rectangle {
-                    Layout.fillWidth: true; height: 34; radius: 10
-                    border.color: "transparent" /* was primary @ 0.3; surfaces use tone, not outlines */; border.width: 1; color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 1)
-                    
-                    scale: advNetMouse.pressed ? 0.98 : (advNetMouse.containsMouse ? 1.02 : 1.0)
-                    opacity: advNetMouse.containsMouse ? 0.8 : 1.0
-                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
-                    Behavior on opacity { NumberAnimation { duration: 150 } }
-
-                    Text { anchors.centerIn: parent; text: "󰖟  Advanced Network Settings"; color: Theme.background; font.pixelSize: 11 }
-                    MouseArea { 
-                        id: advNetMouse
-                        anchors.fill: parent; hoverEnabled: true
-                        onClicked: { Sys.run(["kitty","--class","floating","nmtui"]); popup.active=false } 
-                    }
+                PanelButton {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 36
+                    icon: "󰖟"
+                    text: "Advanced Network Settings"
+                    onClicked: { Sys.run(["kitty","--class","floating","nmtui"]); popup.active=false }
                 }
             }
 
@@ -602,7 +610,7 @@ BarPopup {
             // ══════════════════════════════════════════════════════════════
             ColumnLayout {
                 visible: popup.currentTab === "Bluetooth"
-                Layout.fillWidth: true; spacing: 10
+                Layout.fillWidth: true; Layout.fillHeight: true; spacing: 10
 
                 RowLayout {
                     Layout.fillWidth: true
@@ -625,8 +633,8 @@ BarPopup {
                 }
 
                 Rectangle {
-                    Layout.fillWidth: true; height: 360; radius: 14
-                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.04); clip: true
+                    Layout.fillWidth: true; Layout.fillHeight: true; radius: PanelStyle.radiusCard
+                    color: PanelStyle.cardFill; clip: true
                     Text {
                         anchors.centerIn: parent
                         text: popup.btScanning ? "Scanning…" : (!Sys.bluetooth ? "Bluetooth is off" : popup.btDevices.length===0 ? "No paired devices" : "")
@@ -681,22 +689,12 @@ BarPopup {
                     }
                 }
 
-                // BT Manager Button
-                Rectangle {
-                    Layout.fillWidth: true; height: 34; radius: 10
-                    border.color: "transparent" /* was primary @ 0.3; surfaces use tone, not outlines */; border.width: 1; color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 1)
-                    
-                    scale: btManMouse.pressed ? 0.98 : (btManMouse.containsMouse ? 1.02 : 1.0)
-                    opacity: btManMouse.containsMouse ? 0.8 : 1.0
-                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
-                    Behavior on opacity { NumberAnimation { duration: 150 } }
-
-                    Text { anchors.centerIn: parent; text: "󰂱  Bluetooth Manager"; color: Theme.background; font.pixelSize: 11 }
-                    MouseArea { 
-                        id: btManMouse
-                        anchors.fill: parent; hoverEnabled: true
-                        onClicked: { Sys.run(["blueman-manager"]); popup.active=false } 
-                    }
+                PanelButton {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 36
+                    icon: "󰂱"
+                    text: "Bluetooth Manager"
+                    onClicked: { Sys.run(["blueman-manager"]); popup.active=false }
                 }
             }
 
@@ -1234,21 +1232,12 @@ BarPopup {
                     }
                 }
 
-                // ── System monitor button ─────────────────────────────────
-                Rectangle {
-                    Layout.fillWidth: true; height: 38; radius: 12; color: Theme.primary
-                    
-                    scale: sysMonMouse.pressed ? 0.98 : (sysMonMouse.containsMouse ? 1.02 : 1.0)
-                    opacity: sysMonMouse.containsMouse ? 0.9 : 1.0
-                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
-                    Behavior on opacity { NumberAnimation { duration: 150 } }
-
-                    Text { anchors.centerIn: parent; text: "󰓅  Open System Monitor"; color: Theme.background; font.bold: true; font.pixelSize: 11 }
-                    MouseArea { 
-                        id: sysMonMouse
-                        anchors.fill: parent; hoverEnabled: true
-                        onClicked: { Sys.run(["bash","-c","~/.config/ml4w/settings/system-monitor.sh"]); popup.active=false } 
-                    }
+                PanelButton {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 36
+                    icon: "󰓅"
+                    text: "Open System Monitor"
+                    onClicked: { Sys.run(["bash","-c","~/.config/ml4w/settings/system-monitor.sh"]); popup.active=false }
                 }
             }
         }

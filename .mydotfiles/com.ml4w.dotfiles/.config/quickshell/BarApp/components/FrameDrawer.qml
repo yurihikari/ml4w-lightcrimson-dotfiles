@@ -79,6 +79,10 @@ Item {
     property int duration: 400
     // Hide the outline for now (the shared popout does while it morphs).
     property bool outlineSuppressed: false
+    // Clip the content to the panel even once it has landed (the shared
+    // popout does while it morphs, so content of a different size than the
+    // panel at that moment never spills past its edges).
+    property bool clipContent: false
     // Join the frame's shared shadow.
     property bool castsShadow: true
 
@@ -372,7 +376,7 @@ Item {
                 : root.edge === "bottom" ? area.height - root.revealed : 0
             width: root.horizontal ? root.panelWidth : root.revealed
             height: root.horizontal ? root.revealed : area.height
-            clip: root.progress < 1
+            clip: root.progress < 1 || root.clipContent
 
             Item {
                 id: panelContent

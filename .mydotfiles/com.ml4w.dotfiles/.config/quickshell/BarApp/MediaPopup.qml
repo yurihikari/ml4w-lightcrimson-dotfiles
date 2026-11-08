@@ -177,7 +177,6 @@ BarPopup {
         hAlign: "center"
         panelWidth: container.width
         panelHeight: container.height
-        borderColor: Theme.withAlpha(Theme.primary, 0.64)
 
     Rectangle {
         id: container
@@ -214,9 +213,7 @@ BarPopup {
                             
                             property bool isCurrent: fullName === popup.currentSinkFull
                             // Glass card look for items
-                            color: isCurrent ? Theme.primary : (sinkDelegateMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.08) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.03))
-                            border.color: isCurrent ? "transparent" : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
-                            border.width: 1
+                            color: isCurrent ? Theme.primary : (sinkDelegateMouse.containsMouse ? Theme.withAlpha(Theme.primary, 0.11) : Theme.withAlpha(Theme.primary, 0.06))
                             
                             scale: sinkDelegateMouse.pressed ? 0.97 : 1.0
                             Behavior on scale { NumberAnimation { duration: 150 } }
@@ -283,9 +280,7 @@ BarPopup {
                         radius: 16
                         
                         // Glass pill styling
-                        color: isSelected ? Theme.primary : (pillMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05))
-                        border.color: isSelected ? "transparent" : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.15)
-                        border.width: 1
+                        color: isSelected ? Theme.primary : (pillMouse.containsMouse ? Theme.withAlpha(Theme.primary, 0.11) : Theme.withAlpha(Theme.primary, 0.06))
                         
                         scale: pillMouse.pressed ? 0.95 : (pillMouse.containsMouse ? 1.05 : 1.0)
                         Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }

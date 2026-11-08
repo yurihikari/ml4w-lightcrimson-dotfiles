@@ -141,17 +141,16 @@ BarPopup {
         open: root.active
         onClosed: root.isAnimating = false
         hAlign: "right"
-        hMargin: 155
+        hMargin: PanelStyle.rightMargin
         panelWidth: mainCard.width
         panelHeight: mainCard.height
-        borderColor: Theme.withAlpha(Theme.primary, 0.64)
 
         Rectangle {
             id: mainCard
-            height: 640
-            
+            height: PanelStyle.rightHeight
+
             // Dynamic width expansion (the drawer is right-aligned, so it grows to the left).
-            width: root.hoveredClipId !== "" ? 820 : 440
+            width: root.hoveredClipId !== "" ? 820 : PanelStyle.narrowWidth
             Behavior on width { NumberAnimation { duration: 350; easing.type: Easing.OutExpo } }
 
             color: "transparent"
@@ -181,20 +180,22 @@ BarPopup {
 
                 // Inner content is rigidly pinned to the right side of the mask
                 ColumnLayout {
-                    width: 340 // Fixed internal width guarantees NO text cropping or reflowing!
+                    width: 360 // Fixed internal width (820 - list width - pad) guarantees NO text cropping or reflowing!
                     anchors.right: parent.right
-                    anchors.rightMargin: 20
+                    anchors.rightMargin: 0
                     anchors.top: parent.top
                     anchors.bottom: parent.bottom
-                    anchors.topMargin: 25
-                    anchors.bottomMargin: 25
-                    spacing: 16
+                    anchors.topMargin: PanelStyle.pad
+                    anchors.bottomMargin: PanelStyle.pad
+                    spacing: PanelStyle.gap
 
-                    // Header
+                    // Header (same height as the list's, so the two panes line up)
                     RowLayout {
-                        Layout.fillWidth: true; spacing: 10
-                        Text { text: root.hoveredIsImage ? "󰋼" : "󰈙"; color: Theme.primary; font.pixelSize: 18; opacity: 0.8 }
-                        Text { text: root.hoveredIsImage ? "Image Preview" : "Content Preview"; color: Theme.primary; font.pixelSize: 16; font.bold: true; opacity: 0.8 }
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: PanelStyle.headerHeight
+                        spacing: 10
+                        Text { text: root.hoveredIsImage ? "󰋼" : "󰈙"; color: Theme.primary; font.pixelSize: 17; opacity: 0.8 }
+                        Text { text: root.hoveredIsImage ? "Image preview" : "Content preview"; color: Theme.primary; font.pixelSize: 14; font.bold: true; opacity: 0.8 }
                         Item { Layout.fillWidth: true }
                     }
 
@@ -203,10 +204,8 @@ BarPopup {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         visible: !root.hoveredIsImage
-                        radius: 20
-                        color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.08)
-                        border.color: "transparent" /* was primary @ 0.1; surfaces use tone, not outlines */
-                        border.width: 1
+                        radius: PanelStyle.radiusCard
+                        color: PanelStyle.cardFill
 
                         Flickable {
                             anchors.fill: parent
@@ -247,10 +246,8 @@ BarPopup {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         visible: root.hoveredIsImage
-                        radius: 20
-                        color: Qt.rgba(0, 0, 0, 0.15)
-                        border.color: "transparent" /* was primary @ 0.1; surfaces use tone, not outlines */
-                        border.width: 1
+                        radius: PanelStyle.radiusCard
+                        color: PanelStyle.cardFill
                         clip: true
 
                         Image {
@@ -294,72 +291,44 @@ BarPopup {
             // ── RIGHT PANE: MAIN CLIPBOARD LIST ──
             Item {
                 id: clipboardPane
-                width: 440 // Rigid width blocks layout jitter
+                width: PanelStyle.narrowWidth // Rigid width blocks layout jitter
                 anchors.right: parent.right
                 anchors.top: parent.top
                 anchors.bottom: parent.bottom
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 25
-                    spacing: 18
+                    anchors.margins: PanelStyle.pad
+                    spacing: PanelStyle.gap
 
-                    // Header
-                    RowLayout {
-                        Layout.fillWidth: true; spacing: 14
-                        
-                        Rectangle {
-                            width: 44; height: 44; radius: 14
-                            color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
-                            Text { anchors.centerIn: parent; text: "󰅌"; color: Theme.primary; opacity: 0.8; font.pixelSize: 22 }
+                    PanelHeader {
+                        icon: "󰅌"
+                        title: "Clipboard"
+                        subtitle: clipModel.count + " entries"
+
+                        PanelButton {
+                            icon: "󰃢"
+                            text: "Clear"
+                            onClicked: { Sys.run(["bash", "-c", "cliphist wipe"]); clipModel.clear(); root.active = false }
                         }
-                        
-                        ColumnLayout {
-                            spacing: 2
-                            Text { text: "Clipboard"; color: Theme.primary; font.pixelSize: 20; font.bold: true; opacity: 0.9 }
-                            Text { text: clipModel.count + " entries"; color: Theme.primary; font.pixelSize: 12; opacity: 0.5 }
-                        }
-                        
-                        Item { Layout.fillWidth: true }
-                        
-                        Rectangle {
-                            width: 90; height: 36; radius: 18
-                            color: clearMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : "transparent"
-                            border.color: Theme.primary; border.width: 1
-                            scale: clearMouse.pressed ? 0.95 : 1.0
-                            Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
-                            Behavior on color { ColorAnimation { duration: 150 } }
-                            
-                            RowLayout { 
-                                anchors.centerIn: parent; spacing: 6
-                                Text { text: "󰃢"; color: Theme.primary; font.pixelSize: 14; opacity: 0.8 }
-                                Text { text: "Clear"; color: Theme.primary; font.pixelSize: 12; font.bold: true; opacity: 0.8 }
-                            }
-                            MouseArea {
-                                id: clearMouse; anchors.fill: parent; hoverEnabled: true
-                                onClicked: { Sys.run(["bash", "-c", "cliphist wipe"]); clipModel.clear(); root.active = false }
-                            }
-                        }
+                        SectionNav { host: root.host; current: root.ipcTarget }
                     }
 
                     // Search Bar
-                    Rectangle {
-                        Layout.fillWidth: true; height: 48; radius: 24
-                        color: searchField.activeFocus ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.08) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.04)
-                        border.color: searchField.activeFocus ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.3) : "transparent"
-                        border.width: 1
-                        Behavior on color { ColorAnimation { duration: 150 } }
-                        Behavior on border.color { ColorAnimation { duration: 150 } }
+                    PanelField {
+                        Layout.fillWidth: true
+                        focused: searchField.activeFocus
 
                         RowLayout {
-                            anchors.fill: parent; anchors.leftMargin: 18; anchors.rightMargin: 16; spacing: 10
-                            Text { text: "󰍉"; color: Theme.primary; opacity: searchField.activeFocus ? 0.8 : 0.4; font.pixelSize: 16 }
-                            
+                            anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 8
+                            Text { text: "󰍉"; color: Theme.primary; opacity: searchField.activeFocus ? 0.8 : 0.45; font.pixelSize: 16 }
+
                             TextField {
                                 id: searchField; Layout.fillWidth: true
-                                placeholderText: "Search history..."
-                                placeholderTextColor: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.35)
+                                placeholderText: "Search history…"
+                                placeholderTextColor: Theme.withAlpha(Theme.primary, PanelStyle.faint)
                                 color: Theme.primary; font.pixelSize: 14; background: Item {}
+                                verticalAlignment: TextInput.AlignVCenter
                                 onTextChanged: { root.searchText = text; searchDelay.restart() }
                                 Keys.onEscapePressed: {
                                     if (root.searchText !== "") {
@@ -369,9 +338,9 @@ BarPopup {
                                     }
                                 }
                             }
-                            
+
                             Text {
-                                text: "󰅖"; color: Theme.primary; font.pixelSize: 16; opacity: 0.4
+                                text: "󰅖"; color: Theme.primary; font.pixelSize: 15; opacity: 0.45
                                 visible: searchField.text.length > 0
                                 MouseArea { anchors.fill: parent; onClicked: { searchField.text = ""; searchField.forceActiveFocus() } }
                             }
@@ -385,7 +354,7 @@ BarPopup {
 
                         ListView {
                             id: listView; anchors.fill: parent; model: clipModel
-                            spacing: 10; boundsBehavior: Flickable.StopAtBounds; cacheBuffer: 200
+                            spacing: 8; boundsBehavior: Flickable.StopAtBounds; cacheBuffer: 200
 
                             Item {
                                 anchors.centerIn: parent; visible: clipModel.count === 0
@@ -402,9 +371,9 @@ BarPopup {
 
                             delegate: Rectangle {
                                 id: itemCard
-                                width: listView.width; height: 56; radius: 16
-                                
-                                color: copyMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.02) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+                                width: listView.width; height: 52; radius: PanelStyle.radiusCard
+
+                                color: (copyMouse.containsMouse || delMouse.containsMouse) ? PanelStyle.cardHover : PanelStyle.cardFill
                                 scale: copyMouse.pressed ? 0.98 : 1.0
                                 
                                 Behavior on color { ColorAnimation { duration: 150 } }
@@ -486,8 +455,7 @@ BarPopup {
                     Text {
                         Layout.alignment: Qt.AlignHCenter
                         text: "Click to copy  ·  Click on bin to delete"
-                        color: Theme.primary; opacity: 0.3; font.pixelSize: 11
-                        Layout.topMargin: 4
+                        color: Theme.primary; opacity: PanelStyle.faint; font.pixelSize: 11
                     }
                 }
             }

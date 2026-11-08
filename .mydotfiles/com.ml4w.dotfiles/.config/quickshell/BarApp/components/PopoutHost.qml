@@ -110,5 +110,6 @@ PanelWindow {
         borderWidth: host.spec ? host.spec.borderWidth : 2
         duration: host.spec ? host.spec.duration : 400
         outlineSuppressed: host.switching
+        clipContent: host.switching
     }
 }

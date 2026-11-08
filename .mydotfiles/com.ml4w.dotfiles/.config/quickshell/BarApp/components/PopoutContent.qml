@@ -1,5 +1,6 @@
 import QtQuick
 import qs.CustomTheme
+import qs.BarApp.services
 
 // Where a bar popup sits in the shared popout and how it looks, plus its
 // content. Declared directly inside the popup (a BarPopup), sized to
@@ -21,12 +22,19 @@ Item {
     property real panelWidth: 400
     property real panelHeight: 300
     property real radius: 20
-    property color borderColor: Theme.withAlpha(Theme.primary, 0.8)
+    property color borderColor: PanelStyle.outline
     property real borderWidth: 2
     property int duration: 400
 
     width: panelWidth
     height: panelHeight
+    // Pin the content to the panel's anchored side, so while the popout morphs
+    // to another popup (and is momentarily narrower or wider than this one)
+    // the content stays where it will land instead of riding the moving edge.
+    x: !parent ? 0
+        : hAlign === "right" ? parent.width - width
+        : hAlign === "center" ? Math.round((parent.width - width) / 2)
+        : 0
 
     Component.onCompleted: if (parent && parent.spec !== undefined) parent.spec = root
 }
