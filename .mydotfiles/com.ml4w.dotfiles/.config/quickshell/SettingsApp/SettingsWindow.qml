@@ -210,8 +210,11 @@ FloatingWindow {
                 anchors.bottomMargin: 18
                 currentIndex: SettingsRegistry.pageIndex(root.currentPage)
 
-                WifiPage       { active: StackLayout.isCurrentItem && root.visible }
-                NetworkPage    { active: StackLayout.isCurrentItem && root.visible }
+                WifiPage {
+                    active: StackLayout.isCurrentItem && root.visible
+                    onRequestEditor: (name) => { root.goTo("network"); networkPage.editByName(name) }
+                }
+                NetworkPage    { id: networkPage; active: StackLayout.isCurrentItem && root.visible }
                 FirewallPage   { active: StackLayout.isCurrentItem && root.visible }
                 BluetoothPage  { active: StackLayout.isCurrentItem && root.visible }
                 DisplaysPage   { active: StackLayout.isCurrentItem && root.visible }

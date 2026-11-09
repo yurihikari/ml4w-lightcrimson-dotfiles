@@ -4,194 +4,520 @@ import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
 import qs.CustomTheme
+import qs.SettingsApp.services
 import qs.SettingsApp.components
 
+// Network: VPN, sharing (hotspot / Ethernet), wired ports and an editor for
+// every connection. Everything is a NetworkManager connection (see NM), so
+// what is started here keeps running after Settings closes and is picked up
+// again when it opens.
 StPage {
     id: page
     heading: "Network"
-    subheading: "Wired connection, OpenVPN configurations and VPN apps"
+    subheading: "VPN, hotspot and Ethernet sharing, wired ports and connection settings"
     icon: "󰦝"
 
     property bool active: false
+    onActiveChanged: {
+        if (active) {
+            NM.watch()
+            legacyReader.running = true
+            appDetector._buf = ""; appDetector.running = true
+            loadHotspotSettings()
+        } else {
+            NM.unwatch()
+        }
+    }
+    Component.onDestruction: if (active) NM.unwatch()
 
-    property string ethName: ""
-    property bool ethUp: false
+    // ── Editor ──────────────────────────────────────────────────────────────
+    property string editUuid: ""
+    function edit(uuid) {
+        editUuid = uuid
+        Qt.callLater(() => page.scrollTo(editor))
+    }
+    // Used by the Wi-Fi page and the Wired rows. "" = the active Wi-Fi
+    // connection. Opened from elsewhere, the connection list may not be
+    // loaded yet: then it is resolved as soon as it arrives.
+    property string pendingEdit: ""
+    property bool hasPendingEdit: false
+    function editByName(name) {
+        const c = name !== "" ? NM.byName(name)
+                : NM.connections.find(x => x.type === "802-11-wireless" && x.state === "activated")
+        if (c) { hasPendingEdit = false; edit(c.uuid) }
+        else { pendingEdit = name; hasPendingEdit = true }
+    }
+    Connections {
+        target: NM
+        function onConnectionsChanged() { if (page.hasPendingEdit) page.editByName(page.pendingEdit) }
+    }
 
-    // ── OpenVPN — multiple saved configs, connected via the openvpn CLI ──
-    // configs: [{ id, name, path, user, password }]
-    property var configs: []
-    property string editingId: ""        // "" = closed, "new" = adding, else an id
+    function typeIcon(t) {
+        return t === "802-11-wireless" ? "󰤨" : t === "802-3-ethernet" ? "󰈀"
+             : t === "wireguard" ? "󰖂" : t === "vpn" ? "󰦝" : "󰛳"
+    }
+    function typeLabel(t) {
+        return t === "802-11-wireless" ? "Wi-Fi" : t === "802-3-ethernet" ? "Ethernet"
+             : t === "wireguard" ? "WireGuard" : t === "vpn" ? "OpenVPN" : t
+    }
+    readonly property color okColor: "#a6e3a1"
+    readonly property color warnColor: "#e5c07b"
+    readonly property color errColor: "#e06c75"
+    readonly property color offColor: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.3)
 
-    // Connection state: "off" | "connecting" | "up" | "error"
-    property string ovpnState: "off"
-    property string ovpnStatus: "Not connected"
-    property string connectedId: ""
-    property bool userStopped: false
-    property string pendingPath: ""
-    property bool pendingAuth: false
-    readonly property bool connected: ovpnState === "up"
-    readonly property bool connecting: ovpnState === "connecting"
-
-    readonly property string authPath: Quickshell.env("HOME") + "/.cache/quickshell-ovpn-auth"
-    readonly property string pidPath: "/tmp/quickshell-ovpn.pid"
-    readonly property string configsPath: Quickshell.env("HOME") + "/.cache/quickshell-vpn-configs.json"
-
-    property var vpnApps: []
+    // ════════════════════════════════════════════════════════════════════════
+    //  VPN
+    // ════════════════════════════════════════════════════════════════════════
+    property string askPassFor: ""      // VPN waiting for a password to connect
+    property string credsFor: ""        // VPN whose username/password are being edited
+    property string confirmDelete: ""
+    property string importStatus: ""
     property bool hasZenity: false
 
-    onActiveChanged: if (active) {
-        ethReader.running = true
-        configsReader.running = true
-        appDetector._buf = ""; appDetector.running = true
+    function connectVpn(c) {
+        askPassFor = ""
+        NM.up(c.uuid, {}, (ok, msg) => {
+            if (!ok && /secret|password|auth/i.test(msg)) page.askPassFor = c.uuid
+        })
     }
 
-    function shq(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'" }
-    function setStatus(s) { page.ovpnStatus = s }
-    function nameOf(id) { let c = page.configs.find(x => x.id === id); return c ? c.name : "" }
-
-    // ── Persistence ──────────────────────────────────────────────────────
-    function saveConfigs() {
-        let b64 = Qt.btoa(unescape(encodeURIComponent(JSON.stringify(page.configs))))
-        configsWriter.command = ["bash", "-c", "mkdir -p $(dirname " + shq(page.configsPath) + ") && echo " + shq(b64) + " | base64 -d > " + shq(page.configsPath)]
-        configsWriter.running = true
+    function openCreds(c) {
+        credsFor = c.uuid
+        credUser.text = ""; credPass.text = ""
+        NM.get(c.uuid, ["vpn.data"], false, (ok, m) => {
+            const mm = (m["vpn.data"] || "").match(/(?:^|,\s*)username\s*=\s*([^,]*)/)
+            credUser.text = mm ? mm[1].trim() : ""
+        })
     }
 
-    // ── Editor ───────────────────────────────────────────────────────────
-    function openEditor(cfg) {
-        if (cfg) {
-            page.editingId = cfg.id
-            editName.text = cfg.name; editPath.text = cfg.path
-            editUser.text = cfg.user || ""; editPass.text = cfg.password || ""
-        } else {
-            page.editingId = "new"
-            editName.text = ""; editPath.text = ""; editUser.text = ""; editPass.text = ""
-        }
-    }
-
-    function saveEntry() {
-        let path = editPath.text.trim()
+    function importFile(path) {
+        path = path.trim()
         if (path === "") return
-        let name = editName.text.trim()
-        if (name === "") name = path.split("/").pop().replace(/\.(ovpn|conf)$/i, "")
-        let entry = { id: page.editingId === "new" ? ("" + Date.now()) : page.editingId,
-                      name: name, path: path, user: editUser.text.trim(), password: editPass.text }
-        let arr = page.configs.slice()
-        let idx = arr.findIndex(c => c.id === entry.id)
-        if (idx >= 0) arr[idx] = entry; else arr.push(entry)
-        page.configs = arr
-        saveConfigs()
-        page.editingId = ""
+        importStatus = "Importing…"
+        NM.importVpn(path, (ok, res) => {
+            page.importStatus = ok ? "Imported" : res
+            if (ok) { importPath.text = ""; const c = NM.byUuid(res); if (c && c.type === "vpn") page.openCreds(c) }
+        })
     }
-
-    function deleteEntry(id) {
-        if (page.connectedId === id && (page.connected || page.connecting)) disconnectVpn()
-        page.configs = page.configs.filter(c => c.id !== id)
-        saveConfigs()
-        if (page.editingId === id) page.editingId = ""
-    }
-
-    // ── Connect / disconnect (openvpn CLI via pkexec) ────────────────────
-    function startProc() {
-        let cfg = page.pendingPath
-        if (cfg === "") { page.ovpnState = "error"; setStatus("No config file"); return }
-        let dir = cfg.lastIndexOf("/") > 0 ? cfg.substring(0, cfg.lastIndexOf("/")) : "."
-        let inner = "cd " + shq(dir) + " && exec openvpn --config " + shq(cfg) +
-                    " --writepid " + shq(page.pidPath) + " --verb 3" +
-                    (page.pendingAuth ? " --auth-user-pass " + shq(page.authPath) + " --auth-nocache" : "")
-        ovpnProc.command = ["pkexec", "bash", "-c", inner]
-        ovpnProc.running = true
-    }
-
-    function connectConfig(cfg) {
-        if (page.connected || page.connecting) return
-        page.userStopped = false
-        page.connectedId = cfg.id
-        page.ovpnState = "connecting"
-        setStatus("Connecting to " + cfg.name + "…")
-        page.pendingPath = cfg.path
-        if (cfg.user && cfg.user.trim() !== "") {
-            page.pendingAuth = true
-            authWriter.command = ["bash", "-c",
-                "umask 077; printf '%s\\n%s\\n' " + shq(cfg.user) + " " + shq(cfg.password || "") + " > " + shq(page.authPath)]
-            authWriter.running = true   // onRunningChanged → startProc()
-        } else {
-            page.pendingAuth = false
-            startProc()
-        }
-    }
-
-    function disconnectVpn() {
-        page.userStopped = true
-        setStatus("Disconnecting…")
-        ovpnStop.command = ["pkexec", "bash", "-c",
-            "kill $(cat " + shq(page.pidPath) + " 2>/dev/null) 2>/dev/null; rm -f " + shq(page.pidPath) + " " + shq(page.authPath)]
-        ovpnStop.running = true
-    }
-
-    function parseLine(line) {
-        let l = line.trim()
-        if (l === "") return
-        if (l.indexOf("Initialization Sequence Completed") !== -1) { page.ovpnState = "up"; setStatus("Connected to " + page.nameOf(page.connectedId)); return }
-        if (l.indexOf("AUTH_FAILED") !== -1) { setStatus("Authentication failed — check username/password"); return }
-        if (l.indexOf("Options error") !== -1 || l.indexOf("Cannot") !== -1 || l.indexOf("ERROR") !== -1 || l.indexOf("No such file") !== -1) { setStatus(l.replace(/^.*?:\s*/, "")); return }
-        if (l.indexOf("TLS Error") !== -1 || l.indexOf("TLS handshake failed") !== -1) { setStatus("TLS handshake failed"); return }
-    }
-
-    // ── Processes ────────────────────────────────────────────────────────
-    Process {
-        id: ethReader
-        property string _buf: ""
-        command: ["bash", "-c", "nmcli -t -f TYPE,STATE,CONNECTION device status 2>/dev/null | grep '^ethernet'"]
-        stdout: SplitParser { onRead: ethReader._buf += data + "\n" }
-        onRunningChanged: {
-            if (running) return
-            let up = false, name = ""
-            for (let l of ethReader._buf.trim().split("\n")) {
-                let p = l.split(":")
-                if (p.length >= 3 && p[1].indexOf("connected") !== -1 && p[1].indexOf("disconnected") === -1) { up = true; name = p[2] }
-            }
-            page.ethUp = up; page.ethName = name
-            ethReader._buf = ""
-        }
-    }
-
-    Process {
-        id: configsReader
-        command: ["bash", "-c", "cat " + page.shq(page.configsPath) + " 2>/dev/null"]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                let t = this.text.trim()
-                if (t === "") { page.configs = []; return }
-                try { page.configs = JSON.parse(t) } catch (e) { page.configs = [] }
-            }
-        }
-    }
-
-    Process { id: configsWriter }
-
-    Process { id: authWriter; onRunningChanged: if (!running) page.startProc() }
-
-    Process {
-        id: ovpnProc
-        stdout: SplitParser { onRead: page.parseLine(data) }
-        stderr: SplitParser { onRead: page.parseLine(data) }
-        onRunningChanged: {
-            if (running) { if (page.ovpnState !== "up") page.ovpnState = "connecting"; return }
-            if (page.userStopped) { page.ovpnState = "off"; page.setStatus("Not connected") }
-            else if (page.ovpnState === "up") { page.ovpnState = "off"; page.setStatus("Connection closed") }
-            else { page.ovpnState = "error"; if (page.ovpnStatus.indexOf("Connecting") === 0) page.setStatus("Failed to connect") }
-            page.connectedId = ""
-            page.userStopped = false
-        }
-    }
-
-    Process { id: ovpnStop; onRunningChanged: if (!running && ovpnProc.running) ovpnProc.running = false }
 
     Process {
         id: configPicker
-        command: ["bash", "-c", "zenity --file-selection --title='Select OpenVPN config' --file-filter='OpenVPN | *.ovpn *.conf *.tblk' 2>/dev/null"]
-        stdout: StdioCollector { onStreamFinished: { let f = this.text.trim(); if (f !== "") editPath.text = f } }
+        command: ["bash", "-c", "zenity --file-selection --title='Import a VPN configuration' --file-filter='VPN configs | *.ovpn *.conf' 2>/dev/null"]
+        stdout: StdioCollector { onStreamFinished: { const f = this.text.trim(); if (f !== "") importPath.text = f } }
     }
+
+    // ── Former in-app OpenVPN configs (ran openvpn as a child of this window,
+    //    which is why closing Settings dropped the VPN). Offered for import
+    //    into NetworkManager once; passwords are not kept in the old file. ──
+    readonly property string legacyPath: Quickshell.env("HOME") + "/.cache/quickshell-vpn-configs.json"
+    property var legacy: []
+    property string migrateStatus: ""
+    Process {
+        id: legacyReader
+        command: ["bash", "-c", "cat " + NM.shq(page.legacyPath) + " 2>/dev/null"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try { page.legacy = JSON.parse(this.text.trim() || "[]") } catch (e) { page.legacy = [] }
+            }
+        }
+    }
+
+    function migrate() {
+        const list = legacy.slice()
+        let failed = []
+        const next = () => {
+            if (list.length === 0) {
+                // Keep a copy of the list without the passwords, drop the old file.
+                const kept = legacy.map(c => ({ name: c.name, path: c.path, user: c.user || "" }))
+                const b64 = Qt.btoa(unescape(encodeURIComponent(JSON.stringify(kept, null, 2))))
+                NM.run(["bash", "-c", "echo " + NM.shq(b64) + " | base64 -d > " + NM.shq(page.legacyPath + ".migrated") +
+                        " && rm -f " + NM.shq(page.legacyPath)], () => {
+                    page.legacy = []
+                    page.migrateStatus = failed.length ? "Could not import: " + failed.join(", ") : "Moved to NetworkManager"
+                })
+                return
+            }
+            const c = list.shift()
+            const base = (c.path || "").split("/").pop().replace(/\.(ovpn|conf)$/i, "")
+            const existing = NM.byName(base) || NM.byName(c.name)
+            if (existing) { next(); return }      // already in NetworkManager (with its own credentials)
+            NM.importVpn(c.path, (ok, uuid) => {
+                if (!ok) { failed.push(c.name); next(); return }
+                if (c.user) NM.setVpnCredentials(uuid, c.user, c.password || "", () => next())
+                else next()
+            })
+        }
+        migrateStatus = "Moving…"
+        next()
+    }
+
+    StCard {
+        title: "VPN"
+
+        // Old in-app configs
+        StRow {
+            visible: page.legacy.length > 0
+            icon: "󰁯"
+            title: "Move saved OpenVPN configs to NetworkManager"
+            subtitle: page.migrateStatus !== "" ? page.migrateStatus
+                    : "So connections stay up when Settings closes (" + page.legacy.length + " saved)"
+            StButton { text: "Move"; accent: true; implicitHeight: 30; onClicked: page.migrate() }
+        }
+
+        Text {
+            Layout.fillWidth: true
+            Layout.margins: 10
+            visible: NM.vpns.length === 0
+            text: "No VPN connections yet. Import an OpenVPN (.ovpn) or WireGuard (.conf) file below."
+            color: Theme.primary; opacity: 0.45; font.pixelSize: 12
+            wrapMode: Text.WordWrap
+        }
+
+        Repeater {
+            model: NM.vpns
+            delegate: ColumnLayout {
+                id: vpnItem
+                required property var modelData
+                readonly property var c: modelData
+                readonly property bool up: NM.isUp(c)
+                readonly property bool busy: NM.isBusy(c)
+                readonly property string err: NM.errors[c.uuid] || ""
+                Layout.fillWidth: true
+                spacing: 4
+
+                StRow {
+                    icon: page.typeIcon(vpnItem.c.type)
+                    title: vpnItem.c.name
+                    subtitle: vpnItem.up ? "Connected" + (vpnItem.c.device ? " · " + vpnItem.c.device : "")
+                            : vpnItem.busy ? (NM.pending[vpnItem.c.uuid] === "down" ? "Disconnecting…" : "Connecting…")
+                            : vpnItem.err !== "" ? vpnItem.err
+                            : page.typeLabel(vpnItem.c.type)
+
+                    Rectangle {
+                        width: 9; height: 9; radius: 4.5
+                        color: vpnItem.up ? page.okColor : vpnItem.busy ? page.warnColor : vpnItem.err !== "" ? page.errColor : page.offColor
+                    }
+                    StButton {
+                        text: vpnItem.up ? "Disconnect" : vpnItem.busy ? "Cancel" : "Connect"
+                        accent: !vpnItem.up && !vpnItem.busy
+                        dangerous: vpnItem.up || vpnItem.busy
+                        implicitHeight: 30
+                        onClicked: (vpnItem.up || vpnItem.busy) ? NM.down(vpnItem.c.uuid) : page.connectVpn(vpnItem.c)
+                    }
+                    StIconButton {
+                        visible: vpnItem.c.type === "vpn"
+                        icon: "󰌆"
+                        onClicked: page.credsFor === vpnItem.c.uuid ? page.credsFor = "" : page.openCreds(vpnItem.c)
+                    }
+                    StIconButton { icon: "󰒓"; onClicked: page.edit(vpnItem.c.uuid) }
+                    StIconButton {
+                        visible: page.confirmDelete !== vpnItem.c.uuid
+                        icon: "󰆴"
+                        onClicked: page.confirmDelete = vpnItem.c.uuid
+                    }
+                    StButton {
+                        visible: page.confirmDelete === vpnItem.c.uuid
+                        text: "Delete"
+                        dangerous: true
+                        implicitHeight: 30
+                        onClicked: { NM.remove(vpnItem.c.uuid); page.confirmDelete = "" }
+                    }
+                }
+
+                // Password needed to connect (not saved)
+                RowLayout {
+                    visible: page.askPassFor === vpnItem.c.uuid
+                    Layout.fillWidth: true
+                    Layout.leftMargin: 46; Layout.rightMargin: 10; Layout.bottomMargin: 6
+                    spacing: 8
+                    StField {
+                        id: askField
+                        placeholder: "Password for " + vpnItem.c.name
+                        password: true
+                        onAccepted: askBtn.clicked()
+                    }
+                    StButton {
+                        id: askBtn
+                        text: "Connect"; accent: true; implicitHeight: 34
+                        onClicked: {
+                            const pw = askField.text
+                            askField.text = ""
+                            page.askPassFor = ""
+                            NM.up(vpnItem.c.uuid, { password: pw })
+                        }
+                    }
+                    StButton { text: "Cancel"; implicitHeight: 34; onClicked: page.askPassFor = "" }
+                }
+            }
+        }
+
+        // Credentials editor (OpenVPN)
+        ColumnLayout {
+            visible: page.credsFor !== ""
+            Layout.fillWidth: true
+            spacing: 4
+            StRow {
+                icon: "󰀄"
+                title: "Username"
+                subtitle: "For " + (NM.byUuid(page.credsFor) ? NM.byUuid(page.credsFor).name : "")
+                StField { id: credUser; placeholder: "username" }
+            }
+            StRow {
+                icon: "󰌆"
+                title: "Password"
+                subtitle: "Stored by NetworkManager; leave empty to keep the current one"
+                StField { id: credPass; placeholder: "new password (optional)"; password: true }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.margins: 6
+                spacing: 8
+                StButton {
+                    text: "Save"; icon: "󰆓"; accent: true
+                    onClicked: {
+                        const id = page.credsFor
+                        NM.setVpnCredentials(id, credUser.text.trim(), credPass.text, (ok, msg) => {
+                            page.importStatus = ok ? "Credentials saved" : msg
+                        })
+                        credPass.text = ""
+                        page.credsFor = ""
+                    }
+                }
+                StButton { text: "Cancel"; onClicked: page.credsFor = "" }
+            }
+        }
+
+        // Import
+        StRow {
+            icon: "󰁯"
+            title: "Import"
+            subtitle: page.importStatus !== "" ? page.importStatus : "OpenVPN .ovpn or WireGuard .conf"
+            StField { id: importPath; placeholder: "/path/to/config.ovpn"; onAccepted: page.importFile(text) }
+            StIconButton { icon: "󰉋"; visible: page.hasZenity; onClicked: configPicker.running = true }
+            StButton { text: "Import"; accent: true; implicitHeight: 30; enabled: importPath.text.trim() !== ""; onClicked: page.importFile(importPath.text) }
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  SHARING
+    // ════════════════════════════════════════════════════════════════════════
+    property string hotspotStatus: ""
+    property bool hotspotBusy: false
+    property string hotspotBand: ""
+    property var hotspotClients: []
+    property string sharingStatus: ""
+    property bool sharingBusy: false
+    property var sharingClients: []
+    readonly property var ethDev: NM.ethDevices.length > 0 ? NM.ethDevices[0] : null
+    // Hotspot uses the Wi-Fi radio, so Wi-Fi drops while it is on, unless
+    // the internet comes from somewhere else (Ethernet).
+    readonly property bool wifiIsUplink: NM.devices.some(d => d.type === "wifi" && d.state === "connected")
+                                         && !NM.devices.some(d => d.type === "ethernet" && d.state === "connected" && d.connection !== NM.sharingName)
+
+    // Load the saved hotspot settings once the profile is known (keyed on its
+    // id, so the 3s refresh doesn't overwrite what is being typed).
+    readonly property string hotspotUuid: NM.hotspot ? NM.hotspot.uuid : ""
+    onHotspotUuidChanged: if (active) loadHotspotSettings()
+
+    function loadHotspotSettings() {
+        const h = NM.hotspot
+        if (!h) { if (hsSsid.text === "") hsSsid.text = "Hotspot"; return }
+        NM.get(h.uuid, ["802-11-wireless.ssid", "802-11-wireless-security.psk", "802-11-wireless.band"], true, (ok, m) => {
+            hsSsid.text = m["802-11-wireless.ssid"] || "Hotspot"
+            hsPass.text = m["802-11-wireless-security.psk"] || ""
+            page.hotspotBand = m["802-11-wireless.band"] || ""
+        })
+    }
+
+    function startHotspot() {
+        const ssid = hsSsid.text.trim(), pw = hsPass.text
+        if (ssid === "") { hotspotStatus = "Give the hotspot a name"; return }
+        if (pw.length < 8) { hotspotStatus = "The password needs at least 8 characters"; return }
+        hotspotBusy = true; hotspotStatus = "Starting…"
+        NM.startHotspot(ssid, pw, hotspotBand, (ok, msg) => {
+            page.hotspotBusy = false
+            page.hotspotStatus = ok ? "" : msg
+        })
+    }
+
+    function setSharing(on) {
+        if (!ethDev) return
+        sharingBusy = true; sharingStatus = on ? "Turning on…" : "Turning off…"
+        NM.setSharing(on, ethDev.device, (ok, msg) => {
+            page.sharingBusy = false
+            page.sharingStatus = ok ? "" : msg
+        })
+    }
+
+    Timer {
+        interval: 5000; repeat: true; triggeredOnStart: true
+        running: page.active && (NM.hotspotOn || NM.isUp(NM.sharing))
+        onTriggered: {
+            if (NM.hotspotOn) NM.clients(NM.wifiDevice, l => page.hotspotClients = l)
+            if (NM.isUp(NM.sharing) && page.ethDev) NM.clients(page.ethDev.device, l => page.sharingClients = l)
+        }
+    }
+
+    component ClientList: ColumnLayout {
+        property var clients: []
+        Layout.fillWidth: true
+        Layout.leftMargin: 46
+        spacing: 2
+        Repeater {
+            model: parent.clients
+            delegate: Text {
+                required property var modelData
+                text: "󰟀  " + (modelData.name !== "" ? modelData.name + "  ·  " : "") + modelData.ip + "  ·  " + modelData.mac
+                color: Theme.primary; opacity: 0.6; font.pixelSize: 11
+            }
+        }
+    }
+
+    StCard {
+        title: "Sharing"
+
+        // ── Hotspot ──
+        StRow {
+            visible: NM.wifiDevice !== ""
+            icon: "󰀂"
+            title: "Wi-Fi hotspot"
+            subtitle: page.hotspotStatus !== "" ? page.hotspotStatus
+                    : NM.hotspotOn ? "On · " + page.hotspotClients.length + (page.hotspotClients.length === 1 ? " device" : " devices") + " connected"
+                    : page.wifiIsUplink ? "Shares this computer's internet. Wi-Fi disconnects while it is on"
+                    : "Share this computer's internet over Wi-Fi"
+            Rectangle { width: 9; height: 9; radius: 4.5; color: NM.hotspotOn ? page.okColor : page.hotspotBusy ? page.warnColor : page.offColor }
+            StToggle {
+                controlled: true
+                checked: NM.hotspotOn
+                onToggled: (v) => v ? page.startHotspot() : NM.stopHotspot()
+            }
+        }
+        StRow {
+            visible: NM.wifiDevice !== ""
+            icon: "󰖩"
+            title: "Network name"
+            StField { id: hsSsid; placeholder: "Hotspot" }
+        }
+        StRow {
+            visible: NM.wifiDevice !== ""
+            icon: "󰌆"
+            title: "Password"
+            subtitle: "At least 8 characters"
+            StField { id: hsPass; placeholder: "password"; password: true; onAccepted: page.startHotspot() }
+        }
+        StRow {
+            visible: NM.wifiDevice !== ""
+            icon: "󰹯"
+            title: "Band"
+            subtitle: "5 GHz is faster, 2.4 GHz reaches further and suits older devices"
+            StSegmented {
+                implicitWidth: 260
+                model: [{ value: "", label: "Auto" }, { value: "bg", label: "2.4 GHz" }, { value: "a", label: "5 GHz" }]
+                current: page.hotspotBand
+                onSelected: (v) => page.hotspotBand = v
+            }
+            StButton {
+                visible: NM.hotspotOn
+                text: "Apply"; implicitHeight: 30
+                onClicked: page.startHotspot()
+            }
+        }
+        ClientList { visible: NM.hotspotOn; clients: page.hotspotClients }
+
+        // ── Ethernet sharing ──
+        StRow {
+            visible: page.ethDev !== null
+            icon: "󰌘"
+            title: "Share over Ethernet"
+            subtitle: page.sharingStatus !== "" ? page.sharingStatus
+                    : NM.isUp(NM.sharing) ? "Sharing on " + page.ethDev.device + " · " + page.sharingClients.length + (page.sharingClients.length === 1 ? " device" : " devices")
+                    : NM.sharingOn ? "On · plug a device into " + page.ethDev.device + " to share with it"
+                    : "Give a device plugged into the Ethernet port this computer's internet"
+            Rectangle { width: 9; height: 9; radius: 4.5; color: NM.isUp(NM.sharing) ? page.okColor : NM.sharingOn || page.sharingBusy ? page.warnColor : page.offColor }
+            StToggle { controlled: true; checked: NM.sharingOn; onToggled: (v) => page.setSharing(v) }
+        }
+        Text {
+            visible: page.ethDev !== null && NM.sharingOn
+            Layout.fillWidth: true
+            Layout.leftMargin: 46; Layout.rightMargin: 10
+            text: "While on, a cable plugged into this port gets internet from this computer instead of giving it internet."
+            color: Theme.primary; opacity: 0.45; font.pixelSize: 11
+            wrapMode: Text.WordWrap
+        }
+        ClientList { visible: NM.isUp(NM.sharing); clients: page.sharingClients }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  WIRED
+    // ════════════════════════════════════════════════════════════════════════
+    StCard {
+        title: "Wired"
+        visible: NM.ethDevices.length > 0
+        Repeater {
+            model: NM.ethDevices
+            delegate: StRow {
+                id: ethRow
+                required property var modelData
+                readonly property bool connected: modelData.state === "connected"
+                readonly property bool noCable: modelData.state === "unavailable"
+                icon: "󰈀"
+                title: "Ethernet (" + modelData.device + ")"
+                subtitle: connected ? modelData.connection
+                        : noCable ? "Cable not connected"
+                        : modelData.state.indexOf("connecting") === 0 ? "Connecting…" : "Disconnected"
+                Rectangle { width: 9; height: 9; radius: 4.5; color: ethRow.connected ? page.okColor : page.offColor }
+                StIconButton {
+                    visible: ethRow.connected
+                    icon: "󰒓"
+                    onClicked: page.editByName(ethRow.modelData.connection)
+                }
+                StToggle {
+                    controlled: true
+                    checked: ethRow.connected
+                    onToggled: (v) => NM.deviceConnect(ethRow.modelData.device, v)
+                }
+            }
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  CONNECTIONS (advanced)
+    // ════════════════════════════════════════════════════════════════════════
+    StCard {
+        title: "Connections"
+        Text {
+            Layout.fillWidth: true
+            Layout.leftMargin: 10; Layout.bottomMargin: 2
+            text: "Addresses, DNS, auto-connect and privacy settings for each saved connection."
+            color: Theme.primary; opacity: 0.45; font.pixelSize: 11
+            wrapMode: Text.WordWrap
+        }
+        Repeater {
+            model: NM.editable
+            delegate: StRow {
+                required property var modelData
+                icon: page.typeIcon(modelData.type)
+                title: modelData.name
+                subtitle: page.typeLabel(modelData.type) + (NM.isUp(modelData) ? "  ·  Active on " + modelData.device : "")
+                clickable: true
+                onClicked: page.edit(modelData.uuid)
+                Rectangle { visible: NM.isUp(modelData); width: 9; height: 9; radius: 4.5; color: page.okColor }
+                Text { text: page.editUuid === modelData.uuid ? "󰅀" : "󰅂"; color: Theme.primary; opacity: 0.5; font.pixelSize: 16 }
+            }
+        }
+    }
+
+    ConnectionEditor {
+        id: editor
+        visible: page.editUuid !== ""
+        uuid: page.editUuid
+        onCloseRequested: page.editUuid = ""
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  VPN APPS
+    // ════════════════════════════════════════════════════════════════════════
+    property var vpnApps: []
 
     Process {
         id: appDetector
@@ -203,7 +529,7 @@ StPage {
             "  if command -v surfshark >/dev/null 2>&1; then emit 'Surfshark' 'surfshark' '󰦝'; else emit 'Surfshark' 'gtk-launch surfshark' '󰦝'; fi\nfi\n" +
             "if command -v protonvpn-app >/dev/null 2>&1; then emit 'Proton VPN' 'protonvpn-app' '󰦝'\n" +
             "elif command -v protonvpn >/dev/null 2>&1; then emit 'Proton VPN' 'protonvpn' '󰦝'\n" +
-            "elif [ -f /usr/share/applications/com.vysp3r.ProtonPlus.desktop ]; then emit 'ProtonPlus' 'gtk-launch com.vysp3r.ProtonPlus' '󰦝'\nfi\n" +
+            "elif flatpak info com.protonvpn.www >/dev/null 2>&1; then emit 'Proton VPN' 'flatpak run com.protonvpn.www' '󰦝'\nfi\n" +
             "if command -v mullvad-vpn >/dev/null 2>&1; then emit 'Mullvad' 'mullvad-vpn' '󰦝'\n" +
             "elif command -v mullvad >/dev/null 2>&1; then emit 'Mullvad' 'mullvad' '󰦝'\nfi\n" +
             "command -v nordvpn >/dev/null 2>&1 && emit 'NordVPN' 'nordvpn' '󰦝' || true\n" +
@@ -227,178 +553,6 @@ StPage {
         }
     }
 
-    Timer { interval: 4000; repeat: true; running: page.active; onTriggered: ethReader.running = true }
-
-    // Reusable themed text input. Exposes `text` directly.
-    component Field: Rectangle {
-        id: fieldRoot
-        property alias text: inp.text
-        property string placeholder: ""
-        property bool password: false
-        implicitHeight: 34
-        Layout.fillWidth: true
-        Layout.preferredWidth: 220
-        radius: 9
-        color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.08)
-        border.color: inp.activeFocus ? Theme.primary : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.2)
-        border.width: 1
-        TextField {
-            id: inp
-            anchors.fill: parent
-            anchors.leftMargin: 10
-            anchors.rightMargin: 10
-            placeholderText: fieldRoot.placeholder
-            placeholderTextColor: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.4)
-            color: Theme.primary
-            font.pixelSize: 13
-            echoMode: fieldRoot.password ? TextInput.Password : TextInput.Normal
-            verticalAlignment: TextInput.AlignVCenter
-            background: null
-        }
-    }
-
-    // ════════════════════════════════════════════════════════════════════
-    //  UI
-    // ════════════════════════════════════════════════════════════════════
-    StCard {
-        title: "Wired"
-        StRow {
-            icon: "󰈀"
-            title: "Ethernet"
-            subtitle: page.ethUp ? (page.ethName !== "" ? page.ethName : "Wired connection active") : "Cable not connected"
-            Rectangle { width: 9; height: 9; radius: 4.5; color: page.ethUp ? "#a6e3a1" : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.3) }
-            Text { text: page.ethUp ? "Connected" : "Off"; color: Theme.primary; opacity: 0.6; font.pixelSize: 11 }
-        }
-    }
-
-    // ── Current VPN status ──
-    StCard {
-        title: "VPN status"
-        StRow {
-            icon: "󰦝"
-            title: page.connected ? "Connected" : page.connecting ? "Connecting…" : "Not connected"
-            subtitle: page.ovpnStatus
-            Rectangle {
-                width: 9; height: 9; radius: 4.5
-                color: page.connected ? "#a6e3a1" : page.connecting ? "#e5c07b" : page.ovpnState === "error" ? "#e06c75" : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.3)
-            }
-            StButton {
-                visible: page.connected || page.connecting
-                text: page.connected ? "Disconnect" : "Cancel"
-                dangerous: true
-                implicitHeight: 32
-                onClicked: page.disconnectVpn()
-            }
-        }
-    }
-
-    // ── Saved connections ──
-    StCard {
-        title: "OpenVPN connections"
-
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 46
-            color: "transparent"
-            visible: page.configs.length === 0
-            Text { anchors.centerIn: parent; text: "No configurations yet — add one below"; color: Theme.primary; opacity: 0.4; font.pixelSize: 12 }
-        }
-
-        Repeater {
-            model: page.configs
-            delegate: StRow {
-                id: vpnRow
-                required property var modelData
-                readonly property bool isActive: page.connectedId === modelData.id
-                readonly property bool busy: vpnRow.isActive && (page.connected || page.connecting)
-                icon: "󰦝"
-                title: modelData.name
-                subtitle: (vpnRow.isActive && page.connected) ? "Connected" : (vpnRow.isActive && page.connecting) ? "Connecting…" : modelData.path
-
-                Rectangle { visible: vpnRow.isActive && page.connected; width: 9; height: 9; radius: 4.5; color: "#a6e3a1" }
-
-                StButton {
-                    text: vpnRow.busy ? "Disconnect" : "Connect"
-                    accent: !vpnRow.busy
-                    dangerous: vpnRow.busy
-                    enabled: vpnRow.busy || (!page.connected && !page.connecting)
-                    implicitHeight: 30
-                    onClicked: vpnRow.busy ? page.disconnectVpn() : page.connectConfig(vpnRow.modelData)
-                }
-                StIconButton {
-                    icon: "󰏫"
-                    onClicked: page.openEditor(vpnRow.modelData)
-                }
-                StIconButton {
-                    icon: "󰆴"
-                    onClicked: page.deleteEntry(vpnRow.modelData.id)
-                }
-            }
-        }
-
-        StButton {
-            Layout.fillWidth: true
-            implicitHeight: 40
-            text: "Add configuration"
-            icon: "󰐕"
-            accent: true
-            visible: page.editingId === ""
-            onClicked: page.openEditor(null)
-        }
-    }
-
-    // ── Add / edit editor ──
-    StCard {
-        title: page.editingId === "new" ? "New connection" : "Edit connection"
-        visible: page.editingId !== ""
-
-        StRow {
-            icon: "󰦝"
-            title: "Name"
-            Field { id: editName; placeholder: "My VPN" }
-        }
-        StRow {
-            icon: "󰈤"
-            title: "Config file"
-            subtitle: ".ovpn or .conf"
-            Field { id: editPath; placeholder: "/path/to/config.ovpn" }
-            StIconButton { icon: "󰉋"; visible: page.hasZenity; onClicked: configPicker.running = true }
-        }
-        StRow {
-            icon: "󰀄"
-            title: "Username"
-            subtitle: "Leave empty for certificate-only configs"
-            Field { id: editUser; placeholder: "username (optional)" }
-        }
-        StRow {
-            icon: "󰌆"
-            title: "Password"
-            subtitle: "Stored locally (file is created only while connecting)"
-            Field { id: editPass; placeholder: "password (optional)"; password: true }
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.margins: 6
-            spacing: 8
-            StButton { text: "Save"; icon: "󰆓"; accent: true; onClicked: page.saveEntry() }
-            StButton { text: "Cancel"; onClicked: page.editingId = "" }
-            StButton {
-                text: "Open file"
-                visible: editPath.text.trim() !== ""
-                onClicked: Quickshell.execDetached(["bash", "-c", "xdg-open " + page.shq(editPath.text.trim())])
-            }
-            Item { Layout.fillWidth: true }
-            StButton {
-                text: "Delete"
-                dangerous: true
-                visible: page.editingId !== "new"
-                onClicked: page.deleteEntry(page.editingId)
-            }
-        }
-    }
-
-    // ── Installed VPN apps ──
     StCard {
         title: "VPN apps"
         visible: page.vpnApps.length > 0

@@ -27,6 +27,7 @@ Item {
     readonly property int frameSide: 10
     readonly property int frameBottom: 10
     readonly property int frameCorner: 20
+    readonly property string screenName: screen ? screen.name : ""
 
     // Reserves the bar's space for windows. The frame window itself covers the
     // screen and ignores exclusive zones; the bar's old window reserved 30px
@@ -60,6 +61,13 @@ Item {
             Region { x: 0; y: root.frameBar; width: root.frameSide; height: frameWindow.fh - root.frameBar }
             Region { x: frameWindow.fw - root.frameSide; y: root.frameBar; width: root.frameSide; height: frameWindow.fh - root.frameBar }
             Region { x: 0; y: frameWindow.fh - root.frameBottom; width: frameWindow.fw; height: root.frameBottom }
+            // The bar's hover drawer while it is open (it is drawn in this window)
+            Region {
+                x: bar.hoverDrawerItem ? bar.hoverDrawerItem.maskX : 0
+                y: bar.hoverDrawerItem ? bar.hoverDrawerItem.maskY : 0
+                width: bar.hoverDrawerItem ? bar.hoverDrawerItem.maskW : 0
+                height: bar.hoverDrawerItem ? bar.hoverDrawerItem.maskH : 0
+            }
         }
 
         // ── Paths ───────────────────────────────────────────────────────────
@@ -71,10 +79,11 @@ Item {
             const W = frameWindow.fw, H = frameWindow.fh, C = root.frameCorner
             if (W <= 0 || H <= 0) return "M 0 0"
             const x0 = root.frameSide, y0 = root.frameBar, x1 = W - root.frameSide, y1 = H - root.frameBottom
-            const tl = FrameCorners.topLeft > 0 ? 0 : C
-            const tr = FrameCorners.topRight > 0 ? 0 : C
-            const bl = FrameCorners.bottomLeft > 0 ? 0 : C
-            const br = FrameCorners.bottomRight > 0 ? 0 : C
+            const s = root.screenName
+            const tl = FrameCorners.taken(s, "topLeft") ? 0 : C
+            const tr = FrameCorners.taken(s, "topRight") ? 0 : C
+            const bl = FrameCorners.taken(s, "bottomLeft") ? 0 : C
+            const br = FrameCorners.taken(s, "bottomRight") ? 0 : C
             const A = (r, x, y) => " A " + f(r) + " " + f(r) + " 0 0 0 " + f(x) + " " + f(y)
             // Outer edge clockwise, hole counter-clockwise
             return "M 0 0 L " + f(W) + " 0 L " + f(W) + " " + f(H) + " L 0 " + f(H) + " Z"
@@ -84,12 +93,13 @@ Item {
                 + " L " + f(x1) + " " + f(y0 + tr) + A(tr, x1 - tr, y0) + " Z"
         }
 
-        // Frame + every open drawer, for the shared shadow
+        // Frame + every open drawer on this screen, for the shared shadow
         function materialPath() {
             let p = framePath()
             const ds = FrameState.drawers
             for (let i = 0; i < ds.length; i++) {
-                const m = ds[i] ? ds[i].materialPath() : ""
+                if (!ds[i] || ds[i].screenName !== root.screenName) continue
+                const m = ds[i].materialPath()
                 if (m) p += " " + m
             }
             return p

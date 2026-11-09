@@ -23,8 +23,11 @@ Item {
     // ── INSTANT OSD HANDLER ──
     function triggerOSD(type, delta) {
         Sys.activeOSD = type
-        osdPopup.active = true
-        osdTimer.restart()
+        // The hover drawer under the rings already shows the value
+        if (!hoverDrawer.open) {
+            osdPopup.active = true
+            osdTimer.restart()
+        }
 
         if (delta !== 0) {
             if (type === "vol") {
@@ -80,7 +83,11 @@ Item {
                 elide: Text.ElideRight; width: Math.min(implicitWidth, 350)
             }
         }
-        MouseArea { id: centerMouse; anchors.fill: parent; hoverEnabled: true; onClicked: mediaPopup.active = !mediaPopup.active }
+        MouseArea {
+            id: centerMouse; anchors.fill: parent; hoverEnabled: true
+            onClicked: mediaPopup.active = !mediaPopup.active
+            onContainsMouseChanged: hoverDrawer.hoverItem("media", centerPill, containsMouse)
+        }
     }
 
     RowLayout {
@@ -91,21 +98,23 @@ Item {
         Row {
             Layout.alignment: Qt.AlignLeft; spacing: 8
 
-            // Logo
-            Text {
+            // Logo: a pill-sized box (same height as the bar pills) with the
+            // glyph centred, so the active highlight is a proper pill that
+            // keeps the usual gap to the workspaces pill.
+            Item { width: 6; height: 1 }   // left padding (was leading spaces)
+            Item {
                 id: logoIcon
-                text: "   󰣇"; color: Theme.primary; font.pixelSize: 24; anchors.verticalCenter: parent.verticalCenter
-                // Only behind the glyph (the text starts with padding spaces)
-                BarActiveBg {
-                    active: dashPopup.active
-                    anchors.centerIn: undefined
-                    anchors.right: parent.right; anchors.rightMargin: -7
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: 38; height: 32
-                }
-                opacity: 1; scale: logoMouse.pressed ? 0.85 : (logoMouse.containsMouse ? 1.15 : 1.0)
-                Behavior on opacity { NumberAnimation { duration: 150 } }
+                width: 44; height: 30
+                anchors.verticalCenter: parent.verticalCenter
+                scale: logoMouse.pressed ? 0.9 : (logoMouse.containsMouse ? 1.08 : 1.0)
                 Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+
+                BarActiveBg { active: dashPopup.active; padX: 0; padY: 0 }
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "󰣇"; color: Theme.primary; font.pixelSize: 24
+                }
                 MouseArea { id: logoMouse; anchors.fill: parent; hoverEnabled: true; acceptedButtons: Qt.LeftButton | Qt.RightButton; onClicked: dashPopup.active = !dashPopup.active }
             }
 
@@ -301,6 +310,8 @@ Item {
 
                 // Mic
                 RingControl {
+                    id: micRing
+                    onHoveredChanged: hoverDrawer.hoverItem("mic", micRing, hovered, 14)
                     property color _primary: Theme.primary
                     property color _error: Theme.error
                     ringColor: Sys.isMicMuted ? _error : _primary
@@ -316,6 +327,8 @@ Item {
 
                 // Brightness
                 RingControl {
+                    id: briRing
+                    onHoveredChanged: hoverDrawer.hoverItem("bri", briRing, hovered, 14)
                     property color _primary: Theme.primary
                     ringColor: _primary
                     value: Sys.briValue
@@ -327,6 +340,8 @@ Item {
 
                 // Volume
                 RingControl {
+                    id: volRing
+                    onHoveredChanged: hoverDrawer.hoverItem("vol", volRing, hovered, 14)
                     property color _primary: Theme.primary
                     property color _error: Theme.error
                     ringColor: Sys.isMuted ? _error : _primary
@@ -525,13 +540,15 @@ Item {
                 RowLayout {
                     id: sysRow; anchors.centerIn: parent; spacing: 10
                     Row {
+                        id: sysNetItem
                         spacing: 4; Layout.alignment: Qt.AlignVCenter; visible: Sys.connType !== "none"
                         Text { text: Sys.connType === "ethernet" ? "󰈀" : "󰤨"; color: Theme.primary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
                         Text { text: Sys.wifi; color: Theme.secondary; font.pixelSize: 13; font.weight: Font.Bold; visible: Sys.connType === "wifi" && Sys.wifi !== ""; verticalAlignment: Text.AlignVCenter }
                     }
-                    Text { text: "󰂯"; color: Theme.secondary; font.pixelSize: 14; visible: Sys.bluetooth; Layout.alignment: Qt.AlignVCenter; verticalAlignment: Text.AlignVCenter }
+                    Text { id: sysBtItem; text: "󰂯"; color: Theme.secondary; font.pixelSize: 14; visible: Sys.bluetooth; Layout.alignment: Qt.AlignVCenter; verticalAlignment: Text.AlignVCenter }
 
                     Row {
+                        id: sysBatItem
                         spacing: 4; visible: Sys.hasBattery; Layout.alignment: Qt.AlignVCenter
 
                         property color _primary: Theme.primary
@@ -543,16 +560,43 @@ Item {
                         Text { text: Sys.bat; color: parent.activeColor; font.pixelSize: 13; font.weight: Font.Bold; verticalAlignment: Text.AlignVCenter }
                     }
                 }
-                MouseArea { id: sysMouse; anchors.fill: parent; hoverEnabled: true; onClicked: systemPopup.active = !systemPopup.active }
+                // One click area for the whole pill (keeps its hover/press look);
+                // which item was clicked picks the popup's tab: Wi-Fi / Ethernet
+                // → Network, Bluetooth → Bluetooth, battery → System. Clicking
+                // the tab that is already open closes it; the padding toggles.
+                MouseArea {
+                    id: sysMouse; anchors.fill: parent; hoverEnabled: true
+                    function hit(item, x) {
+                        if (!item.visible) return false
+                        const p = sysMouse.mapToItem(item, x, 0)
+                        return p.x >= -5 && p.x <= item.width + 5   // half the row spacing either side
+                    }
+                    function openTab(tab) {
+                        if (systemPopup.active && systemPopup.currentTab === tab) systemPopup.active = false
+                        else { systemPopup.currentTab = tab; systemPopup.active = true }
+                    }
+                    onClicked: (mouse) => {
+                        if (hit(sysNetItem, mouse.x)) openTab("Network")
+                        else if (hit(sysBtItem, mouse.x)) openTab("Bluetooth")
+                        else if (hit(sysBatItem, mouse.x)) openTab("Performance")
+                        else systemPopup.active = !systemPopup.active
+                    }
+                }
             }
 
             // POWER
             Text {
+                id: powerIcon
                 text: "󰐥    "; color: Theme.primary; font.pixelSize: 18; anchors.verticalCenter: parent.verticalCenter; verticalAlignment: Text.AlignVCenter
                 opacity: 1; scale: powerMouse.pressed ? 0.85 : (powerMouse.containsMouse ? 1.15 : 1.0)
                 Behavior on opacity { NumberAnimation { duration: 150 } }
                 Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
-                MouseArea { id: powerMouse; anchors.fill: parent; hoverEnabled: true; onClicked: powerPopup.active = !powerPopup.active }
+                MouseArea {
+                    id: powerMouse; anchors.fill: parent; hoverEnabled: true
+                    onClicked: powerPopup.active = !powerPopup.active
+                    // centre of the glyph (the text ends with padding spaces)
+                    onContainsMouseChanged: hoverDrawer.hoverItem("power", powerIcon, containsMouse, 9)
+                }
             }
         }
     }
@@ -569,8 +613,13 @@ Item {
     DashboardPopup { id: dashPopup; host: popoutHost; anchorItem: logoIcon }
     KbLayoutPopup { id: keyboardPopup; host: popoutHost; anchorItem: kbContainer }
     NotificationsPopup { id: notifPopup; host: popoutHost; anchorItem: notifContainer }
+    // Quick-controls drawer under the rings, power icon and media pill (on hover)
+    // It is drawn in the frame window (the bar's parent), above the bar.
+    HoverDrawer { id: hoverDrawer; parent: bar.parent; z: 10; suppressed: popoutHost.open || powerPopup.active || notifToasts.shown }
+    readonly property Item hoverDrawerItem: hoverDrawer
     // Notification toasts (the daemon itself is the Notifs singleton)
-    NotificationToasts { screen: bar.screen }
+    // Toasts use the same top-right corner as the popouts: they wait while one is open.
+    NotificationToasts { id: notifToasts; screen: bar.screen; suppressed: popoutHost.open }
     PowerPopup { id: powerPopup }
 
     // ══════════════════════════════════════════════════════════════════════════
