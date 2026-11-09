@@ -527,13 +527,15 @@ Item {
                 RowLayout {
                     id: sysRow; anchors.centerIn: parent; spacing: 10
                     Row {
+                        id: sysNetItem
                         spacing: 4; Layout.alignment: Qt.AlignVCenter; visible: Sys.connType !== "none"
                         Text { text: Sys.connType === "ethernet" ? "󰈀" : "󰤨"; color: Theme.primary; font.pixelSize: 12; verticalAlignment: Text.AlignVCenter }
                         Text { text: Sys.wifi; color: Theme.secondary; font.pixelSize: 13; font.weight: Font.Bold; visible: Sys.connType === "wifi" && Sys.wifi !== ""; verticalAlignment: Text.AlignVCenter }
                     }
-                    Text { text: "󰂯"; color: Theme.secondary; font.pixelSize: 14; visible: Sys.bluetooth; Layout.alignment: Qt.AlignVCenter; verticalAlignment: Text.AlignVCenter }
+                    Text { id: sysBtItem; text: "󰂯"; color: Theme.secondary; font.pixelSize: 14; visible: Sys.bluetooth; Layout.alignment: Qt.AlignVCenter; verticalAlignment: Text.AlignVCenter }
 
                     Row {
+                        id: sysBatItem
                         spacing: 4; visible: Sys.hasBattery; Layout.alignment: Qt.AlignVCenter
 
                         property color _primary: Theme.primary
@@ -545,7 +547,28 @@ Item {
                         Text { text: Sys.bat; color: parent.activeColor; font.pixelSize: 13; font.weight: Font.Bold; verticalAlignment: Text.AlignVCenter }
                     }
                 }
-                MouseArea { id: sysMouse; anchors.fill: parent; hoverEnabled: true; onClicked: systemPopup.active = !systemPopup.active }
+                // One click area for the whole pill (keeps its hover/press look);
+                // which item was clicked picks the popup's tab: Wi-Fi / Ethernet
+                // → Network, Bluetooth → Bluetooth, battery → System. Clicking
+                // the tab that is already open closes it; the padding toggles.
+                MouseArea {
+                    id: sysMouse; anchors.fill: parent; hoverEnabled: true
+                    function hit(item, x) {
+                        if (!item.visible) return false
+                        const p = sysMouse.mapToItem(item, x, 0)
+                        return p.x >= -5 && p.x <= item.width + 5   // half the row spacing either side
+                    }
+                    function openTab(tab) {
+                        if (systemPopup.active && systemPopup.currentTab === tab) systemPopup.active = false
+                        else { systemPopup.currentTab = tab; systemPopup.active = true }
+                    }
+                    onClicked: (mouse) => {
+                        if (hit(sysNetItem, mouse.x)) openTab("Network")
+                        else if (hit(sysBtItem, mouse.x)) openTab("Bluetooth")
+                        else if (hit(sysBatItem, mouse.x)) openTab("Performance")
+                        else systemPopup.active = !systemPopup.active
+                    }
+                }
             }
 
             // POWER
