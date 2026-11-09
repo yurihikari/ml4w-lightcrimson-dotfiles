@@ -615,10 +615,11 @@ Item {
     NotificationsPopup { id: notifPopup; host: popoutHost; anchorItem: notifContainer }
     // Quick-controls drawer under the rings, power icon and media pill (on hover)
     // It is drawn in the frame window (the bar's parent), above the bar.
-    HoverDrawer { id: hoverDrawer; parent: bar.parent; z: 10; suppressed: popoutHost.open || powerPopup.active }
+    HoverDrawer { id: hoverDrawer; parent: bar.parent; z: 10; suppressed: popoutHost.open || powerPopup.active || notifToasts.shown }
     readonly property Item hoverDrawerItem: hoverDrawer
     // Notification toasts (the daemon itself is the Notifs singleton)
-    NotificationToasts { screen: bar.screen }
+    // Toasts use the same top-right corner as the popouts: they wait while one is open.
+    NotificationToasts { id: notifToasts; screen: bar.screen; suppressed: popoutHost.open }
     PowerPopup { id: powerPopup }
 
     // ══════════════════════════════════════════════════════════════════════════

@@ -15,7 +15,7 @@ import qs.BarApp.services
 Rectangle {
     id: card
     property var notif: null
-    property bool toast: false          // toasts draw their own background
+    property bool toast: false          // a toast: shows a little more of the body
     property bool selected: false       // keyboard selection in the center
     property bool expanded: false
     readonly property bool hovered: hover.hovered
@@ -32,8 +32,7 @@ Rectangle {
     readonly property int pad: 14
 
     radius: PanelStyle.radiusCard
-    color: toast ? "transparent"
-         : (selected || hovered ? PanelStyle.cardHover : PanelStyle.cardFill)
+    color: selected || hovered ? PanelStyle.cardHover : PanelStyle.cardFill
     Behavior on color { ColorAnimation { duration: 150 } }
 
     HoverHandler { id: hover }
@@ -51,7 +50,7 @@ Rectangle {
     // Critical: a strip in the error color along the leading edge
     Rectangle {
         visible: card.critical
-        anchors.left: parent.left; anchors.leftMargin: card.toast ? 2 : 0
+        anchors.left: parent.left
         anchors.verticalCenter: parent.verticalCenter
         width: 4; height: parent.height - 2 * card.pad
         radius: 2
