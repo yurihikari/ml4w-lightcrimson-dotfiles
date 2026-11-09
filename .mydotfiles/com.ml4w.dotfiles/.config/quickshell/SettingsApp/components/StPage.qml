@@ -13,7 +13,15 @@ Item {
 
     default property alias body: contentCol.data
 
+    // Scrolls so `item` (anything inside the page) is near the top.
+    function scrollTo(item) {
+        if (!item) return
+        const y = item.mapToItem(column, 0, 0).y - 12
+        flick.contentY = Math.max(0, Math.min(y, flick.contentHeight - flick.height))
+    }
+
     Flickable {
+        id: flick
         anchors.fill: parent
         anchors.rightMargin: 6
         clip: true

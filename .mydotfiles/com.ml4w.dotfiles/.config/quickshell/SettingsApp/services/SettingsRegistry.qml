@@ -10,7 +10,7 @@ QtObject {
     // Order matches the layout the user asked for.
     readonly property var pages: [
         { id: "wifi",       title: "Wi-Fi",       icon: "󰤨", keywords: "wifi wireless network ssid signal hotspot" },
-        { id: "network",    title: "Network",     icon: "󰦝", keywords: "network vpn openvpn surfshark wireguard ethernet proxy connection dns" },
+        { id: "network",    title: "Network",     icon: "󰦝", keywords: "network vpn openvpn surfshark wireguard ethernet proxy connection dns hotspot tethering sharing ip address static dhcp gateway mac" },
         { id: "firewall",   title: "Firewall",    icon: "󰕥", keywords: "firewall ufw rules ports allow deny block security incoming" },
         { id: "bluetooth",  title: "Bluetooth",   icon: "󰂯", keywords: "bluetooth pair device headphones audio" },
         { id: "displays",   title: "Displays",    icon: "󰍹", keywords: "display monitor screen resolution refresh scale rotation arrangement" },
@@ -27,10 +27,12 @@ QtObject {
     readonly property var searchIndex: [
         { page: "wifi",       title: "Wi-Fi",                 keywords: "enable disable toggle wireless radio" },
         { page: "wifi",       title: "Available networks",    keywords: "scan connect ssid join password" },
-        { page: "network",    title: "VPN",                   keywords: "vpn openvpn wireguard connect tunnel" },
+        { page: "network",    title: "VPN",                   keywords: "vpn openvpn wireguard connect tunnel import ovpn conf password" },
         { page: "network",    title: "Surfshark / VPN apps",  keywords: "surfshark proton mullvad nord launch app" },
+        { page: "network",    title: "Wi-Fi hotspot",         keywords: "hotspot tethering share access point ap" },
+        { page: "network",    title: "Share over Ethernet",   keywords: "share sharing ethernet cable tethering bridge internet" },
         { page: "network",    title: "Wired / Ethernet",      keywords: "ethernet wired lan cable" },
-        { page: "network",    title: "OpenVPN connections",   keywords: "openvpn config connect edit add cli tunnel" },
+        { page: "network",    title: "Connection settings",   keywords: "advanced ip address static manual dhcp gateway dns ipv6 metered autoconnect mac random nmtui" },
         { page: "firewall",   title: "Firewall",              keywords: "ufw enable disable status security toggle" },
         { page: "firewall",   title: "Firewall rules",        keywords: "add delete allow deny port rule incoming" },
         { page: "bluetooth",  title: "Bluetooth power",       keywords: "enable disable toggle radio" },

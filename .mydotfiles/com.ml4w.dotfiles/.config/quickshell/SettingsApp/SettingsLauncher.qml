@@ -30,7 +30,11 @@ Scope {
         function toggle(): void { loader.active = !loader.active }
         function open(): void { loader.active = true }
         function close(): void { loader.active = false }
-        function show(page: string): void {
+        function show(page: string): void { openPage(page) }
+        // Same as show(); usable from the command line, where `qs ipc call
+        // settings show …` is taken for Quickshell's own `ipc show`:
+        //   qs ipc call settings openPage network
+        function openPage(page: string): void {
             launcher.requestedPage = page
             if (loader.active && loader.item) loader.item.goTo(page)
             else loader.active = true

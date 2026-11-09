@@ -15,6 +15,9 @@ StPage {
     // The window sets this true when the page is visible, so we only scan
     // while the user is actually looking at it.
     property bool active: false
+    // Open the connection editor (Network page) for a saved network; "" =
+    // the network currently connected.
+    signal requestEditor(string name)
 
     property bool radioOn: true
     property var networks: []
@@ -198,6 +201,11 @@ StPage {
                             }
                         }
                         StIconButton {
+                            icon: "󰒓"
+                            visible: modelData.saved
+                            onClicked: page.requestEditor(modelData.ssid)
+                        }
+                        StIconButton {
                             icon: "󰆴"
                             visible: modelData.saved
                             onClicked: { forgetter.command = ["bash", "-c", "nmcli connection delete \"" + modelData.ssid + "\" 2>/dev/null || true"]; forgetter.running = true }
@@ -258,10 +266,10 @@ StPage {
     StCard {
         StRow {
             icon: "󰖟"
-            title: "Advanced network settings"
-            subtitle: "Open the full connection editor (nmtui)"
+            title: "Connection settings"
+            subtitle: "IP address, DNS, auto-connect and MAC privacy of the current network"
             clickable: true
-            onClicked: Quickshell.execDetached(["kitty", "--class", "dotfiles-floating", "-e", "nmtui"])
+            onClicked: page.requestEditor("")
             Text { text: "󰁔"; color: Theme.primary; opacity: 0.5; font.pixelSize: 16 }
         }
     }

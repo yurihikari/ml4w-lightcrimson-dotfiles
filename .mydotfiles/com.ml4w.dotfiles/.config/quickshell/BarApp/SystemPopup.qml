@@ -601,7 +601,7 @@ BarPopup {
                     Layout.preferredHeight: 36
                     icon: "󰖟"
                     text: "Advanced Network Settings"
-                    onClicked: { Sys.run(["kitty","--class","floating","nmtui"]); popup.active=false }
+                    onClicked: { Sys.run(["qs", "ipc", "call", "settings", "openPage", "network"]); popup.active=false }
                 }
             }
 
