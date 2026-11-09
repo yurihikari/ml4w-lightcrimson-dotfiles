@@ -22,11 +22,15 @@ Item {
     property var modelData
     onModelDataChanged: screen = modelData
 
-    // Frame geometry (FrameDrawer's insets match these)
-    readonly property int frameBar: 40
-    readonly property int frameSide: 10
-    readonly property int frameBottom: 10
-    readonly property int frameCorner: 20
+    // Frame geometry (FrameDrawer's insets match these), snapped to whole
+    // device pixels like FrameDrawer's, so at fractional scales the frame and
+    // a drawer meet on a pixel edge instead of both half-covering one column.
+    readonly property real dpr: frameWindow.devicePixelRatio > 0 ? frameWindow.devicePixelRatio : 1
+    function snap(v) { return Math.round(v * dpr) / dpr }
+    readonly property real frameBar: snap(40)
+    readonly property real frameSide: snap(10)
+    readonly property real frameBottom: snap(10)
+    readonly property real frameCorner: snap(20)
     readonly property string screenName: screen ? screen.name : ""
 
     // Reserves the bar's space for windows. The frame window itself covers the
@@ -61,13 +65,6 @@ Item {
             Region { x: 0; y: root.frameBar; width: root.frameSide; height: frameWindow.fh - root.frameBar }
             Region { x: frameWindow.fw - root.frameSide; y: root.frameBar; width: root.frameSide; height: frameWindow.fh - root.frameBar }
             Region { x: 0; y: frameWindow.fh - root.frameBottom; width: frameWindow.fw; height: root.frameBottom }
-            // The bar's hover drawer while it is open (it is drawn in this window)
-            Region {
-                x: bar.hoverDrawerItem ? bar.hoverDrawerItem.maskX : 0
-                y: bar.hoverDrawerItem ? bar.hoverDrawerItem.maskY : 0
-                width: bar.hoverDrawerItem ? bar.hoverDrawerItem.maskW : 0
-                height: bar.hoverDrawerItem ? bar.hoverDrawerItem.maskH : 0
-            }
         }
 
         // ── Paths ───────────────────────────────────────────────────────────

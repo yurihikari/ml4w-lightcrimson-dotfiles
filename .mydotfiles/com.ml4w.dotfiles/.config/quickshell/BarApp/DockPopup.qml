@@ -24,6 +24,9 @@ PanelWindow {
     // a click anywhere outside the dock closes it (like the bar popups).
     anchors { top: true; bottom: true; left: true; right: true }
     WlrLayershell.layer: WlrLayer.Overlay
+    // Slides out of the frame on its own: Hyprland's layer animation is off
+    // for this namespace (hypr/conf/custom/style.lua), or it slid in twice.
+    WlrLayershell.namespace: "quickshell-drawer"
     exclusionMode: WlrLayershell.Ignore
     WlrLayershell.keyboardFocus: active ? WlrLayershell.OnDemand : WlrLayershell.None
     color: "transparent"

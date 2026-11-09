@@ -1,4 +1,5 @@
 import Quickshell
+import Quickshell.Wayland
 import Quickshell.Services.Mpris
 import QtQuick
 import QtQuick.Layouts
@@ -17,15 +18,30 @@ import qs.BarApp.components
 //
 // The bar reports hovers with hoverItem(kind, item, hovered, centreX).
 //
-// It lives in the screen frame's own window (an Item filling it), not in a
-// window of its own: the bar and the drawer then share one surface, so moving
-// from an item down into the drawer never crosses surfaces. (As a separate
-// overlay window, the compositor moved pointer focus off the bar whenever the
-// drawer appeared, and the bar stopped seeing hovers.) ScreenFrame adds the
-// drawer's area (maskX/Y/W/H) to the frame's input region while it is open.
-Item {
+// It has a window of its own, like the toasts and popups: Hyprland only
+// blurs (xray) the drawer as frame material when it is its own layer surface.
+// Drawn inside the frame's window, the windows behind showed through it, so it
+// read as a pale cut-out rather than part of the frame. The window sits on the
+// frame's layer and takes input only on the drawer body below the bar, never
+// on the bar itself: the pointer stays on the bar when it maps (a window that
+// covered the bar took pointer focus from it, and the bar stopped seeing
+// hovers).
+PanelWindow {
     id: win
-    anchors.fill: parent
+    anchors { top: true; bottom: true; left: true; right: true }
+    color: "transparent"
+    exclusionMode: ExclusionMode.Ignore
+    WlrLayershell.layer: WlrLayer.Top
+    // Slides out of the frame on its own: Hyprland's layer animation is off
+    // for this namespace (hypr/conf/custom/style.lua), or it slid in twice.
+    WlrLayershell.namespace: "quickshell-drawer"
+    WlrLayershell.keyboardFocus: WlrLayershell.None
+
+    // Mapped while open and until it has slid back into the frame.
+    property bool animating: false
+    visible: open || animating
+
+    mask: Region { x: win.maskX; y: win.maskY; width: win.maskW; height: win.maskH }
 
     // Don't open while a full popup is out (they would overlap).
     property bool suppressed: false
@@ -56,9 +72,12 @@ Item {
         && ((hoveredKind !== "" && available(hoveredKind)) || panelHovered || busy)
 
     property bool open: false
-    onOpenChanged: if (!open) armed = ""
+    onOpenChanged: {
+        if (open) animating = true
+        else armed = ""
+    }
 
-    // Input area while open (frame window coordinates; zero while closed)
+    // Input area while open (zero while closed)
     readonly property real maskX: open ? panelX : 0
     readonly property real maskY: open ? drawer.insetTop : 0
     readonly property real maskW: open ? curW : 0
@@ -159,19 +178,20 @@ Item {
     }
 
     // Glide to the hovered item while open; jump there while closed.
-    property real panelX: Math.round(Math.max(10, Math.min(width - 10 - curW, anchorX - curW / 2)))
+    // (Clamped after snapping, so at either end it sits flush with the frame.)
+    property real panelX: Math.max(drawer.insetSide, Math.min(width - drawer.insetSide - curW, drawer.snap(anchorX - curW / 2)))
     Behavior on panelX {
         enabled: win.open && drawer.progress > 0
         NumberAnimation { duration: 300; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.05, 0.7, 0.1, 1.0, 1, 1] }
     }
 
-    // Hover over the drawer (and the strip of bar just above it, so moving
-    // from an item down into it doesn't count as leaving).
+    // Hover over the drawer. (Moving down from an item into it, the close
+    // delay covers the step from the bar's surface onto this one.)
     Item {
         id: hitArea
         visible: win.open
-        x: win.panelX; y: drawer.insetTop - 10
-        width: win.curW; height: win.panelH + 10
+        x: win.panelX; y: drawer.insetTop
+        width: win.curW; height: win.panelH
         HoverHandler { id: panelHover }
     }
 
@@ -210,6 +230,7 @@ Item {
     FrameDrawer {
         id: drawer
         open: win.open
+        onClosed: win.animating = false
         hAlign: "free"
         freeX: win.panelX
         panelWidth: win.curW

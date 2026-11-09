@@ -24,6 +24,9 @@ PanelWindow {
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
     WlrLayershell.layer: WlrLayer.Overlay
+    // Slides out of the frame on its own: Hyprland's layer animation is off
+    // for this namespace (hypr/conf/custom/style.lua), or it slid in twice.
+    WlrLayershell.namespace: "quickshell-drawer"
     // Focus only when clicked (an inline reply field), never grabbed.
     WlrLayershell.keyboardFocus: WlrLayershell.OnDemand
 

@@ -615,8 +615,7 @@ Item {
     NotificationsPopup { id: notifPopup; host: popoutHost; anchorItem: notifContainer }
     // Quick-controls drawer under the rings, power icon and media pill (on hover)
     // It is drawn in the frame window (the bar's parent), above the bar.
-    HoverDrawer { id: hoverDrawer; parent: bar.parent; z: 10; suppressed: popoutHost.open || powerPopup.active || notifToasts.shown }
-    readonly property Item hoverDrawerItem: hoverDrawer
+    HoverDrawer { id: hoverDrawer; screen: bar.screen; suppressed: popoutHost.open || powerPopup.active || notifToasts.shown }
     // Notification toasts (the daemon itself is the Notifs singleton)
     // Toasts use the same top-right corner as the popouts: they wait while one is open.
     NotificationToasts { id: notifToasts; screen: bar.screen; suppressed: popoutHost.open }
@@ -738,6 +737,9 @@ Item {
         // Stays mapped until the menu has slid back into the bar.
         visible: shown || animating
         WlrLayershell.layer: WlrLayer.Overlay
+        // Slides out of the frame on its own: Hyprland's layer animation is off
+        // for this namespace (hypr/conf/custom/style.lua), or it slid in twice.
+        WlrLayershell.namespace: "quickshell-drawer"
         // Exclusive so Escape key is always captured when menu is open
         WlrLayershell.keyboardFocus: shown ? WlrLayershell.Exclusive : WlrLayershell.None
         exclusionMode: WlrLayershell.Ignore
@@ -822,6 +824,9 @@ Item {
         mask: Region {}
         color: "transparent"
         WlrLayershell.layer: WlrLayer.Overlay
+        // Slides out of the frame on its own: Hyprland's layer animation is off
+        // for this namespace (hypr/conf/custom/style.lua), or it slid in twice.
+        WlrLayershell.namespace: "quickshell-drawer"
         exclusionMode: WlrLayershell.Ignore
 
         property bool active: false

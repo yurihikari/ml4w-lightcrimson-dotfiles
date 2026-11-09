@@ -9,6 +9,20 @@ hl.layer_rule({
     ignore_alpha = 0.79
 })
 
+-- Quickshell frame drawers (bar popups, hover drawer, toasts, dock): same
+-- blur as above, but no layer animation, since they slide out of the frame
+-- themselves (with Hyprland's slide on top they appeared twice).
+hl.layer_rule({
+    match = {
+        namespace = "quickshell-drawer"
+    },
+    blur_popups = true,
+    blur = true,
+    xray = true,
+    ignore_alpha = 0.79,
+    no_anim = true
+})
+
 -- SwayNC layer rule
 hl.layer_rule({
     match = {

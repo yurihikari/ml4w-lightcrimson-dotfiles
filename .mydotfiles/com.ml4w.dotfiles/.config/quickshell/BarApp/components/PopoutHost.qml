@@ -19,6 +19,9 @@ PanelWindow {
     anchors { top: true; bottom: true; left: true; right: true }
     color: "transparent"
     WlrLayershell.layer: WlrLayer.Overlay
+    // Slides out of the frame on its own: Hyprland's layer animation is off
+    // for this namespace (hypr/conf/custom/style.lua), or it slid in twice.
+    WlrLayershell.namespace: "quickshell-drawer"
     exclusionMode: WlrLayershell.Ignore
     WlrLayershell.keyboardFocus: open && current ? current.keyboardFocusValue : WlrLayershell.None
 
@@ -130,9 +133,9 @@ PanelWindow {
     readonly property real restX: {
         if (!spec) return 0
         if (spec.hAlign === "free") return spec.freeX
-        if (spec.hAlign === "left") return Math.max(spec.hMargin, drawer.insetSide)
-        if (spec.hAlign === "right") return width - Math.max(spec.hMargin, drawer.insetSide) - restW
-        return Math.round((width - restW) / 2)
+        if (spec.hAlign === "left") return Math.max(drawer.snap(spec.hMargin), drawer.insetSide)
+        if (spec.hAlign === "right") return width - Math.max(drawer.snap(spec.hMargin), drawer.insetSide) - restW
+        return drawer.snap((width - restW) / 2)
     }
 
     // Glide only while switching popups. Otherwise follow the popup directly,

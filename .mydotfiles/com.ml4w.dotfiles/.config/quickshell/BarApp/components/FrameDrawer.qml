@@ -66,16 +66,23 @@ Item {
     property real panelWidth: 400
     property real panelHeight: 300
 
+    // Snaps a length to whole device pixels. At a fractional scale the frame's
+    // 10px sides land on half a pixel (12.5px at 1.25x): the frame and the
+    // drawer each half-covered that column, and the window below showed
+    // through as a thin line where they meet. ScreenFrame snaps the same way.
+    readonly property real dpr: QsWindow.window && QsWindow.window.devicePixelRatio > 0 ? QsWindow.window.devicePixelRatio : 1
+    function snap(v) { return Math.round(v * dpr) / dpr }
+
     // Frame thickness, in this window's coordinates.
-    property real insetTop: 40
-    property real insetBottom: 10
-    property real insetSide: 10
+    property real insetTop: snap(40)
+    property real insetBottom: snap(10)
+    property real insetSide: snap(10)
 
     property real radius: 20        // the panel's free corners (= the frame's own corners)
     property real fillet: 20        // concave curves where it meets the frame
-    property real frameCorner: 20   // radius of the frame's own inner corners
+    property real frameCorner: snap(20) // radius of the frame's own inner corners
     property color fillColor: Theme.withAlpha(Theme.background, 0.8)
-    property color borderColor: Theme.withAlpha(Theme.primary, 0.8)
+    property color borderColor: PanelStyle.outline
     property real borderWidth: 2
     property int duration: 400
     // Hide the outline for now (the shared popout does while it morphs).
@@ -143,23 +150,6 @@ Item {
         }
     }
 
-    // The content settles in a beat after the surface: a short fade with a
-    // small drift away from the frame, instead of arriving glued to the panel.
-    // Closing fades it out quickly while the panel slides back.
-    property real contentReveal: _go ? 1 : 0
-    Behavior on contentReveal {
-        SequentialAnimation {
-            PauseAnimation { duration: root.open ? 70 : 0 }
-            NumberAnimation {
-                duration: root.open ? 320 : 130
-                easing.type: Easing.BezierSpline
-                easing.bezierCurve: root.open ? root.curveEnter : [0.4, 0.0, 1.0, 1.0, 1, 1]
-            }
-        }
-    }
-    // Drift distance (px), towards the frame while hidden
-    property real contentDrift: 10
-
     // The outline doesn't travel with the drawer: it fades in once the drawer
     // has (nearly) landed, and fades out quickly as soon as it starts closing.
     property real outlineOpacity: _go && !outlineSuppressed && progress > 0.97 ? 1 : 0
@@ -176,9 +166,9 @@ Item {
     readonly property real revealed: Math.max(0, depth * progress)
 
     readonly property real panelX: hAlign === "free" ? freeX
-        : hAlign === "left" ? Math.max(hMargin, insetSide)
-        : hAlign === "right" ? width - Math.max(hMargin, insetSide) - panelWidth
-        : Math.round((width - panelWidth) / 2)
+        : hAlign === "left" ? Math.max(snap(hMargin), insetSide)
+        : hAlign === "right" ? width - Math.max(snap(hMargin), insetSide) - panelWidth
+        : snap((width - panelWidth) / 2)
     // Panel start along the frame, in area coordinates
     readonly property real alongOffset: horizontal ? panelX - area.x : 0
 
@@ -372,8 +362,10 @@ Item {
             }
         }
 
-        // The revealed part of the panel. Content slides out of the frame with
-        // it, and is only clipped while the drawer is moving.
+        // The revealed part of the panel. Content is part of the panel and
+        // slides out of the frame with it in one motion (a separate delayed
+        // fade and drift read as an empty drawer followed by a second one on
+        // fast monitors). It is only clipped while the drawer is moving.
         Item {
             id: viewport
             x: root.horizontal ? root.alongOffset
@@ -390,15 +382,6 @@ Item {
                 height: root.horizontal ? root.panelHeight : area.height
                 x: root.edge === "left" ? root.revealed - root.panelWidth : 0
                 y: root.edge === "top" ? root.revealed - root.panelHeight : 0
-
-                // Settle-in (see contentReveal): fade plus a drift that comes
-                // out of the frame the drawer hangs from.
-                opacity: root.contentReveal
-                transform: Translate {
-                    readonly property real d: (1 - root.contentReveal) * root.contentDrift
-                    x: root.edge === "left" ? -d : (root.edge === "right" ? d : 0)
-                    y: root.edge === "top" ? -d : (root.edge === "bottom" ? d : 0)
-                }
             }
         }
     }
