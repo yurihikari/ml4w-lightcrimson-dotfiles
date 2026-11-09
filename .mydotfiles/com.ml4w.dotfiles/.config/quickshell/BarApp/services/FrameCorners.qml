@@ -2,12 +2,22 @@ pragma Singleton
 import QtQuick
 
 // Which of the frame's inner corners are currently taken over by a FrameDrawer
-// (a drawer flush against a side frame draws that corner itself). The frame
-// hides its own corner piece while the count is above zero, so the two never
-// stack. Counts rather than flags, in case two drawers share a corner.
+// (a drawer flush against a side frame draws that corner itself), per screen.
+// The frame hides its own corner piece while a count is above zero, so the two
+// never stack. Counts rather than flags, in case two drawers share a corner;
+// keyed by screen so a drawer on one monitor doesn't square off the others.
 QtObject {
-    property int topLeft: 0
-    property int topRight: 0
-    property int bottomLeft: 0
-    property int bottomRight: 0
+    // "<screen>:<corner>" → count; corner is topLeft/topRight/bottomLeft/bottomRight
+    property var counts: ({})
+
+    function add(screen, corner, delta) {
+        const c = Object.assign({}, counts)
+        const k = screen + ":" + corner
+        c[k] = Math.max(0, (c[k] || 0) + delta)
+        counts = c
+    }
+
+    function taken(screen, corner) {
+        return (counts[screen + ":" + corner] || 0) > 0
+    }
 }

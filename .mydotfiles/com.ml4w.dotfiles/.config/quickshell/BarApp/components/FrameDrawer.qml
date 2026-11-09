@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Shapes
+import Quickshell
 import qs.CustomTheme
 import qs.BarApp.services
 
@@ -85,6 +86,11 @@ Item {
     property bool clipContent: false
     // Join the frame's shared shadow.
     property bool castsShadow: true
+
+    // The screen this drawer is on (its window's). The frame's shadow and the
+    // taken-over corners are per screen, so a drawer only ever affects the
+    // frame of its own monitor.
+    readonly property string screenName: QsWindow.window && QsWindow.window.screen ? QsWindow.window.screen.name : ""
 
     readonly property bool horizontal: edge === "top" || edge === "bottom"
     readonly property bool fromTop: edge !== "bottom"
@@ -192,15 +198,15 @@ Item {
     readonly property bool coversTopRight: _out && ((edge === "top" && _ownsEnd) || edge === "right")
     readonly property bool coversBottomLeft: _out && ((edge === "bottom" && _ownsStart) || edge === "left")
     readonly property bool coversBottomRight: _out && ((edge === "bottom" && _ownsEnd) || edge === "right")
-    onCoversTopLeftChanged: FrameCorners.topLeft += coversTopLeft ? 1 : -1
-    onCoversTopRightChanged: FrameCorners.topRight += coversTopRight ? 1 : -1
-    onCoversBottomLeftChanged: FrameCorners.bottomLeft += coversBottomLeft ? 1 : -1
-    onCoversBottomRightChanged: FrameCorners.bottomRight += coversBottomRight ? 1 : -1
+    onCoversTopLeftChanged: FrameCorners.add(screenName, "topLeft", coversTopLeft ? 1 : -1)
+    onCoversTopRightChanged: FrameCorners.add(screenName, "topRight", coversTopRight ? 1 : -1)
+    onCoversBottomLeftChanged: FrameCorners.add(screenName, "bottomLeft", coversBottomLeft ? 1 : -1)
+    onCoversBottomRightChanged: FrameCorners.add(screenName, "bottomRight", coversBottomRight ? 1 : -1)
     Component.onDestruction: {
-        if (coversTopLeft) FrameCorners.topLeft -= 1
-        if (coversTopRight) FrameCorners.topRight -= 1
-        if (coversBottomLeft) FrameCorners.bottomLeft -= 1
-        if (coversBottomRight) FrameCorners.bottomRight -= 1
+        if (coversTopLeft) FrameCorners.add(screenName, "topLeft", -1)
+        if (coversTopRight) FrameCorners.add(screenName, "topRight", -1)
+        if (coversBottomLeft) FrameCorners.add(screenName, "bottomLeft", -1)
+        if (coversBottomRight) FrameCorners.add(screenName, "bottomRight", -1)
         FrameState.remove(root)
     }
 
