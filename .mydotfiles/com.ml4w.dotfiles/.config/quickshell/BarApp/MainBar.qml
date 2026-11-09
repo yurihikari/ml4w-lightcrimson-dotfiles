@@ -23,8 +23,11 @@ Item {
     // ── INSTANT OSD HANDLER ──
     function triggerOSD(type, delta) {
         Sys.activeOSD = type
-        osdPopup.active = true
-        osdTimer.restart()
+        // The hover drawer under the rings already shows the value
+        if (!hoverDrawer.open) {
+            osdPopup.active = true
+            osdTimer.restart()
+        }
 
         if (delta !== 0) {
             if (type === "vol") {
@@ -80,7 +83,11 @@ Item {
                 elide: Text.ElideRight; width: Math.min(implicitWidth, 350)
             }
         }
-        MouseArea { id: centerMouse; anchors.fill: parent; hoverEnabled: true; onClicked: mediaPopup.active = !mediaPopup.active }
+        MouseArea {
+            id: centerMouse; anchors.fill: parent; hoverEnabled: true
+            onClicked: mediaPopup.active = !mediaPopup.active
+            onContainsMouseChanged: hoverDrawer.hoverItem("media", centerPill, containsMouse)
+        }
     }
 
     RowLayout {
@@ -303,6 +310,8 @@ Item {
 
                 // Mic
                 RingControl {
+                    id: micRing
+                    onHoveredChanged: hoverDrawer.hoverItem("mic", micRing, hovered, 14)
                     property color _primary: Theme.primary
                     property color _error: Theme.error
                     ringColor: Sys.isMicMuted ? _error : _primary
@@ -318,6 +327,8 @@ Item {
 
                 // Brightness
                 RingControl {
+                    id: briRing
+                    onHoveredChanged: hoverDrawer.hoverItem("bri", briRing, hovered, 14)
                     property color _primary: Theme.primary
                     ringColor: _primary
                     value: Sys.briValue
@@ -329,6 +340,8 @@ Item {
 
                 // Volume
                 RingControl {
+                    id: volRing
+                    onHoveredChanged: hoverDrawer.hoverItem("vol", volRing, hovered, 14)
                     property color _primary: Theme.primary
                     property color _error: Theme.error
                     ringColor: Sys.isMuted ? _error : _primary
@@ -573,11 +586,17 @@ Item {
 
             // POWER
             Text {
+                id: powerIcon
                 text: "󰐥    "; color: Theme.primary; font.pixelSize: 18; anchors.verticalCenter: parent.verticalCenter; verticalAlignment: Text.AlignVCenter
                 opacity: 1; scale: powerMouse.pressed ? 0.85 : (powerMouse.containsMouse ? 1.15 : 1.0)
                 Behavior on opacity { NumberAnimation { duration: 150 } }
                 Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
-                MouseArea { id: powerMouse; anchors.fill: parent; hoverEnabled: true; onClicked: powerPopup.active = !powerPopup.active }
+                MouseArea {
+                    id: powerMouse; anchors.fill: parent; hoverEnabled: true
+                    onClicked: powerPopup.active = !powerPopup.active
+                    // centre of the glyph (the text ends with padding spaces)
+                    onContainsMouseChanged: hoverDrawer.hoverItem("power", powerIcon, containsMouse, 9)
+                }
             }
         }
     }
@@ -594,6 +613,10 @@ Item {
     DashboardPopup { id: dashPopup; host: popoutHost; anchorItem: logoIcon }
     KbLayoutPopup { id: keyboardPopup; host: popoutHost; anchorItem: kbContainer }
     NotificationsPopup { id: notifPopup; host: popoutHost; anchorItem: notifContainer }
+    // Quick-controls drawer under the rings, power icon and media pill (on hover)
+    // It is drawn in the frame window (the bar's parent), above the bar.
+    HoverDrawer { id: hoverDrawer; parent: bar.parent; z: 10; suppressed: popoutHost.open || powerPopup.active }
+    readonly property Item hoverDrawerItem: hoverDrawer
     // Notification toasts (the daemon itself is the Notifs singleton)
     NotificationToasts { screen: bar.screen }
     PowerPopup { id: powerPopup }

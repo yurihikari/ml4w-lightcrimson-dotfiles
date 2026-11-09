@@ -61,6 +61,13 @@ Item {
             Region { x: 0; y: root.frameBar; width: root.frameSide; height: frameWindow.fh - root.frameBar }
             Region { x: frameWindow.fw - root.frameSide; y: root.frameBar; width: root.frameSide; height: frameWindow.fh - root.frameBar }
             Region { x: 0; y: frameWindow.fh - root.frameBottom; width: frameWindow.fw; height: root.frameBottom }
+            // The bar's hover drawer while it is open (it is drawn in this window)
+            Region {
+                x: bar.hoverDrawerItem ? bar.hoverDrawerItem.maskX : 0
+                y: bar.hoverDrawerItem ? bar.hoverDrawerItem.maskY : 0
+                width: bar.hoverDrawerItem ? bar.hoverDrawerItem.maskW : 0
+                height: bar.hoverDrawerItem ? bar.hoverDrawerItem.maskH : 0
+            }
         }
 
         // ── Paths ───────────────────────────────────────────────────────────

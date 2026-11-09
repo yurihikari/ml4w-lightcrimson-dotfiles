@@ -12,6 +12,7 @@ Item {
     property string labelText: ""
     signal clicked()
     signal scrolled(real delta)
+    readonly property bool hovered: ctrlMouse.containsMouse
 
     height: 28
     width: 28 + (ctrlMouse.containsMouse ? ctrlLabel.implicitWidth + 6 : 0)
