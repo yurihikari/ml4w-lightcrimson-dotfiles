@@ -357,7 +357,7 @@ cmd_install() {
     [ -d "$src/.config" ] || die "$src has no .config folder; is it a theme?"
     # A folder can be an overlay on another theme (base= in its .dotswitch/info):
     # only the files it changes. A first install starts from a copy of the base.
-    local base; base="$(sed -n 's/^base[[:space:]]*=[[:space:]]*//p' "$src/.dotswitch/info" 2>/dev/null | head -n1)"
+    local base; base="$({ sed -n 's/^base[[:space:]]*=[[:space:]]*//p' "$src/.dotswitch/info" 2>/dev/null || true; } | head -n1)"
     if [ -d "$STORE/$id" ]; then
         if [ "$save" = 1 ]; then
             step "snapshot of the installed $id first"
@@ -466,7 +466,7 @@ cmd_json() {
     command -v jq >/dev/null || die "jq is needed for --json"
     local a prev t f themes_json snaps_json
     a="$(active)"
-    prev="$(tail -n1 "$STATE_DIR/history" 2>/dev/null | cut -f2)"; [ "$prev" = "-" ] && prev=""
+    prev="$({ tail -n1 "$STATE_DIR/history" 2>/dev/null || true; } | cut -f2)"; [ "$prev" = "-" ] && prev=""
     themes_json="$(for t in $(themes); do
         f="$STORE/$t/.dotswitch/preview.png"; [ -f "$f" ] || f=""
         jq -nc --arg id "$t" --arg name "$(name_of "$t")" --arg desc "$(info_get "$t" description)" \
