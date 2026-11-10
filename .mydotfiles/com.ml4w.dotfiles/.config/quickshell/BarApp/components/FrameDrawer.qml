@@ -83,7 +83,7 @@ Item {
     property real frameCorner: snap(20) // radius of the frame's own inner corners
     property color fillColor: Theme.withAlpha(Theme.background, 0.8)
     property color borderColor: PanelStyle.outline
-    property real borderWidth: 2
+    property real borderWidth: PanelStyle.outlineWidth
     property int duration: 400
     // Hide the outline for now (the shared popout does while it morphs).
     property bool outlineSuppressed: false
