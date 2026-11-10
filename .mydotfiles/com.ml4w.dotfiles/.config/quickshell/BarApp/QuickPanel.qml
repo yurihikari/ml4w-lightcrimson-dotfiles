@@ -8,8 +8,8 @@ import qs.SettingsApp.services
 
 // Quick settings, in the bottom-left corner drawer: the toggles that are
 // otherwise a script or a keybinding away (keep awake, night light, Do Not
-// Disturb, game mode, hotspot, VPN), presentation mode, and the power profile
-// with the battery's current draw.
+// Disturb, game mode, hotspot, VPN), presentation mode, the power profile
+// with the battery's current draw, and the theme (dotswitch).
 ColumnLayout {
     id: root
     property string screenName: ""
@@ -24,7 +24,8 @@ ColumnLayout {
     function setWatching(on) {
         if (on === watching) return
         watching = on
-        if (on) { QuickSettings.watch(); NM.watch(); vpnOpen = false; chosenSource = QuickSettings.defaultSource() }
+        armedTheme = ""
+        if (on) { QuickSettings.watch(); NM.watch(); Themes.refresh(); vpnOpen = false; chosenSource = QuickSettings.defaultSource() }
         else { QuickSettings.unwatch(); NM.unwatch() }
     }
 
@@ -261,6 +262,105 @@ ColumnLayout {
                     onClicked: QuickSettings.setPowerProfile(modelData.id)
                 }
             }
+        }
+    }
+
+    // ── Theme ───────────────────────────────────────────────────────────────
+    // Pick another theme, confirm, and the whole setup switches (this shell
+    // included). Managing themes lives in Settings › Themes.
+    property string armedTheme: ""
+    readonly property var armed: Themes.theme(armedTheme)
+    readonly property var switching: Themes.busy === "switch" ? Themes.theme(Themes.busyTheme) : null
+
+    ColumnLayout {
+        Layout.fillWidth: true
+        visible: Themes.available && Themes.themes.length > 0
+        spacing: 8
+
+        SectionLabel { text: "Theme" }
+        Flow {
+            Layout.fillWidth: true
+            spacing: 6
+            Repeater {
+                model: Themes.themes
+                Chip {
+                    required property var modelData
+                    icon: modelData.active ? "󰄬" : ""
+                    text: modelData.name
+                    selected: modelData.active
+                    enabled: Themes.busy === ""
+                    onClicked: if (!modelData.active) root.armedTheme = root.armedTheme === modelData.id ? "" : modelData.id
+                }
+            }
+            Chip {
+                icon: Themes.themes.length > 1 ? "󰒓" : "󰐕"
+                text: Themes.themes.length > 1 ? "Manage" : "New theme"
+                onClicked: root.openSettings("themes")
+            }
+        }
+
+        // Confirm (switching restarts everything), then progress
+        Rectangle {
+            Layout.fillWidth: true
+            visible: root.armed !== null || root.switching !== null
+            implicitHeight: 50
+            radius: PanelStyle.radiusCard
+            color: Theme.withAlpha(Theme.primary, 0.14)
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 14; anchors.rightMargin: 8
+                spacing: 10
+                Text {
+                    text: "󰏘"; color: Theme.primary; font.pixelSize: 17
+                    SequentialAnimation on opacity {
+                        running: root.switching !== null
+                        loops: Animation.Infinite
+                        alwaysRunToEnd: true
+                        NumberAnimation { to: 0.3; duration: 500 }
+                        NumberAnimation { to: 1; duration: 500 }
+                    }
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 0
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.switching ? "Switching to " + root.switching.name + "…"
+                            : root.armed ? "Switch to " + root.armed.name + "?" : ""
+                        color: Theme.primary
+                        font.pixelSize: 12; font.bold: true
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.armed && !root.armed.live ? "Log out and back in afterwards to start it"
+                            : "The bar restarts with it. Your data comes along."
+                        color: Theme.primary; opacity: PanelStyle.dim
+                        font.pixelSize: 10
+                        elide: Text.ElideRight
+                    }
+                }
+                Chip {
+                    visible: root.switching === null
+                    text: "Cancel"
+                    onClicked: root.armedTheme = ""
+                }
+                Chip {
+                    visible: root.switching === null
+                    icon: "󰁔"; text: "Switch"
+                    selected: true
+                    onClicked: { const id = root.armedTheme; root.armedTheme = ""; Themes.switchTo(id) }
+                }
+            }
+        }
+
+        Text {
+            Layout.fillWidth: true
+            visible: Themes.error !== ""
+            text: Themes.error
+            color: Theme.error
+            font.pixelSize: 10
+            wrapMode: Text.WordWrap
         }
     }
 }
