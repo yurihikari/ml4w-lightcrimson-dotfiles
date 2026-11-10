@@ -8,7 +8,7 @@ import qs.CustomTheme
 import qs.BarApp.services
 import qs.BarApp.components
 
-// DockPopup — Apps · Notes · Todo · Screenshot
+// DockPopup — Apps · Notes · Todo (screenshots: the Capture corner)
 PanelWindow {
     id: popup
 
@@ -31,11 +31,22 @@ PanelWindow {
     WlrLayershell.keyboardFocus: active ? WlrLayershell.OnDemand : WlrLayershell.None
     color: "transparent"
 
+    // The frame stays clickable while the dock is open; whatever a click on
+    // it opens takes over (FrameState).
+    mask: FrameHoleMask { window: popup }
+    readonly property string claimKey: "dock:" + (popup.screen ? popup.screen.name : "")
+    Connections {
+        target: FrameState
+        function onClaimed(k) { if (k !== popup.claimKey) popup.active = false }
+    }
+
     IpcHandler {
         target: "dock"
         function toggle(): void { popup.active = !popup.active }
         function open(): void { popup.active = true }
         function close(): void { popup.active = false }
+        // 0 apps, 1 notes, 2 todo
+        function openTab(tab: int): void { popup.active = true; popup.openTab(tab) }
     }
 
     // ── FIX: Close when clicking outside the popup (backdrop) ──────────────
@@ -61,6 +72,7 @@ PanelWindow {
 
     onActiveChanged: {
         if (active) {
+            FrameState.claim(claimKey)
             isAnimating      = true // Trigger entrance animation safety
             activeTab        = 0
             searchText       = ""
@@ -69,7 +81,6 @@ PanelWindow {
             if (appModel.count === 0) appLoader.running = true
             if (!notesLoaded)         loadNotes()
             if (!todosLoaded)         loadTodos()
-            if (!screenshotsLoaded)   loadScreenshots()
         }
     }
 
@@ -265,18 +276,16 @@ PanelWindow {
         }
     }
 
-    Process {
+    // Written as UTF-8 by Quickshell itself. (It used to go through
+    // Qt.btoa after a manual UTF-8 step, which encoded accented letters
+    // twice on every save, so "é" kept growing into "ÃƒÂ©…".)
+    FileView {
         id: notesWriteProc
-        function write(content) {
-            let b64 = Qt.btoa(unescape(encodeURIComponent(content)))
-            command = ["python3", "-c",
-                "import base64, pathlib\n" +
-                "p = pathlib.Path.home() / '.config/quickshell/dock-notes.txt'\n" +
-                "p.parent.mkdir(parents=True, exist_ok=True)\n" +
-                "p.write_bytes(base64.b64decode('" + b64 + "'))\n"
-            ]
-            running = true
-        }
+        path: Quickshell.env("HOME") + "/.config/quickshell/dock-notes.txt"
+        printErrors: false
+        blockLoading: false
+        preload: false
+        function write(content) { setText(content) }
     }
 
     Timer {
@@ -318,18 +327,16 @@ PanelWindow {
         }
     }
 
-    Process {
+    // Written as UTF-8 by Quickshell itself. (It used to go through
+    // Qt.btoa after a manual UTF-8 step, which encoded accented letters
+    // twice on every save, so "é" kept growing into "ÃƒÂ©…".)
+    FileView {
         id: todosWriteProc
-        function write(content) {
-            let b64 = Qt.btoa(unescape(encodeURIComponent(content)))
-            command = ["python3", "-c",
-                "import base64, pathlib\n" +
-                "p = pathlib.Path.home() / '.config/quickshell/dock-todos.txt'\n" +
-                "p.parent.mkdir(parents=True, exist_ok=True)\n" +
-                "p.write_bytes(base64.b64decode('" + b64 + "'))\n"
-            ]
-            running = true
-        }
+        path: Quickshell.env("HOME") + "/.config/quickshell/dock-todos.txt"
+        printErrors: false
+        blockLoading: false
+        preload: false
+        function write(content) { setText(content) }
     }
 
     function saveTodos() {
@@ -341,102 +348,63 @@ PanelWindow {
         todosWriteProc.write(lines.join("\n"))
     }
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // SCREENSHOTS
-    // ═════════════════════════════════════════════════════════════════════════
-    property bool   screenshotsLoaded: false
-    property bool   screenshotCapturing: false
-    property string screenshotMode:  "area"
-    property int    screenshotDelay: 0
-    ListModel { id: screenshotModel }
-    property string _ssBuf: ""
-
-    function loadScreenshots() {
-        _ssBuf = ""
-        screenshotModel.clear()
-        screenshotsLoader.running = true
+    // Done count for the Todo header (the model has no aggregate of its own)
+    property int todoDoneCount: 0
+    function countDone() {
+        let n = 0
+        for (let i = 0; i < todoModel.count; i++) if (todoModel.get(i).todoDone) n++
+        todoDoneCount = n
+    }
+    Connections {
+        target: todoModel
+        function onCountChanged() { popup.countDone() }
+        function onDataChanged() { popup.countDone() }
     }
 
-    Process {
-        id: screenshotsLoader
-        command: ["bash", "-c",
-            "DIR=\"$HOME/Pictures/Screenshots\"\n" +
-            "mkdir -p \"$DIR\"\n" +
-            "find \"$DIR\" -maxdepth 1 -type f \\\n" +
-            "  \\( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' \\) \\\n" +
-            "  -printf '%T@\\t%p\\n' 2>/dev/null \\\n" +
-            "  | sort -rn | head -30 | cut -f2-\n"
-        ]
-        stdout: SplitParser {
-            onRead: { popup._ssBuf += data + "\n" }
-        }
-        onRunningChanged: {
-            if (running) return
-            let lines = popup._ssBuf.trim().split("\n")
-            popup._ssBuf = ""
-            for (let p of lines) {
-                let path = p.trim()
-                if (!path) continue
-                let name = path.split("/").pop()
-                screenshotModel.append({ ssPath: path, ssName: name })
-            }
-            popup.screenshotsLoaded = true
-        }
+    function openTab(i) {
+        activeTab = i
+        if (i === 0) searchField.forceActiveFocus()
+        else if (i === 1) notesEdit.forceActiveFocus()
+        else if (i === 2) todoInput.forceActiveFocus()
+    }
+    function addTodo() {
+        const t = todoInput.text.trim()
+        if (t === "") return
+        todoModel.append({ todoText: t, todoDone: false })
+        saveTodos()
+        todoInput.text = ""
+    }
+    function launch(app) {
+        Sys.run(["bash", "-c", app.appExec])
+        popup.active = false
+    }
+    function runCommand() {
+        Sys.run(["kitty", "--", "bash", "-c", searchText + "; echo; read -rsp 'Press any key…' -n1"])
+        popup.active = false
     }
 
-    Process {
-        id: screenshotCapture
-        function shoot(mode, delay) {
-            popup.screenshotCapturing = true
-            popup.active = false
-            
-            let preWait = parseFloat(delay) + 0.4
-            let cmd = `
-                DIR="$(xdg-user-dir PICTURES 2>/dev/null || echo "$HOME/Pictures")/Screenshots"
-                mkdir -p "$DIR"
-                FILENAME="screenshot_$(date +%Y-%m-%d_%H-%M-%S).png"
-                TEMP_FILE="/tmp/$FILENAME"
-                FINAL_FILE="$DIR/$FILENAME"
+    Shortcut { sequence: "Ctrl+Tab"; enabled: popup.active; onActivated: popup.openTab((popup.activeTab + 1) % 3) }
+    Shortcut { sequence: "Ctrl+Shift+Tab"; enabled: popup.active; onActivated: popup.openTab((popup.activeTab + 2) % 3) }
 
-                sleep ${preWait}
-
-                success=false
-                if [ "${mode}" = "screen" ]; then
-                    if grim "$TEMP_FILE"; then success=true; fi
-                elif [ "${mode}" = "active" ]; then
-                    GEOM=$(hyprctl activewindow -j | python3 -c 'import json,sys; w=json.load(sys.stdin); print(f"{w[\\"at\\"][0]},{w[\\"at\\"][1]} {w[\\"size\\"][0]}x{w[\\"size\\"][1]}")' 2>/dev/null)
-                    if [ ! -z "$GEOM" ]; then
-                        if grim -g "$GEOM" "$TEMP_FILE"; then success=true; fi
-                    else
-                        if grimblast save active "$TEMP_FILE"; then success=true; fi
-                    fi
-                elif [ "${mode}" = "area" ]; then
-                    if grimblast save area "$TEMP_FILE"; then success=true; fi
-                fi
-
-                if [ "$success" = true ] && [ -f "$TEMP_FILE" ]; then
-                    mv "$TEMP_FILE" "$FINAL_FILE"
-                    if command -v wl-copy >/dev/null; then wl-copy < "$FINAL_FILE"; fi
-                    if command -v notify-send >/dev/null; then
-                        notify-send -a "Screen Capture" -i "$FINAL_FILE" "Screenshot saved & copied" "$FILENAME" &
-                    fi
-                    echo "$FINAL_FILE"
-                fi
-            `
-            command = ["bash", "-c", cmd]
-            running = true
+    // A text button that asks for a second click before doing something that
+    // can't be undone (clearing notes or the task list).
+    component ConfirmChip: Chip {
+        id: cc
+        property string confirmText: "Sure?"
+        property bool armed: false
+        signal confirmed()
+        selected: armed
+        onClicked: {
+            if (armed) { armed = false; disarm.stop(); confirmed() }
+            else { armed = true; disarm.restart() }
         }
-        stdout: SplitParser { onRead: {} }
-        onRunningChanged: {
-            if (!running) {
-                popup.screenshotCapturing = false
-                popup.loadScreenshots()
-            }
-        }
+        Timer { id: disarm; interval: 3000; onTriggered: cc.armed = false }
+        Binding on text { when: cc.armed; value: cc.confirmText }
     }
 
     // ── CONTAINER ────────────────────────────────────────────────────────────
-    // Rises out of the bottom frame as part of it (fill, blur and border as before).
+    // Rises out of the bottom frame as part of it, laid out like the other
+    // drawers: tonal surfaces, no outlines inside, the same type scale.
     FrameDrawer {
         open: popup.active
         onClosed: popup.isAnimating = false
@@ -445,1011 +413,638 @@ PanelWindow {
         hAlign: "center"
         panelWidth: container.width
         panelHeight: container.height
-        borderWidth: 1.5
-        borderColor: Theme.withAlpha(Theme.primary, 0.64)
 
-    Rectangle {
+    Item {
         id: container
-        width: popup.width > 700 ? 700 : popup.width - 80
-        height: 520
-        radius: 28; color: "transparent"; clip: false
-        // Prevents clicks from falling through the container and closing the menu
-        MouseArea { anchors.fill: parent; onClicked: {} }
+        width: Math.min(720, popup.width - 80)
+        // Fits four rows of apps exactly under the search field
+        height: 2 * PanelStyle.pad + 40 + 46 + 2 * PanelStyle.gap + 400
+        // Swallow clicks, so the backdrop only gets the ones outside
+        MouseArea { anchors.fill: parent }
 
         ColumnLayout {
-            anchors.fill: parent; anchors.margins: 20; spacing: 14
+            anchors.fill: parent
+            anchors.margins: PanelStyle.pad
+            spacing: PanelStyle.gap
 
-            // ── TAB BAR (segmented control) ───────────────────────────────────
-            Rectangle {
-                Layout.alignment: Qt.AlignHCenter
-                implicitWidth: tabRow.implicitWidth + 10
-                implicitHeight: 46
-                radius: height / 2
-                // Subtle inset "track" the active segment slides over
-                color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.08)
-                border.color: "transparent" /* was primary @ 0.12; surfaces use tone, not outlines */
-                border.width: 1
+            // ── Header: tabs, what the tab holds, capture ─────────────────────
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
 
-                Row {
-                    id: tabRow
-                    anchors.centerIn: parent
-                    spacing: 4
-                    Repeater {
-                        model: [
-                            { icon: "󰍉", label: "Apps",       idx: 0 },
-                            { icon: "󰎚", label: "Notes",      idx: 1 },
-                            { icon: "󰄳", label: "Todo",       idx: 2 },
-                            { icon: "󰄀", label: "Screenshot", idx: 3 }
-                        ]
-                        delegate: Rectangle {
-                            required property var modelData
-                            property bool sel: popup.activeTab === modelData.idx
-                            width: tabContent.implicitWidth + 32
-                            height: 38
-                            radius: height / 2
+                // Segmented tabs: a tonal track with a pill sliding under the
+                // selected one.
+                Rectangle {
+                    implicitWidth: tabRow.implicitWidth + 8
+                    implicitHeight: 40
+                    radius: PanelStyle.radiusControl
+                    color: PanelStyle.fieldFill
 
-                            color: sel ? Theme.primary
-                                       : (tabMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.10) : "transparent")
-                            Behavior on color { ColorAnimation { duration: 180 } }
-
-                            scale: tabMouse.pressed ? 0.96 : 1.0
-                            Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
-
-                            Row {
-                                id: tabContent
-                                anchors.centerIn: parent
-                                spacing: 8
-                                Text {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: modelData.icon
-                                    color: sel ? Theme.background : Theme.primary
-                                    opacity: sel ? 1.0 : 0.85
-                                    font.pixelSize: 15
-                                    Behavior on color { ColorAnimation { duration: 180 } }
-                                }
-                                Text {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: modelData.label
-                                    color: sel ? Theme.background : Theme.primary
-                                    opacity: sel ? 1.0 : 0.85
-                                    font.pixelSize: 13
-                                    font.weight: sel ? Font.Bold : Font.Medium
-                                    Behavior on color { ColorAnimation { duration: 180 } }
-                                }
-                            }
-                            MouseArea {
-                                id: tabMouse
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: {
-                                    popup.activeTab = modelData.idx
-                                    if (modelData.idx === 0) searchField.forceActiveFocus()
-                                    if (modelData.idx === 1) notesEdit.forceActiveFocus()
-                                    if (modelData.idx === 2) todoInput.forceActiveFocus()
-                                    if (modelData.idx === 3) popup.loadScreenshots()
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ── SEARCH BAR ────────────────────────────────────────────────────
-            Rectangle {
-                Layout.fillWidth: true; height: 48; radius: 16
-                color: Theme.background
-                // Softer resting border that lights up on focus — feels more modern
-                border.color: searchField.activeFocus ? Theme.primary : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.25)
-                border.width: 1
-                Behavior on border.color { ColorAnimation { duration: 150 } }
-                visible: popup.activeTab === 0
-                RowLayout {
-                    anchors.fill: parent; anchors.leftMargin: 16; anchors.rightMargin: 14; spacing: 10
-                    Text {
-                        text: popup.isCommandMode ? "󰆍" : "󰍉"
-                        color: popup.isCommandMode ? Theme.accent : Theme.primary
-                        font.pixelSize: 18; verticalAlignment: Text.AlignVCenter
-                    }
-                    TextInput {
-                        id: searchField; Layout.fillWidth: true
-                        color: Theme.primary; font.pixelSize: 15
-                        selectionColor: Theme.primary; selectedTextColor: Theme.background
-                        verticalAlignment: TextInput.AlignVCenter; height: parent.height; clip: true
-                        focus: popup.activeTab === 0 && popup.active
-                        onTextChanged: popup.searchText = text
-                        Keys.onReturnPressed: {
-                            if (popup.isCommandMode)
-                                Sys.run(["kitty", "--", "bash", "-c",
-                                    searchField.text + "; echo; read -rsp 'Press any key…' -n1"])
-                            else if (popup.filteredApps.length > 0) {
-                                let i = appGrid.currentIndex >= 0 ? appGrid.currentIndex : 0
-                                Sys.run(["bash", "-c", popup.filteredApps[i].appExec])
-                            }
-                            popup.active = false
-                        }
-                        Keys.onEscapePressed: popup.active = false
-
-                        // ── Keyboard navigation over the app grid ──
-                        // Arrow keys move the highlight; in command mode left/right
-                        // are released so the text caret still works.
-                        Keys.onDownPressed: (event) => {
-                            if (!popup.isCommandMode) { appGrid.moveCurrentIndexDown(); event.accepted = true }
-                        }
-                        Keys.onUpPressed: (event) => {
-                            if (!popup.isCommandMode) { appGrid.moveCurrentIndexUp(); event.accepted = true }
-                        }
-                        Keys.onRightPressed: (event) => {
-                            if (!popup.isCommandMode) { appGrid.moveCurrentIndexRight(); event.accepted = true }
-                            else event.accepted = false
-                        }
-                        Keys.onLeftPressed: (event) => {
-                            if (!popup.isCommandMode) { appGrid.moveCurrentIndexLeft(); event.accepted = true }
-                            else event.accepted = false
-                        }
-                        Keys.onTabPressed: (event) => {
-                            if (!popup.isCommandMode && popup.filteredApps.length > 0) {
-                                appGrid.currentIndex = (appGrid.currentIndex + 1) % popup.filteredApps.length
-                                event.accepted = true
-                            }
-                        }
-                        Text {
-                            anchors.fill: parent
-                            text: "Search apps or type a command\u2026"
-                            color: Theme.primary; opacity: 0.35; font.pixelSize: 15
-                            verticalAlignment: Text.AlignVCenter
-                            visible: searchField.text.length === 0
-                        }
-                    }
                     Rectangle {
-                        visible: popup.isCommandMode
-                        width: cmdBadge.implicitWidth + 16; height: 24; radius: 12
-                        color: Theme.accent; opacity: 0.85
-                        Text { id: cmdBadge; anchors.centerIn: parent; text: "TERMINAL"
-                               color: Theme.background; font.pixelSize: 10; font.bold: true }
+                        readonly property Item target: tabRepeater.count > popup.activeTab ? tabRepeater.itemAt(popup.activeTab) : null
+                        x: 4 + (target ? target.x : 0)
+                        y: 4
+                        width: target ? target.width : 0
+                        height: 32
+                        radius: PanelStyle.radiusControl - 3
+                        color: Theme.withAlpha(Theme.primary, 0.16)
+                        Behavior on x { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
+                        Behavior on width { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
                     }
-                    Text {
-                        visible: !popup.isCommandMode && searchField.text.length === 0
-                        text: appModel.count + " apps"
-                        color: Theme.primary; opacity: 0.28; font.pixelSize: 11
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    
-                    // Clear search button
-                    Text {
-                        text: "󰅖"; color: Theme.primary; font.pixelSize: 16
-                        opacity: clearSearchMouse.containsMouse ? 0.8 : 0.5
-                        scale: clearSearchMouse.pressed ? 0.9 : 1.0
-                        visible: searchField.text.length > 0; verticalAlignment: Text.AlignVCenter
-                        
-                        Behavior on opacity { NumberAnimation { duration: 150 } }
-                        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
 
-                        MouseArea {
-                            id: clearSearchMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            onClicked: { searchField.text = ""; searchField.forceActiveFocus() }
-                        }
-                    }
-                }
-            }
-
-            // ── CONTENT ───────────────────────────────────────────────────────
-            Item {
-                Layout.fillWidth: true; Layout.fillHeight: true
-
-                // TAB 0 — APPS
-                Item {
-                    anchors.fill: parent; visible: popup.activeTab === 0
-
-                    Item {
-                        anchors.fill: parent; visible: popup.isCommandMode
-                        Column {
-                            anchors.centerIn: parent; spacing: 22
-                            Text { anchors.horizontalCenter: parent.horizontalCenter
-                                   text: "󰆍"; color: Theme.primary; font.pixelSize: 60; opacity: 0.22 }
-                            Text { anchors.horizontalCenter: parent.horizontalCenter
-                                   text: "Run in Kitty terminal"
-                                   color: Theme.primary; font.pixelSize: 14; opacity: 0.45 }
-                            
-                            // Run terminal command button
-                            Rectangle {
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                width: Math.min(runLbl.implicitWidth + 48, 620); height: 46; radius: 23
-                                
-                                color: runCmdMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.8) : Theme.primary
-                                scale: runCmdMouse.pressed ? 0.98 : (runCmdMouse.containsMouse ? 1.02 : 1.0)
-                                Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
-                                Behavior on color { ColorAnimation { duration: 150 } }
-
-                                Text { id: runLbl; anchors.centerIn: parent
-                                       text: "  " + popup.searchText; color: Theme.background
-                                       font.pixelSize: 14; font.family: "monospace"; font.bold: true
-                                       elide: Text.ElideRight; width: Math.min(implicitWidth, 570) }
+                    Row {
+                        id: tabRow
+                        x: 4; y: 4
+                        spacing: 2
+                        Repeater {
+                            id: tabRepeater
+                            model: [
+                                { icon: "󰀻", label: "Apps" },
+                                { icon: "󰎚", label: "Notes" },
+                                { icon: "󰄲", label: "Todo" }
+                            ]
+                            Item {
+                                id: tab
+                                required property var modelData
+                                required property int index
+                                readonly property bool sel: popup.activeTab === index
+                                width: tabContent.implicitWidth + 28
+                                height: 32
+                                Row {
+                                    id: tabContent
+                                    anchors.centerIn: parent
+                                    spacing: 7
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: tab.modelData.icon
+                                        color: Theme.primary
+                                        font.pixelSize: 15
+                                    }
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: tab.modelData.label
+                                        color: Theme.primary
+                                        font.pixelSize: 13; font.bold: true
+                                    }
+                                    opacity: tab.sel ? 1 : (tabMouse.containsMouse ? 0.8 : PanelStyle.dim)
+                                    Behavior on opacity { NumberAnimation { duration: 150 } }
+                                }
                                 MouseArea {
-                                    id: runCmdMouse
+                                    id: tabMouse
                                     anchors.fill: parent
                                     hoverEnabled: true
-                                    onClicked: {
-                                        Sys.run(["kitty", "--", "bash", "-c",
-                                            popup.searchText + "; echo; read -rsp 'Press any key…' -n1"])
-                                        popup.active = false
-                                    }
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: popup.openTab(tab.index)
                                 }
                             }
-                            Text { anchors.horizontalCenter: parent.horizontalCenter
-                                   text: "Press Enter or click above"
-                                   color: Theme.primary; font.pixelSize: 11; opacity: 0.28 }
+                        }
+                    }
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignRight
+                    text: popup.activeTab === 0 ? (popup.isCommandMode ? "Runs in Kitty" : appModel.count + " apps")
+                        : popup.activeTab === 1 ? (popup.notesDirty ? "Saving…" : popup.notesLoaded ? "Saved" : "")
+                        : todoModel.count === 0 ? "" : popup.todoDoneCount + " of " + todoModel.count + " done"
+                    color: Theme.primary; opacity: PanelStyle.dim
+                    font.pixelSize: PanelStyle.subtitleSize
+                    elide: Text.ElideRight
+                }
+
+                // Screenshots and recording live in the bottom-right corner now
+                IconButton {
+                    icon: "󰄀"; size: 32; iconSize: 15
+                    onClicked: {
+                        popup.active = false
+                        Corners.open("capture", popup.screen ? popup.screen.name : Corners.focusedScreen(), true)
+                    }
+                }
+            }
+
+            // ── Content ───────────────────────────────────────────────────────
+            Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+
+                // ════════════════════════════════════════════════════════════
+                // APPS
+                // ════════════════════════════════════════════════════════════
+                ColumnLayout {
+                    anchors.fill: parent
+                    visible: popup.activeTab === 0
+                    spacing: PanelStyle.gap
+
+                    PanelField {
+                        Layout.fillWidth: true
+                        implicitHeight: 46
+                        focused: searchField.activeFocus
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 14; anchors.rightMargin: 12
+                            spacing: 10
+                            Text {
+                                text: popup.isCommandMode ? "󰆍" : "󰍉"
+                                color: popup.isCommandMode ? Theme.accent : Theme.primary
+                                opacity: popup.isCommandMode ? 1 : 0.7
+                                font.pixelSize: 17
+                            }
+                            TextInput {
+                                id: searchField
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                color: Theme.primary
+                                font.pixelSize: 14
+                                selectionColor: Theme.primary; selectedTextColor: Theme.background
+                                verticalAlignment: TextInput.AlignVCenter
+                                clip: true
+                                focus: popup.activeTab === 0 && popup.active
+                                onTextChanged: popup.searchText = text
+                                Keys.onReturnPressed: {
+                                    if (popup.isCommandMode) popup.runCommand()
+                                    else if (popup.filteredApps.length > 0)
+                                        popup.launch(popup.filteredApps[Math.max(0, appGrid.currentIndex)])
+                                }
+                                Keys.onEscapePressed: popup.active = false
+
+                                // Arrow keys move over the grid; in command
+                                // mode left/right stay with the caret.
+                                Keys.onDownPressed: (event) => {
+                                    if (!popup.isCommandMode) { appGrid.moveCurrentIndexDown(); event.accepted = true }
+                                }
+                                Keys.onUpPressed: (event) => {
+                                    if (!popup.isCommandMode) { appGrid.moveCurrentIndexUp(); event.accepted = true }
+                                }
+                                Keys.onRightPressed: (event) => {
+                                    if (!popup.isCommandMode) { appGrid.moveCurrentIndexRight(); event.accepted = true }
+                                    else event.accepted = false
+                                }
+                                Keys.onLeftPressed: (event) => {
+                                    if (!popup.isCommandMode) { appGrid.moveCurrentIndexLeft(); event.accepted = true }
+                                    else event.accepted = false
+                                }
+                                Keys.onTabPressed: (event) => {
+                                    if (!popup.isCommandMode && popup.filteredApps.length > 0) {
+                                        appGrid.currentIndex = (appGrid.currentIndex + 1) % popup.filteredApps.length
+                                        event.accepted = true
+                                    }
+                                }
+
+                                Text {
+                                    anchors.fill: parent
+                                    verticalAlignment: Text.AlignVCenter
+                                    visible: searchField.text.length === 0
+                                    text: "Search apps, or type a command"
+                                    color: Theme.primary; opacity: PanelStyle.faint
+                                    font.pixelSize: 14
+                                }
+                            }
+                            Rectangle {
+                                visible: popup.isCommandMode
+                                implicitWidth: cmdBadge.implicitWidth + 16
+                                implicitHeight: 22
+                                radius: 11
+                                color: Theme.withAlpha(Theme.accent, 0.18)
+                                Text {
+                                    id: cmdBadge
+                                    anchors.centerIn: parent
+                                    text: "Terminal"
+                                    color: Theme.accent
+                                    font.pixelSize: 10; font.bold: true
+                                }
+                            }
+                            IconButton {
+                                visible: searchField.text.length > 0
+                                icon: "󰅖"; size: 26; iconSize: 13
+                                onClicked: { searchField.text = ""; searchField.forceActiveFocus() }
+                            }
                         }
                     }
 
                     Item {
-                        anchors.fill: parent; visible: !popup.isCommandMode
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
 
+                        // Command mode
                         Column {
-                            anchors.centerIn: parent; spacing: 12
-                            visible: appModel.count === 0
-                            Text { anchors.horizontalCenter: parent.horizontalCenter
-                                   text: "󰍉"; color: Theme.primary; font.pixelSize: 48; opacity: 0.15 }
-                            Text { anchors.horizontalCenter: parent.horizontalCenter
-                                   text: "Loading apps\u2026"; color: Theme.primary; font.pixelSize: 14; opacity: 0.35 }
+                            anchors.centerIn: parent
+                            visible: popup.isCommandMode
+                            spacing: 14
+                            Text {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: "󰆍"; color: Theme.accent
+                                font.pixelSize: 40; opacity: 0.6
+                            }
+                            Rectangle {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                width: Math.min(runLbl.implicitWidth + 36, container.width - 120)
+                                height: 44
+                                radius: PanelStyle.radiusControl
+                                color: runMouse.containsMouse ? PanelStyle.cardHover : PanelStyle.cardFill
+                                Behavior on color { ColorAnimation { duration: 150 } }
+                                Text {
+                                    id: runLbl
+                                    anchors.centerIn: parent
+                                    width: Math.min(implicitWidth, parent.width - 36)
+                                    text: "$ " + popup.searchText
+                                    color: Theme.primary
+                                    font.pixelSize: 13; font.family: "monospace"
+                                    elide: Text.ElideRight
+                                }
+                                MouseArea {
+                                    id: runMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: popup.runCommand()
+                                }
+                            }
+                            Text {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: "Enter runs it in Kitty"
+                                color: Theme.primary; opacity: PanelStyle.faint
+                                font.pixelSize: 11
+                            }
                         }
 
+                        // Loading / nothing found
                         Column {
-                            anchors.centerIn: parent; spacing: 10
-                            visible: popup.filteredApps.length === 0 && appModel.count > 0 &&
-                                     popup.searchText.length > 0 && !popup.isCommandMode
-                            Text { anchors.horizontalCenter: parent.horizontalCenter
-                                   text: "󰍉"; color: Theme.primary; font.pixelSize: 44; opacity: 0.18 }
-                            Text { anchors.horizontalCenter: parent.horizontalCenter
-                                   text: "No apps found"; color: Theme.primary; font.pixelSize: 13; opacity: 0.4 }
-                            Text { anchors.horizontalCenter: parent.horizontalCenter
-                                   text: "Add a space to switch to terminal mode"
-                                   color: Theme.primary; font.pixelSize: 11; opacity: 0.28 }
+                            anchors.centerIn: parent
+                            visible: !popup.isCommandMode && (appModel.count === 0
+                                     || (popup.filteredApps.length === 0 && popup.searchText.length > 0))
+                            spacing: 8
+                            Text {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: "󰍉"; color: Theme.primary
+                                font.pixelSize: 36; opacity: 0.2
+                            }
+                            Text {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: appModel.count === 0 ? "Loading apps…" : "No apps found"
+                                color: Theme.primary; opacity: PanelStyle.dim
+                                font.pixelSize: PanelStyle.bodySize
+                            }
+                            Text {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                visible: appModel.count > 0
+                                text: "Add a space to run it as a command"
+                                color: Theme.primary; opacity: PanelStyle.faint
+                                font.pixelSize: 11
+                            }
                         }
 
                         GridView {
                             id: appGrid
-                            property int cols: Math.max(1, Math.floor(parent.width / 120))
-                            width: cols * 120; height: parent.height
-                            anchors.horizontalCenter: parent.horizontalCenter
+                            readonly property int cols: Math.max(1, Math.floor(parent.width / 112))
+                            anchors.fill: parent
+                            visible: !popup.isCommandMode && popup.filteredApps.length > 0
                             clip: true
-                            visible: popup.filteredApps.length > 0 || appModel.count === 0
-                            cellWidth: 120; cellHeight: 120
+                            cellWidth: width / cols
+                            cellHeight: 100
                             model: popup.filteredApps.length
                             keyNavigationWraps: false
                             highlightMoveDuration: 0
+                            boundsBehavior: Flickable.StopAtBounds
 
                             delegate: Item {
                                 id: appCell
-                                width: appGrid.cellWidth; height: appGrid.cellHeight
-                                property var app: popup.filteredApps[index] || {}
-                                // Highlighted by mouse hover OR keyboard selection
-                                property bool highlighted: appMouse.containsMouse || GridView.isCurrentItem
+                                required property int index
+                                readonly property var app: popup.filteredApps[index] || {}
+                                readonly property bool current: GridView.isCurrentItem
+                                width: appGrid.cellWidth
+                                height: appGrid.cellHeight
 
-                                // Tactile App Icon
                                 Rectangle {
-                                    anchors.centerIn: parent; width: 110; height: 110; radius: 24
-
-                                    // Float on the container at rest; only the active card lifts
-                                    color: appCell.highlighted ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.10) : "transparent"
-                                    border.color: appCell.highlighted ? Theme.primary : "transparent"
+                                    anchors.fill: parent
+                                    anchors.margins: 3
+                                    radius: PanelStyle.radiusCard
+                                    color: appMouse.containsMouse ? PanelStyle.cardHover
+                                         : appCell.current ? PanelStyle.cardFill : "transparent"
                                     border.width: 1
+                                    border.color: appCell.current && searchField.text.length > 0
+                                        ? PanelStyle.fieldRing : "transparent"
+                                    scale: appMouse.pressed ? 0.95 : 1
+                                    Behavior on color { ColorAnimation { duration: 120 } }
+                                    Behavior on scale { NumberAnimation { duration: 120 } }
 
-                                    scale: appMouse.pressed ? 0.92 : (appCell.highlighted ? 1.06 : 1.0)
-
-                                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
-                                    Behavior on color { ColorAnimation { duration: 150 } }
-                                    Behavior on border.color { ColorAnimation { duration: 150 } }
-
-                                    ColumnLayout {
-                                        anchors.fill: parent; anchors.margins: 12; spacing: 8
+                                    Column {
+                                        anchors.centerIn: parent
+                                        width: parent.width - 16
+                                        spacing: 8
                                         Item {
-                                            Layout.alignment: Qt.AlignHCenter; width: 46; height: 46
+                                            anchors.horizontalCenter: parent.horizontalCenter
+                                            width: 44; height: 44
                                             IconImage {
                                                 id: icon
                                                 anchors.fill: parent
-                                                iconHint: app.appIcon || ""
+                                                iconHint: appCell.app.appIcon || ""
                                             }
-                                            Text {
-                                                anchors.centerIn: parent; text: "󰣆"
-                                                color: Theme.primary; font.pixelSize: 32; opacity: 0.28
+                                            Rectangle {
+                                                anchors.fill: parent
                                                 visible: !icon.ready
+                                                radius: PanelStyle.radiusControl
+                                                color: PanelStyle.cardFill
+                                                Text {
+                                                    anchors.centerIn: parent
+                                                    text: (appCell.app.appName || "?").charAt(0).toUpperCase()
+                                                    color: Theme.primary; opacity: 0.6
+                                                    font.pixelSize: 18; font.bold: true
+                                                }
                                             }
                                         }
                                         Text {
-                                            Layout.fillWidth: true; text: app.appName || ""
-                                            color: Theme.primary; font.pixelSize: 11
-                                            font.weight: appCell.highlighted ? Font.Bold : Font.Medium
+                                            width: parent.width
+                                            text: appCell.app.appName || ""
+                                            color: Theme.primary
+                                            opacity: appMouse.containsMouse || appCell.current ? 1 : 0.8
+                                            font.pixelSize: 11
                                             horizontalAlignment: Text.AlignHCenter
-                                            elide: Text.ElideRight; wrapMode: Text.WordWrap; maximumLineCount: 2
+                                            wrapMode: Text.WordWrap
+                                            maximumLineCount: 2
+                                            elide: Text.ElideRight
                                         }
                                     }
-                                    MouseArea {
-                                        id: appMouse
-                                        anchors.fill: parent; hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        // Keep keyboard highlight in sync with the mouse
-                                        onContainsMouseChanged: if (containsMouse) appGrid.currentIndex = index
-                                        onClicked: { Sys.run(["bash", "-c", app.appExec]); popup.active = false }
-                                    }
+                                }
+                                MouseArea {
+                                    id: appMouse
+                                    anchors.fill: parent
+                                    anchors.margins: 3
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    // Keep the keyboard highlight with the mouse
+                                    onContainsMouseChanged: if (containsMouse) appGrid.currentIndex = appCell.index
+                                    onClicked: popup.launch(appCell.app)
                                 }
                             }
                         }
                     }
                 }
 
-                // TAB 1 — NOTES
-                Item {
-                    anchors.fill: parent; visible: popup.activeTab === 1
+                // ════════════════════════════════════════════════════════════
+                // NOTES
+                // ════════════════════════════════════════════════════════════
+                ColumnLayout {
+                    anchors.fill: parent
+                    visible: popup.activeTab === 1
+                    spacing: 10
 
-                    ColumnLayout { anchors.fill: parent; spacing: 10
-
-                        RowLayout { Layout.fillWidth: true
-                            Text { text: "󰎚  Quick Notes"; color: Theme.primary; font.pixelSize: 14; font.bold: true }
-                            Item { Layout.fillWidth: true }
-                            Text { visible: popup.notesDirty;  text: "Saving\u2026"
-                                   color: Theme.primary; font.pixelSize: 11; opacity: 0.4 }
-                            Text { visible: !popup.notesDirty && popup.notesLoaded; text: "Auto-saved"
-                                   color: Theme.primary; font.pixelSize: 11; opacity: 0.3 }
-                        }
-
-                        Rectangle {
-                            Layout.fillWidth: true; Layout.fillHeight: true; radius: 16
-                            color: Theme.background; border.color: Theme.primary; border.width: 1
-
-                            ScrollView {
-                                anchors.fill: parent; anchors.margins: 14
-                                clip: true; ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-
-                                TextEdit {
-                                    id: notesEdit
-                                    width: parent.width
-                                    color: Theme.primary; font.pixelSize: 14; wrapMode: TextEdit.Wrap
-                                    selectionColor: Theme.primary; selectedTextColor: Theme.background
-                                    focus: popup.activeTab === 1 && popup.active
-                                    
-                                    // ── FIX: Ensure ESC key works while typing in Notes ──────────────────
-                                    Keys.onEscapePressed: popup.active = false
-
-                                    Text {
-                                        anchors.fill: parent
-                                        text: "Start typing your notes here\u2026\n\nAuto-saved to ~/.config/quickshell/dock-notes.txt"
-                                        color: Theme.primary; opacity: 0.25; font.pixelSize: 14
-                                        wrapMode: Text.Wrap; visible: notesEdit.text.length === 0
-                                    }
-
-                                    onTextChanged: {
-                                        if (!popup.notesLoading) {
-                                            popup.notesContent = text
-                                            popup.notesDirty   = true
-                                            notesDebounce.restart()
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        RowLayout { Layout.fillWidth: true; spacing: 8
-                            
-                            // Copy Notes Button
-                            Rectangle {
-                                width: 36; height: 36; radius: 10
-                                color: copyNotesMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : Theme.background
-                                border.color: Theme.primary; border.width: 1
-                                
-                                scale: copyNotesMouse.pressed ? 0.9 : (copyNotesMouse.containsMouse ? 1.1 : 1.0)
-                                Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
-                                Behavior on color { ColorAnimation { duration: 150 } }
-
-                                Text { anchors.centerIn: parent; text: "󰆒"; color: Theme.primary; font.pixelSize: 16 }
-                                MouseArea {
-                                    id: copyNotesMouse
-                                    anchors.fill: parent; hoverEnabled: true
-                                    onClicked: Sys.run(["bash", "-c",
-                                        "printf '%s' " + JSON.stringify(notesEdit.text) + " | wl-copy"])
-                                }
-                            }
-                            
-                            // Clear Notes Button
-                            Rectangle {
-                                width: 36; height: 36; radius: 10
-                                color: clearNotesMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : Theme.background
-                                border.color: Theme.primary; border.width: 1
-
-                                scale: clearNotesMouse.pressed ? 0.9 : (clearNotesMouse.containsMouse ? 1.1 : 1.0)
-                                Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
-                                Behavior on color { ColorAnimation { duration: 150 } }
-
-                                Text { anchors.centerIn: parent; text: "󰆴"; color: Theme.primary; font.pixelSize: 16 }
-                                MouseArea {
-                                    id: clearNotesMouse
-                                    anchors.fill: parent; hoverEnabled: true
-                                    onClicked: {
-                                        notesEdit.text     = ""
-                                        popup.notesContent = ""
-                                        notesWriteProc.write("")
-                                    }
-                                }
-                            }
-                            Item { Layout.fillWidth: true }
-                            Text {
-                                text: notesEdit.text.length + " chars"
-                                color: Theme.primary; font.pixelSize: 11; opacity: 0.3
-                            }
-                        }
-                    }
-                }
-
-                // TAB 2 — TODO
-                Item {
-                    anchors.fill: parent; visible: popup.activeTab === 2
-
-                    ColumnLayout { anchors.fill: parent; spacing: 12
-
-                        RowLayout { Layout.fillWidth: true
-                            Text { text: "󰄳  Tasks"; color: Theme.primary; font.pixelSize: 14; font.bold: true }
-                            Item { Layout.fillWidth: true }
-                            Text {
-                                text: {
-                                    let done = 0
-                                    for (let i = 0; i < todoModel.count; i++)
-                                        if (todoModel.get(i).todoDone) done++
-                                    return done + " / " + todoModel.count + " done"
-                                }
-                                color: Theme.primary; font.pixelSize: 11; opacity: 0.4
-                            }
-                        }
-
-                        Rectangle {
-                            Layout.fillWidth: true; height: 44; radius: 14
-                            color: Theme.background; border.color: Theme.primary; border.width: 1
-                            RowLayout {
-                                anchors.fill: parent; anchors.leftMargin: 14; anchors.rightMargin: 10; spacing: 8
-                                Text { text: "󰐕"; color: Theme.primary; font.pixelSize: 18; opacity: 0.5 }
-                                TextInput {
-                                    id: todoInput; Layout.fillWidth: true
-                                    color: Theme.primary; font.pixelSize: 14
-                                    selectionColor: Theme.primary; selectedTextColor: Theme.background
-                                    verticalAlignment: TextInput.AlignVCenter; height: parent.height; clip: true
-                                    focus: popup.activeTab === 2 && popup.active
-
-                                    Keys.onReturnPressed: {
-                                        let t = todoInput.text.trim()
-                                        if (t !== "") {
-                                            todoModel.append({ todoText: t, todoDone: false })
-                                            saveTodos()
-                                            todoInput.text = ""
-                                        }
-                                    }
-                                    Keys.onEscapePressed: popup.active = false
-
-                                    Text {
-                                        anchors.fill: parent
-                                        text: "Add a task and press Enter\u2026"
-                                        color: Theme.primary; opacity: 0.3; font.pixelSize: 14
-                                        verticalAlignment: Text.AlignVCenter
-                                        visible: todoInput.text.length === 0
-                                    }
-                                }
-                            }
-                        }
-
-                        Item {
-                            Layout.fillWidth: true; Layout.fillHeight: true
-                            visible: todoModel.count === 0
-                            Column {
-                                anchors.centerIn: parent; spacing: 10
-                                Text { anchors.horizontalCenter: parent.horizontalCenter
-                                       text: "󰄳"; color: Theme.primary; font.pixelSize: 44; opacity: 0.12 }
-                                Text { anchors.horizontalCenter: parent.horizontalCenter
-                                       text: "No tasks yet"
-                                       color: Theme.primary; font.pixelSize: 13; opacity: 0.3 }
-                            }
-                        }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        radius: PanelStyle.radiusCard
+                        color: notesEdit.activeFocus ? PanelStyle.fieldFocus : PanelStyle.cardFill
+                        Behavior on color { ColorAnimation { duration: 150 } }
 
                         ScrollView {
-                            id: todoScroll
-                            Layout.fillWidth: true; Layout.fillHeight: true
-                            visible: todoModel.count > 0
-                            clip: true; ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-                            contentWidth: availableWidth
+                            id: notesScroll
+                            anchors.fill: parent
+                            anchors.margins: 16
+                            anchors.rightMargin: 8
+                            clip: true
+                            ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
-                            Column {
-                                width: todoScroll.availableWidth; spacing: 6; bottomPadding: 8
+                            TextEdit {
+                                id: notesEdit
+                                width: notesScroll.availableWidth - 8
+                                color: Theme.primary
+                                font.pixelSize: 14
+                                wrapMode: TextEdit.Wrap
+                                selectionColor: Theme.primary; selectedTextColor: Theme.background
+                                focus: popup.activeTab === 1 && popup.active
+                                Keys.onEscapePressed: popup.active = false
 
-                                Repeater {
-                                    model: todoModel
-
-                                    delegate: Rectangle {
-                                        required property int    index
-                                        required property string todoText
-                                        required property bool   todoDone
-
-                                        width: parent.width; height: 46; radius: 13
-                                        
-                                        // Subtle hover over entire task
-                                        color: todoMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05) : Theme.background
-                                        border.color: Theme.primary
-                                        border.width: todoDone ? 0 : 1
-                                        opacity: todoDone ? 0.5 : 1.0
-                                        
-                                        Behavior on color { ColorAnimation { duration: 150 } }
-
-                                        MouseArea {
-                                            id: todoMouse
-                                            anchors.fill: parent; hoverEnabled: true
-                                        }
-
-                                        RowLayout {
-                                            anchors.fill: parent
-                                            anchors.leftMargin: 12; anchors.rightMargin: 10; spacing: 10
-
-                                            // Bouncy Checkbox
-                                            Rectangle {
-                                                width: 22; height: 22; radius: 11
-                                                color: todoDone ? Theme.primary : "transparent"
-                                                border.color: Theme.primary; border.width: 1.5
-                                                Layout.alignment: Qt.AlignVCenter
-                                                
-                                                scale: checkMouse.pressed ? 0.8 : (checkMouse.containsMouse ? 1.15 : 1.0)
-                                                Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
-
-                                                Text { anchors.centerIn: parent; text: "󰄬"
-                                                       color: Theme.background; font.pixelSize: 12
-                                                       visible: todoDone }
-                                                MouseArea {
-                                                    id: checkMouse
-                                                    anchors.fill: parent; hoverEnabled: true
-                                                    onClicked: {
-                                                        todoModel.setProperty(index, "todoDone", !todoDone)
-                                                        saveTodos()
-                                                    }
-                                                }
-                                            }
-
-                                            Text {
-                                                Layout.fillWidth: true; text: todoText
-                                                color: Theme.primary; font.pixelSize: 13
-                                                elide: Text.ElideRight; font.strikeout: todoDone
-                                                opacity: todoDone ? 0.5 : 1.0
-                                            }
-
-                                            // Delete Task Button
-                                            Text {
-                                                text: "󰅖"; color: Theme.primary; font.pixelSize: 15
-                                                opacity: delTaskMouse.containsMouse ? 0.8 : 0.3
-                                                scale: delTaskMouse.pressed ? 0.8 : (delTaskMouse.containsMouse ? 1.2 : 1.0)
-                                                Layout.alignment: Qt.AlignVCenter
-                                                
-                                                Behavior on opacity { NumberAnimation { duration: 150 } }
-                                                Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
-
-                                                MouseArea {
-                                                    id: delTaskMouse
-                                                    anchors.fill: parent; hoverEnabled: true
-                                                    onClicked: {
-                                                        todoModel.remove(index)
-                                                        saveTodos()
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
+                                Text {
+                                    anchors.fill: parent
+                                    visible: notesEdit.text.length === 0
+                                    text: "Jot something down…"
+                                    color: Theme.primary; opacity: PanelStyle.faint
+                                    font.pixelSize: 14
                                 }
-                            }
-                        }
 
-                        RowLayout {
-                            Layout.fillWidth: true; visible: todoModel.count > 0
-                            Text {
-                                text: "Clear done"; color: Theme.primary; font.pixelSize: 12
-                                opacity: clearDoneMouse.containsMouse ? 0.8 : 0.4
-                                scale: clearDoneMouse.pressed ? 0.95 : 1.0
-                                Behavior on opacity { NumberAnimation { duration: 150 } }
-                                Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
-
-                                MouseArea {
-                                    id: clearDoneMouse
-                                    anchors.fill: parent; hoverEnabled: true
-                                    onClicked: {
-                                        for (let i = todoModel.count - 1; i >= 0; i--)
-                                            if (todoModel.get(i).todoDone) todoModel.remove(i)
-                                        saveTodos()
+                                onTextChanged: {
+                                    if (!popup.notesLoading) {
+                                        popup.notesContent = text
+                                        popup.notesDirty = true
+                                        notesDebounce.restart()
                                     }
-                                }
-                            }
-                            Item { Layout.fillWidth: true }
-                            Text {
-                                text: "Clear all"; color: Theme.primary; font.pixelSize: 12
-                                opacity: clearAllMouse.containsMouse ? 0.8 : 0.4
-                                scale: clearAllMouse.pressed ? 0.95 : 1.0
-                                Behavior on opacity { NumberAnimation { duration: 150 } }
-                                Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
-
-                                MouseArea {
-                                    id: clearAllMouse
-                                    anchors.fill: parent; hoverEnabled: true
-                                    onClicked: { todoModel.clear(); saveTodos() }
                                 }
                             }
                         }
                     }
-                }
-
-                // ════════════════════════════════════════════════════════════
-                // TAB 3 — SCREENSHOT
-                // ════════════════════════════════════════════════════════════
-                Item {
-                    anchors.fill: parent; visible: popup.activeTab === 3
 
                     RowLayout {
-                        anchors.fill: parent; spacing: 16
-
-                        // ── LEFT — controls ────────────────────────────────
-                        ColumnLayout {
-                            Layout.preferredWidth: 280
-                            Layout.fillHeight: true
-                            spacing: 14
-
-                            Text {
-                                text: "󰄀  Screenshot"
-                                color: Theme.primary; font.pixelSize: 14; font.bold: true
-                            }
-
-                            // ─ Mode picker ────────────────────────────────
-                            ColumnLayout {
-                                Layout.fillWidth: true; spacing: 6
-                                Text { text: "AREA"; color: Theme.primary; opacity: 0.45; font.pixelSize: 9; font.bold: true }
-                                Row {
-                                    spacing: 6
-                                    Repeater {
-                                        model: [
-                                            { id: "screen", icon: "󰍹", label: "Full" },
-                                            { id: "area",   icon: "󰒓", label: "Area" },
-                                            { id: "active", icon: "󱂬", label: "Window" }
-                                        ]
-                                        delegate: Rectangle {
-                                            required property var modelData
-                                            property bool sel: popup.screenshotMode === modelData.id
-                                            width: 84; height: 60; radius: 12
-                                            
-                                            // Interactive Mode Buttons
-                                            color: sel ? Theme.primary : (modeMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : Theme.background)
-                                            border.color: Theme.primary; border.width: sel ? 0 : 1
-                                            
-                                            scale: modeMouse.pressed ? 0.92 : (modeMouse.containsMouse && !sel ? 1.05 : 1.0)
-                                            Behavior on color { ColorAnimation { duration: 150 } }
-                                            Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
-
-                                            Column {
-                                                anchors.centerIn: parent; spacing: 4
-                                                Text {
-                                                    anchors.horizontalCenter: parent.horizontalCenter
-                                                    text: modelData.icon
-                                                    color: parent.parent.sel ? Theme.background : Theme.primary
-                                                    font.pixelSize: 18
-                                                    Behavior on color { ColorAnimation { duration: 150 } }
-                                                }
-                                                Text {
-                                                    anchors.horizontalCenter: parent.horizontalCenter
-                                                    text: modelData.label
-                                                    color: parent.parent.sel ? Theme.background : Theme.primary
-                                                    font.pixelSize: 10; font.bold: parent.parent.sel
-                                                    Behavior on color { ColorAnimation { duration: 150 } }
-                                                }
-                                            }
-                                            MouseArea {
-                                                id: modeMouse
-                                                anchors.fill: parent; hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: popup.screenshotMode = modelData.id
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // ─ Delay picker ───────────────────────────────
-                            ColumnLayout {
-                                Layout.fillWidth: true; spacing: 6
-                                Text { text: "DELAY"; color: Theme.primary; opacity: 0.45; font.pixelSize: 9; font.bold: true }
-                                Row {
-                                    spacing: 6
-                                    Repeater {
-                                        model: [
-                                            { val: 0,  label: "Now" },
-                                            { val: 3,  label: "3s" },
-                                            { val: 5,  label: "5s" },
-                                            { val: 10, label: "10s" }
-                                        ]
-                                        delegate: Rectangle {
-                                            required property var modelData
-                                            property bool sel: popup.screenshotDelay === modelData.val
-                                            width: 60; height: 32; radius: 10
-                                            
-                                            color: sel ? Theme.primary : (delayMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : Theme.background)
-                                            border.color: Theme.primary; border.width: sel ? 0 : 1
-                                            
-                                            scale: delayMouse.pressed ? 0.92 : (delayMouse.containsMouse && !sel ? 1.05 : 1.0)
-                                            Behavior on color { ColorAnimation { duration: 150 } }
-                                            Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
-
-                                            Text {
-                                                anchors.centerIn: parent
-                                                text: modelData.label
-                                                color: parent.sel ? Theme.background : Theme.primary
-                                                font.pixelSize: 11; font.bold: parent.sel
-                                                Behavior on color { ColorAnimation { duration: 150 } }
-                                            }
-                                            MouseArea {
-                                                id: delayMouse
-                                                anchors.fill: parent; hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: popup.screenshotDelay = modelData.val
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // ─ Capture button ─────────────────────────────
-                            Rectangle {
-                                Layout.fillWidth: true; height: 52; radius: 14
-                                
-                                color: popup.screenshotCapturing ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.4) : (capMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.9) : Theme.primary)
-                                scale: capMouse.pressed ? 0.96 : (capMouse.containsMouse ? 1.02 : 1.0)
-                                
-                                Behavior on color { ColorAnimation { duration: 150 } }
-                                Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
-
-                                RowLayout {
-                                    anchors.centerIn: parent; spacing: 10
-                                    Text {
-                                        text: popup.screenshotCapturing ? "󱎫" : "󰄀"
-                                        color: Theme.background
-                                        font.pixelSize: 20
-                                    }
-                                    Text {
-                                        text: popup.screenshotCapturing
-                                            ? (popup.screenshotDelay > 0
-                                                ? "Capturing in " + popup.screenshotDelay + "s\u2026"
-                                                : "Capturing\u2026")
-                                            : "Capture"
-                                        color: Theme.background
-                                        font.pixelSize: 14; font.bold: true
-                                    }
-                                }
-                                MouseArea {
-                                    id: capMouse
-                                    anchors.fill: parent; hoverEnabled: true
-                                    enabled: !popup.screenshotCapturing
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: {
-                                        screenshotCapture.shoot(
-                                            popup.screenshotMode,
-                                            popup.screenshotDelay)
-                                    }
-                                }
-                            }
-
-                            // ─ Hint footer ────────────────────────────────
-                            Column {
-                                Layout.fillWidth: true; spacing: 4
-                                Text { text: "󰈙  Saved to ~/Pictures/Screenshots"; color: Theme.primary; opacity: 0.5; font.pixelSize: 10 }
-                                Text { text: "󰆒  Auto-copied to clipboard"; color: Theme.primary; opacity: 0.5; font.pixelSize: 10 }
-                            }
-
-                            Item { Layout.fillHeight: true }
+                        Layout.fillWidth: true
+                        spacing: 6
+                        Chip {
+                            icon: "󰆏"; text: "Copy"
+                            enabled: notesEdit.text.length > 0
+                            onClicked: Sys.run(["bash", "-c", "printf '%s' \"$1\" | wl-copy", "copy", notesEdit.text])
                         }
-
-                        // Vertical separator
-                        Rectangle {
-                            Layout.preferredWidth: 1
-                            Layout.fillHeight: true
-                            color: Theme.primary; opacity: 0.1
+                        ConfirmChip {
+                            icon: "󰆴"; text: "Clear"
+                            confirmText: "Clear the notes?"
+                            enabled: notesEdit.text.length > 0
+                            onConfirmed: {
+                                notesEdit.text = ""
+                                popup.notesContent = ""
+                                notesWriteProc.write("")
+                            }
                         }
-
-                        // ── RIGHT — recent shots ───────────────────────────
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            Layout.fillHeight: true
-                            spacing: 8
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Text {
-                                    text: "RECENT"
-                                    color: Theme.primary; opacity: 0.45
-                                    font.pixelSize: 9; font.bold: true
-                                }
-                                Item { Layout.fillWidth: true }
-                                
-                                // Refresh Shots Button
-                                Rectangle {
-                                    width: 24; height: 24; radius: 7
-                                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
-                                    scale: refShotsMouse.pressed ? 0.85 : (refShotsMouse.containsMouse ? 1.15 : 1.0)
-                                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
-
-                                    Text { anchors.centerIn: parent; text: "󰑓"; color: Theme.primary; font.pixelSize: 12 }
-                                    MouseArea {
-                                        id: refShotsMouse
-                                        anchors.fill: parent; hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: popup.loadScreenshots()
-                                    }
-                                }
-                                
-                                // Open Shots Folder Button
-                                Rectangle {
-                                    width: 24; height: 24; radius: 7
-                                    color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
-                                    scale: openFolderMouse.pressed ? 0.85 : (openFolderMouse.containsMouse ? 1.15 : 1.0)
-                                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
-
-                                    Text { anchors.centerIn: parent; text: "󰉋"; color: Theme.primary; font.pixelSize: 12 }
-                                    MouseArea {
-                                        id: openFolderMouse
-                                        anchors.fill: parent; hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: {
-                                            Sys.run(["bash", "-c",
-                                                "DIR=\"$(xdg-user-dir PICTURES 2>/dev/null || echo \"$HOME/Pictures\")/Screenshots\"; " +
-                                                "command -v nemo &>/dev/null && nemo \"$DIR\" || xdg-open \"$DIR\""])
-                                            popup.active = false
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Empty state
-                            Item {
-                                Layout.fillWidth: true; Layout.fillHeight: true
-                                visible: screenshotModel.count === 0
-                                Column {
-                                    anchors.centerIn: parent; spacing: 8
-                                    Text {
-                                        anchors.horizontalCenter: parent.horizontalCenter
-                                        text: "󰋩"; color: Theme.primary; font.pixelSize: 44; opacity: 0.18
-                                    }
-                                    Text {
-                                        anchors.horizontalCenter: parent.horizontalCenter
-                                        text: "No screenshots yet"
-                                        color: Theme.primary; font.pixelSize: 13; opacity: 0.4
-                                    }
-                                }
-                            }
-
-                            // List with thumbnails
-                            ScrollView {
-                                Layout.fillWidth: true
-                                Layout.fillHeight: true
-                                visible: screenshotModel.count > 0
-                                clip: true
-                                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-                                ScrollBar.vertical.policy: ScrollBar.AsNeeded
-
-                                ListView {
-                                    id: ssListView
-                                    model: screenshotModel
-                                    spacing: 6
-                                    boundsBehavior: Flickable.StopAtBounds
-
-                                    delegate: Rectangle {
-                                        required property int    index
-                                        required property string ssPath
-                                        required property string ssName
-
-                                        width: ssListView.width
-                                        height: 64
-                                        radius: 12
-                                        
-                                        color: rowHoverArea.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.10) : Theme.background
-                                        border.color: rowHoverArea.containsMouse ? Theme.primary : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.2)
-                                        border.width: 1
-                                        
-                                        // Slight scale down on click (not on hover because it's a full width list item)
-                                        scale: rowHoverArea.pressed ? 0.98 : 1.0
-                                        
-                                        Behavior on color { ColorAnimation { duration: 120 } }
-                                        Behavior on border.color { ColorAnimation { duration: 120 } }
-                                        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
-
-                                        RowLayout {
-                                            anchors.fill: parent
-                                            anchors.margins: 6
-                                            spacing: 10
-
-                                            // Thumbnail
-                                            Rectangle {
-                                                Layout.preferredWidth: 80
-                                                Layout.preferredHeight: 52
-                                                radius: 8
-                                                color: Qt.rgba(0, 0, 0, 0.05)
-                                                clip: true
-
-                                                Image {
-                                                    anchors.fill: parent
-                                                    source: "file://" + ssPath
-                                                    fillMode: Image.PreserveAspectCrop
-                                                    asynchronous: true
-                                                    cache: true
-                                                    sourceSize.width: 160
-                                                    sourceSize.height: 104
-                                                }
-                                            }
-
-                                            // Action: open with default viewer
-                                            Rectangle {
-                                                Layout.preferredWidth: 28
-                                                Layout.preferredHeight: 28
-                                                radius: 8
-                                                color: openImgMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.2) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.10)
-                                                
-                                                scale: openImgMouse.pressed ? 0.9 : (openImgMouse.containsMouse ? 1.15 : 1.0)
-                                                Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
-                                                Behavior on color { ColorAnimation { duration: 150 } }
-
-                                                Text { anchors.centerIn: parent; text: "󰏋"; color: Theme.primary; font.pixelSize: 14 }
-                                                MouseArea {
-                                                    id: openImgMouse
-                                                    anchors.fill: parent; hoverEnabled: true
-                                                    cursorShape: Qt.PointingHandCursor
-                                                    onClicked: {
-                                                        Sys.run(["xdg-open", ssPath])
-                                                        popup.active = false
-                                                    }
-                                                }
-                                            }
-
-                                            // Action: reveal in nemo
-                                            Rectangle {
-                                                Layout.preferredWidth: 28
-                                                Layout.preferredHeight: 28
-                                                radius: 8
-                                                color: revealImgMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.2) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.10)
-                                                
-                                                scale: revealImgMouse.pressed ? 0.9 : (revealImgMouse.containsMouse ? 1.15 : 1.0)
-                                                Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
-                                                Behavior on color { ColorAnimation { duration: 150 } }
-
-                                                Text { anchors.centerIn: parent; text: "󰉋"; color: Theme.primary; font.pixelSize: 14 }
-                                                MouseArea {
-                                                    id: revealImgMouse
-                                                    anchors.fill: parent; hoverEnabled: true
-                                                    cursorShape: Qt.PointingHandCursor
-                                                    onClicked: {
-                                                        let dir = ssPath.substring(0, ssPath.lastIndexOf("/"))
-                                                        Sys.run(["bash", "-c",
-                                                            "command -v nemo &>/dev/null && nemo \"" + dir + "\" || xdg-open \"" + dir + "\""])
-                                                        popup.active = false
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        // Row-level hover + click-to-copy-path
-                                        MouseArea {
-                                            id: rowHoverArea
-                                            anchors.fill: parent
-                                            anchors.rightMargin: 80   // leave action buttons clickable
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: {
-                                                Sys.run(["bash", "-c",
-                                                    "command -v wl-copy &>/dev/null && printf '%s' " +
-                                                    JSON.stringify(ssPath) + " | wl-copy"])
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                        Item { Layout.fillWidth: true }
+                        Text {
+                            readonly property int words: notesEdit.text.trim() === "" ? 0 : notesEdit.text.trim().split(/\s+/).length
+                            text: words + (words === 1 ? " word" : " words")
+                            color: Theme.primary; opacity: PanelStyle.faint
+                            font.pixelSize: 11
                         }
                     }
                 }
 
+                // ════════════════════════════════════════════════════════════
+                // TODO
+                // ════════════════════════════════════════════════════════════
+                ColumnLayout {
+                    anchors.fill: parent
+                    visible: popup.activeTab === 2
+                    spacing: 10
+
+                    PanelField {
+                        Layout.fillWidth: true
+                        implicitHeight: 46
+                        focused: todoInput.activeFocus
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 14; anchors.rightMargin: 8
+                            spacing: 10
+                            Text { text: "󰐕"; color: Theme.primary; opacity: 0.7; font.pixelSize: 17 }
+                            TextInput {
+                                id: todoInput
+                                Layout.fillWidth: true
+                                Layout.fillHeight: true
+                                color: Theme.primary
+                                font.pixelSize: 14
+                                selectionColor: Theme.primary; selectedTextColor: Theme.background
+                                verticalAlignment: TextInput.AlignVCenter
+                                clip: true
+                                focus: popup.activeTab === 2 && popup.active
+                                Keys.onReturnPressed: popup.addTodo()
+                                Keys.onEnterPressed: popup.addTodo()
+                                Keys.onEscapePressed: popup.active = false
+                                Text {
+                                    anchors.fill: parent
+                                    verticalAlignment: Text.AlignVCenter
+                                    visible: todoInput.text.length === 0
+                                    text: "Add a task"
+                                    color: Theme.primary; opacity: PanelStyle.faint
+                                    font.pixelSize: 14
+                                }
+                            }
+                            Chip {
+                                visible: todoInput.text.trim().length > 0
+                                text: "Add"
+                                selected: true
+                                onClicked: popup.addTodo()
+                            }
+                        }
+                    }
+
+                    // Progress
+                    Rectangle {
+                        Layout.fillWidth: true
+                        visible: todoModel.count > 0
+                        implicitHeight: 4
+                        radius: 2
+                        color: PanelStyle.cardFill
+                        Rectangle {
+                            height: parent.height
+                            radius: 2
+                            width: todoModel.count > 0 ? parent.width * popup.todoDoneCount / todoModel.count : 0
+                            color: Theme.primary
+                            Behavior on width { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+                        }
+                    }
+
+                    // Empty
+                    Item {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        visible: todoModel.count === 0
+                        Column {
+                            anchors.centerIn: parent
+                            spacing: 8
+                            Text {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: "󰄲"; color: Theme.primary
+                                font.pixelSize: 36; opacity: 0.2
+                            }
+                            Text {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: "Nothing to do"
+                                color: Theme.primary; opacity: PanelStyle.dim
+                                font.pixelSize: PanelStyle.bodySize
+                            }
+                        }
+                    }
+
+                    ListView {
+                        id: todoList
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        visible: todoModel.count > 0
+                        clip: true
+                        spacing: 6
+                        model: todoModel
+                        boundsBehavior: Flickable.StopAtBounds
+                        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                        delegate: Rectangle {
+                            id: task
+                            required property int index
+                            required property string todoText
+                            required property bool todoDone
+                            width: todoList.width
+                            height: 44
+                            radius: PanelStyle.radiusControl
+                            color: rowHover.hovered ? PanelStyle.cardHover : PanelStyle.cardFill
+                            Behavior on color { ColorAnimation { duration: 120 } }
+                            HoverHandler { id: rowHover }
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 12; anchors.rightMargin: 8
+                                spacing: 12
+
+                                // Check
+                                Rectangle {
+                                    implicitWidth: 20; implicitHeight: 20
+                                    radius: 10
+                                    color: task.todoDone ? Theme.primary : "transparent"
+                                    border.width: task.todoDone ? 0 : 1.5
+                                    border.color: Theme.withAlpha(Theme.primary, checkMouse.containsMouse ? 0.9 : 0.5)
+                                    Behavior on color { ColorAnimation { duration: 150 } }
+                                    Text {
+                                        anchors.centerIn: parent
+                                        visible: task.todoDone
+                                        text: "󰄬"
+                                        color: Theme.background
+                                        font.pixelSize: 12; font.bold: true
+                                    }
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: task.todoText
+                                    color: Theme.primary
+                                    opacity: task.todoDone ? PanelStyle.faint + 0.1 : 1
+                                    font.pixelSize: PanelStyle.bodySize
+                                    font.strikeout: task.todoDone
+                                    elide: Text.ElideRight
+                                }
+
+                                IconButton {
+                                    icon: "󰅖"; size: 26; iconSize: 13
+                                    opacity: rowHover.hovered ? 1 : 0
+                                    Behavior on opacity { NumberAnimation { duration: 120 } }
+                                    onClicked: { todoModel.remove(task.index); popup.saveTodos() }
+                                }
+                            }
+
+                            // Click the row (not the delete button) to tick it
+                            MouseArea {
+                                id: checkMouse
+                                anchors.fill: parent
+                                anchors.rightMargin: 40
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    todoModel.setProperty(task.index, "todoDone", !task.todoDone)
+                                    popup.saveTodos()
+                                }
+                            }
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        visible: todoModel.count > 0
+                        spacing: 6
+                        Chip {
+                            icon: "󰄬"; text: "Clear done"
+                            enabled: popup.todoDoneCount > 0
+                            onClicked: {
+                                for (let i = todoModel.count - 1; i >= 0; i--)
+                                    if (todoModel.get(i).todoDone) todoModel.remove(i)
+                                popup.saveTodos()
+                            }
+                        }
+                        Item { Layout.fillWidth: true }
+                        ConfirmChip {
+                            icon: "󰆴"; text: "Clear all"
+                            confirmText: "Remove every task?"
+                            onConfirmed: { todoModel.clear(); popup.saveTodos() }
+                        }
+                    }
+                }
             }
         }
     }

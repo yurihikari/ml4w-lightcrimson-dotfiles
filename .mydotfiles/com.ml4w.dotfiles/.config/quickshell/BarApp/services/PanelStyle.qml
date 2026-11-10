@@ -26,6 +26,12 @@ QtObject {
 
     // Popout outline (same for every section, so it doesn't shift while morphing)
     readonly property color outline: Theme.withAlpha(Theme.primary, 0.64)
+    // Drawer outline width. 0: no outline; the frame and its drawers read as
+    // one material, set apart by the shared shadow alone. (Each drawer drew
+    // its outline round the whole frame, so with two drawers open at once,
+    // say a toast arriving while the sidebar is out, each one's outline cut
+    // across the other.) 2 brings the outlines back.
+    readonly property real outlineWidth: 0
 
     // Tonal surfaces
     readonly property color cardFill: Theme.withAlpha(Theme.primary, 0.06)

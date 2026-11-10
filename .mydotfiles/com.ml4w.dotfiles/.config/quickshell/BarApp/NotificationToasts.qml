@@ -27,8 +27,18 @@ PanelWindow {
     // Slides out of the frame on its own: Hyprland's layer animation is off
     // for this namespace (hypr/conf/custom/style.lua), or it slid in twice.
     WlrLayershell.namespace: "quickshell-drawer"
-    // Focus only when clicked (an inline reply field), never grabbed.
-    WlrLayershell.keyboardFocus: WlrLayershell.OnDemand
+    // Keyboard focus only when a toast has an inline reply field (and then
+    // only on click). Otherwise none at all: Hyprland hands an on-demand layer
+    // focus as it appears, and that took it from an open drawer's focus grab,
+    // so every toast closed the sidebar or the wallpapers.
+    WlrLayershell.keyboardFocus: wantsKeys ? WlrLayershell.OnDemand : WlrLayershell.None
+    readonly property bool wantsKeys: {
+        for (let i = 0; i < toastModel.count; i++) {
+            const n = byId[toastModel.get(i).nid]
+            if (n && n.hasInlineReply) return true
+        }
+        return false
+    }
 
     // A bar popup is out: wait until it closes.
     property bool suppressed: false

@@ -23,7 +23,7 @@ Item {
     property real panelHeight: 300
     property real radius: 20
     property color borderColor: PanelStyle.outline
-    property real borderWidth: 2
+    property real borderWidth: PanelStyle.outlineWidth
     property int duration: 400
 
     width: panelWidth
