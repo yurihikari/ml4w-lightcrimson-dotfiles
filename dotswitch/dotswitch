@@ -1,0 +1,555 @@
+#!/usr/bin/env bash
+# dotswitch: switch between complete dotfiles themes, keeping your data.
+#
+# A theme is a folder in ~/.mydotfiles/<id> laid out like your home folder
+# (the ML4W Dotfiles Installer's profile layout): its top-level dotfiles are
+# linked into ~ and each entry of its .config into ~/.config. Switching
+# swaps those links from one theme to the other, so themes can differ in
+# everything (Hyprland config, bar, shell, scripts).
+#
+# Your data (notes, wallpapers, monitor layout, ...) lives inside the active
+# theme too; the paths in ~/.config/dotswitch/keep are carried over to the
+# theme you switch to, so they follow you.
+#
+# A theme can ship a .dotswitch/ folder (never linked into ~):
+#   info        name=... and description=... lines, shown in the list
+#   deactivate  run before switching away (stop its bar, daemons, ...)
+#   activate    run after switching to it (start them again)
+# Without an activate script, log out and back in to start the theme.
+
+set -euo pipefail
+
+STORE="${DOTSWITCH_STORE:-$HOME/.mydotfiles}"
+CONF_DIR="$HOME/.config/dotswitch"
+KEEP_FILE="$CONF_DIR/keep"
+STATE_DIR="$HOME/.local/state/dotswitch"
+BACKUPS="$STORE/backups/dotswitch"
+
+DRY=0; HOOKS=1; CARRY=1; RELOAD=1; YES=0
+
+# ── Output ────────────────────────────────────────────────────────────────
+if [ -t 1 ]; then B=$'\e[1m'; D=$'\e[2m'; G=$'\e[32m'; Y=$'\e[33m'; R=$'\e[31m'; N=$'\e[0m'
+else B=; D=; G=; Y=; R=; N=; fi
+say()  { printf '%s\n' "$*"; }
+step() { printf '%s›%s %s\n' "$G" "$N" "$*"; }
+warn() { printf '%s!%s %s\n' "$Y" "$N" "$*" >&2; }
+die()  { printf '%serror:%s %s\n' "$R" "$N" "$*" >&2; exit 1; }
+# Run a command, or only print it in dry-run mode.
+run()  { if [ "$DRY" = 1 ]; then printf '%s  would: %s%s\n' "$D" "$*" "$N"; else "$@"; fi; }
+
+usage() {
+    cat <<EOF
+${B}dotswitch${N}: switch between complete dotfiles themes, keeping your data
+
+  dotswitch                      pick a theme (interactive)
+  dotswitch list                 themes in $STORE, * = active
+  dotswitch status               active theme, its links, the keep list
+  dotswitch use <theme>          switch to a theme
+  dotswitch new <id> [--from <theme>] [--name <name>]
+                                 start a new theme as a copy of one (default: active)
+  dotswitch install <folder> [--id <id>] [--no-save]
+                                 copy a theme folder (e.g. from a git repo) into the store;
+                                 with base=<id> in its .dotswitch/info it is an overlay
+                                 on a copy of that theme
+  dotswitch save [<theme>]       snapshot a theme (default: active)
+  dotswitch snapshots [<theme>]  list snapshots
+  dotswitch restore <theme> [<snapshot>]
+                                 put a theme back as it was in a snapshot (default:
+                                 latest), keeping your current data
+  dotswitch remove <theme>       move a theme out of the store (into backups)
+  dotswitch keep                 show the keep list and where it is
+  dotswitch preview              screenshot the focused monitor as the active theme's thumbnail
+  dotswitch json                 everything above as JSON (for a UI)
+
+Options:  -n, --dry-run   show what would happen      --no-hooks   skip activate/deactivate
+          --no-carry      don't carry the keep list   --no-reload  don't reload Hyprland
+          -y, --yes       don't ask
+
+A <theme> is its id (folder name), the last part of it, or its name (any case).
+EOF
+}
+
+# ── Themes ────────────────────────────────────────────────────────────────
+themes() {
+    local d
+    for d in "$STORE"/*/ "$STORE"/.[!.]*/; do
+        [ -d "$d" ] || continue
+        d="${d%/}"; d="${d##*/}"
+        [ "$d" = backups ] && continue
+        [[ "$d" == .* ]] && continue
+        [ -d "$STORE/$d/.config" ] && printf '%s\n' "$d"
+    done
+    return 0
+}
+
+info_get() {   # <id> <key>
+    local f="$STORE/$1/.dotswitch/info"
+    [ -f "$f" ] || return 0
+    sed -n "s/^$2[[:space:]]*=[[:space:]]*//p" "$f" | head -n1
+}
+name_of() { local n; n="$(info_get "$1" name)"; printf '%s' "${n:-$1}"; }
+
+# Theme id from an id or a name.
+resolve() {
+    local want="${1,,}" t hits=()
+    for t in $(themes); do
+        [ "${t,,}" = "$want" ] && { printf '%s' "$t"; return; }
+    done
+    # Its name, or the last part of its id (popups for com.lightcrimson.popups)
+    for t in $(themes); do
+        local n; n="$(name_of "$t")"
+        if [ "${n,,}" = "$want" ] || [ "${t##*.}" = "$want" ]; then hits+=("$t"); fi
+    done
+    [ "${#hits[@]}" = 1 ] && { printf '%s' "${hits[0]}"; return; }
+    [ "${#hits[@]}" -gt 1 ] && die "'$1' matches several themes: ${hits[*]}"
+    die "no theme '$1' in $STORE (see: dotswitch list)"
+}
+
+store_real() { realpath -m "$STORE"; }
+
+# Every link in ~ and ~/.config that points into a theme: "<link>\t<id>".
+links() {
+    local s l t; s="$(store_real)"
+    for l in "$HOME"/.[!.]* "$HOME"/* "$HOME"/.config/.[!.]* "$HOME"/.config/*; do
+        [ -L "$l" ] || continue
+        t="$(realpath -m "$l")"
+        case "$t" in "$s"/*) ;; *) continue ;; esac
+        t="${t#"$s"/}"; t="${t%%/*}"
+        [ "$t" = backups ] && continue
+        printf '%s\t%s\n' "$l" "$t"
+    done
+    return 0
+}
+
+# The theme most links point into.
+active() {
+    links | cut -f2 | sort | uniq -c | sort -rn | awk 'NR==1 { print $2 }'
+}
+
+# What a theme links: "<source>\t<link>" (the installer's rules).
+entries() {
+    local p="$STORE/$1" i n
+    for i in "$p"/.[!.]* "$p"/*; do
+        [ -e "$i" ] || [ -L "$i" ] || continue
+        n="${i##*/}"
+        case "$n" in .config|.dotswitch|.git) continue ;; esac
+        printf '%s\t%s\n' "$i" "$HOME/$n"
+    done
+    for i in "$p"/.config/.[!.]* "$p"/.config/*; do
+        [ -e "$i" ] || [ -L "$i" ] || continue
+        printf '%s\t%s\n' "$i" "$HOME/.config/${i##*/}"
+    done
+    return 0
+}
+
+# ── Keep list ─────────────────────────────────────────────────────────────
+keep_paths() {
+    [ -f "$KEEP_FILE" ] || return 0
+    sed -e 's/[[:space:]]#.*$//' -e 's/^#.*$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$KEEP_FILE" \
+        | { grep -v '^$' || true; } | sed 's:/*$::'
+}
+
+# The entry a path belongs to: .config/<app> or the top-level dotfile.
+top_of() {
+    case "$1" in
+        .config/*) local r="${1#.config/}"; printf '.config/%s' "${r%%/*}" ;;
+        *) printf '%s' "${1%%/*}" ;;
+    esac
+}
+
+# Copy the keep list from one theme folder into another. Whatever gets
+# replaced is saved under <backup>. A path is only carried when the
+# destination has its app (.config/<app>) at all.
+carry() {   # <from dir> <to dir> <backup dir> <label>
+    local from="$1" to="$2" bdir="$3" label="$4" p n=0
+    while IFS= read -r p; do
+        [ -e "$from/$p" ] || continue
+        if [ ! -e "$to/$(top_of "$p")" ]; then
+            say "  ${D}skip $p (not used by $label)${N}"; continue
+        fi
+        if [ -d "$from/$p" ]; then
+            run mkdir -p "$to/$p"
+            run rsync -a --backup --backup-dir="$bdir/$p" "$from/$p/" "$to/$p/"
+        else
+            if [ -e "$to/$p" ] && cmp -s "$from/$p" "$to/$p"; then continue; fi
+            if [ -e "$to/$p" ]; then
+                run mkdir -p "$bdir/$(dirname "$p")"
+                run cp -a "$to/$p" "$bdir/$p"
+            fi
+            run mkdir -p "$to/$(dirname "$p")"
+            run cp -a "$from/$p" "$to/$p"
+        fi
+        say "  $p"; n=$((n + 1))
+    done < <(keep_paths)
+    [ "$n" = 0 ] && say "  ${D}nothing to carry${N}"
+    return 0
+}
+
+# ── Hooks ─────────────────────────────────────────────────────────────────
+hook() {   # <id> <activate|deactivate> <from> <to>
+    local h="$STORE/$1/.dotswitch/$2"
+    [ "$HOOKS" = 1 ] || return 1
+    [ -f "$h" ] || return 1
+    step "$2 $(name_of "$1")"
+    if [ "$DRY" = 1 ]; then printf '%s  would run %s%s\n' "$D" "$h" "$N"; return 0; fi
+    # (without the lock's fd 9: what the hook starts, a bar for example,
+    # outlives dotswitch and must not keep holding the lock)
+    ( cd "$HOME" && DOTSWITCH_FROM="$3" DOTSWITCH_TO="$4" DOTSWITCH_THEME="$STORE/$1" bash "$h" 9>&- ) \
+        || warn "$2 script of $1 failed (exit $?)"
+    return 0
+}
+
+confirm() {
+    [ "$YES" = 1 ] || [ "$DRY" = 1 ] && return 0
+    [ -t 0 ] || return 0
+    local a; read -r -p "$1 [Y/n] " a
+    [[ -z "$a" || "$a" =~ ^[Yy] ]]
+}
+
+lock() {
+    mkdir -p "$STATE_DIR"
+    exec 9>"$STATE_DIR/lock"
+    flock -n 9 || die "another dotswitch is running"
+}
+
+stamp() { date +%Y%m%d-%H%M%S; }
+
+# ── Commands ──────────────────────────────────────────────────────────────
+cmd_list() {
+    local a t; a="$(active)"
+    for t in $(themes); do
+        local mark=" " desc; desc="$(info_get "$t" description)"
+        [ "$t" = "$a" ] && mark="${G}*${N}"
+        printf '%s %s%s%s  %s%s%s\n' "$mark" "$B" "$(name_of "$t")" "$N" "$D" "$t" "$N"
+        [ -n "$desc" ] && printf '    %s\n' "$desc"
+    done
+    return 0
+}
+
+cmd_status() {
+    local a; a="$(active)"
+    if [ -z "$a" ]; then say "No theme active (nothing in ~ links into $STORE)."
+    else
+        say "${B}$(name_of "$a")${N} ($a) is active"
+        local mine others
+        mine="$(links | awk -F'\t' -v a="$a" '$2 == a' | wc -l)"
+        others="$(links | awk -F'\t' -v a="$a" '$2 != a')"
+        say "  $mine links into $STORE/$a"
+        [ -n "$others" ] && { warn "links into other themes:"; printf '%s\n' "$others" | sed 's/^/    /' >&2; }
+        local broken; broken="$(links | awk -F'\t' -v a="$a" '$2 == a { print $1 }' | while read -r l; do [ -e "$l" ] || echo "$l"; done)"
+        [ -n "$broken" ] && { warn "broken links:"; printf '    %s\n' $broken >&2; }
+        local h="$STORE/$a/.dotswitch"
+        say "  hooks: $( [ -f "$h/activate" ] && printf 'activate ' )$( [ -f "$h/deactivate" ] && printf 'deactivate' )$( [ -f "$h/activate" ] || [ -f "$h/deactivate" ] || printf 'none' )"
+    fi
+    say "  keep list: $KEEP_FILE ($(keep_paths | wc -l) paths)"
+    say "  snapshots: $BACKUPS"
+}
+
+cmd_keep() {
+    say "${B}$KEEP_FILE${N}"
+    [ -f "$KEEP_FILE" ] || { warn "missing: nothing is carried between themes"; return 0; }
+    local a p; a="$(active)"
+    while IFS= read -r p; do
+        if [ -n "$a" ] && [ -e "$STORE/$a/$p" ]; then say "  ${G}✓${N} $p"
+        else say "  ${D}· $p (not in the active theme)${N}"; fi
+    done < <(keep_paths)
+}
+
+cmd_use() {
+    [ $# -ge 1 ] || die "which theme? (see: dotswitch list)"
+    local new old; new="$(resolve "$1")"; old="$(active)"
+    if [ "$new" = "$old" ]; then
+        say "$(name_of "$new") is already active; relinking."
+    fi
+    say "${B}${old:+$(name_of "$old") → }$(name_of "$new")${N}"
+    confirm "Switch themes?" || exit 1
+    lock
+
+    local ts bdir; ts="$(stamp)"; bdir="$BACKUPS/switch-$ts"
+
+    # 1. Let the old theme stop its bar and daemons (links still point to it).
+    if [ -n "$old" ] && [ "$old" != "$new" ]; then hook "$old" deactivate "$old" "$new" || true; fi
+
+    # 2. Bring your data along.
+    if [ "$CARRY" = 1 ] && [ -n "$old" ] && [ "$old" != "$new" ]; then
+        step "carrying your data from $(name_of "$old")"
+        carry "$STORE/$old" "$STORE/$new" "$bdir/carried" "$(name_of "$new")"
+    fi
+
+    # 3. Swap the links. Anything real in the way is moved to the backup.
+    step "linking $(name_of "$new")"
+    local l t src n=0 moved=0
+    if [ -n "$old" ]; then
+        while IFS=$'\t' read -r l t; do
+            [ "$t" = "$old" ] && run rm -f -- "$l"
+        done < <(links)
+    fi
+    while IFS=$'\t' read -r src l; do
+        if [ -L "$l" ]; then run rm -f -- "$l"
+        elif [ -e "$l" ]; then
+            local rel="${l#"$HOME"/}"
+            run mkdir -p "$bdir/replaced/$(dirname "$rel")"
+            run mv -- "$l" "$bdir/replaced/$rel"
+            moved=$((moved + 1))
+        fi
+        run mkdir -p "$(dirname "$l")"
+        run ln -s --relative -- "$src" "$l"
+        n=$((n + 1))
+    done < <(entries "$new")
+    say "  $n links"
+    [ "$moved" -gt 0 ] && say "  $moved existing files moved to $bdir/replaced"
+
+    # 4. Keep the ML4W installer in agreement.
+    if [ "$DRY" = 0 ]; then
+        if [ -d "$HOME/.config/ml4w-dotfiles-installer" ]; then
+            printf '{"active":"%s"}\n' "$new" > "$HOME/.config/ml4w-dotfiles-installer/active.json" || true
+        fi
+        mkdir -p "$STATE_DIR"
+        printf '%s\t%s\t%s\n' "$ts" "${old:--}" "$new" >> "$STATE_DIR/history"
+    fi
+
+    # 5. Reload Hyprland with the new config, then start the new theme.
+    if [ "$RELOAD" = 1 ] && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && command -v hyprctl >/dev/null \
+        && [ -d "$STORE/$new/.config/hypr" ]; then
+        step "reloading Hyprland"
+        run hyprctl reload >/dev/null || warn "hyprctl reload failed"
+    fi
+    if [ "$new" = "$old" ]; then say "${G}Done.${N}"; return 0; fi
+    if ! hook "$new" activate "$old" "$new"; then
+        say "${Y}Log out and back in${N} to start $(name_of "$new") (it has no activate script)."
+    fi
+    say "${G}Done.${N}${old:+ Back: dotswitch use $old}"
+}
+
+cmd_new() {
+    [ $# -ge 1 ] || die "usage: dotswitch new <id> [--from <theme>] [--name <name>]"
+    local id="$1" from="" name=""; shift
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --from) from="$2"; shift 2 ;;
+            --name) name="$2"; shift 2 ;;
+            *) die "unknown option $1" ;;
+        esac
+    done
+    [[ "$id" =~ ^[A-Za-z0-9._-]+$ ]] && [ "$id" != backups ] || die "an id is letters, digits, . _ - (e.g. com.lightcrimson.popups)"
+    [ -e "$STORE/$id" ] && die "$STORE/$id already exists"
+    if [ -n "$from" ]; then from="$(resolve "$from")"; else from="$(active)"; fi
+    [ -n "$from" ] || die "no active theme to copy; pass --from <theme>"
+    step "copying $(name_of "$from") to $STORE/$id"
+    run cp -a --reflink=auto -- "$STORE/$from" "$STORE/$id"
+    run mkdir -p "$STORE/$id/.dotswitch"
+    if [ "$DRY" = 0 ]; then
+        local f="$STORE/$id/.dotswitch/info"
+        { printf 'name=%s\n' "${name:-$id}"; printf 'description=Started from %s on %s\n' "$(name_of "$from")" "$(date +%F)"; } > "$f.new"
+        grep -v -E '^(name|description)[[:space:]]*=' "$f" 2>/dev/null >> "$f.new" || true
+        mv "$f.new" "$f"
+    fi
+    say "Edit it in $STORE/$id, then: dotswitch use $id"
+}
+
+cmd_install() {
+    [ $# -ge 1 ] || die "usage: dotswitch install <folder> [--id <id>] [--no-save]"
+    local src; src="$(realpath -m "$1")"; shift
+    local id="${src##*/}" save=1
+    while [ $# -gt 0 ]; do
+        case "$1" in --id) id="$2"; shift 2 ;; --no-save) save=0; shift ;; *) die "unknown option $1" ;; esac
+    done
+    [ -d "$src/.config" ] || die "$src has no .config folder; is it a theme?"
+    # A folder can be an overlay on another theme (base= in its .dotswitch/info):
+    # only the files it changes. A first install starts from a copy of the base.
+    local base; base="$(sed -n 's/^base[[:space:]]*=[[:space:]]*//p' "$src/.dotswitch/info" 2>/dev/null | head -n1)"
+    if [ -d "$STORE/$id" ]; then
+        if [ "$save" = 1 ]; then
+            step "snapshot of the installed $id first"
+            cmd_save "$id"
+        fi
+        if [ "$id" = "$(active)" ]; then warn "$id is active; the change applies right away"; fi
+    elif [ -n "$base" ]; then
+        [ -d "$STORE/$base" ] || die "$id is built on $base, which isn't installed"
+        step "starting from a copy of $(name_of "$base")"
+        run cp -a --reflink=auto -- "$STORE/$base" "$STORE/$id"
+        run rm -f -- "$STORE/$id/.dotswitch/preview.png"
+    fi
+    step "installing $src → $STORE/$id"
+    run mkdir -p "$STORE/$id"
+    # Your data in the installed copy wins over what the folder ships.
+    local excl=() p
+    if [ -d "$STORE/$id" ]; then
+        while IFS= read -r p; do [ -e "$STORE/$id/$p" ] && excl+=(--exclude="/$p"); done < <(keep_paths)
+    fi
+    run rsync -a --exclude=/.git "${excl[@]}" "$src/" "$STORE/$id/"
+    say "Installed. Switch with: dotswitch use $id"
+}
+
+cmd_save() {
+    local id; if [ $# -ge 1 ]; then id="$(resolve "$1")"; else id="$(active)"; fi
+    [ -n "$id" ] || die "which theme?"
+    local out; out="$BACKUPS/$id/$id-$(stamp).tar.zst"
+    step "snapshot of $(name_of "$id") → $out"
+    run mkdir -p "$BACKUPS/$id"
+    run tar -C "$STORE" --zstd -cf "$out" -- "$id"
+    [ "$DRY" = 1 ] || say "  $(du -h "$out" | cut -f1)"
+}
+
+cmd_snapshots() {
+    local t ids; if [ $# -ge 1 ]; then ids="$1"; else ids="$(ls -1 "$BACKUPS" 2>/dev/null | grep -v -E '^(switch|restore)-' || true)"; fi
+    for t in $ids; do
+        [ -d "$BACKUPS/$t" ] || continue
+        say "${B}$t${N}"
+        { ls -1t "$BACKUPS/$t"/*.tar.zst 2>/dev/null || true; } | while read -r f; do
+            printf '  %s  %s\n' "$(du -h "$f" | cut -f1)" "${f##*/}"
+        done
+        for f in "$BACKUPS/$t"/removed-* "$BACKUPS/$t"/before-restore-*; do
+            [ -d "$f" ] && printf '  %sfolder  %s%s\n' "$D" "$f" "$N"
+        done
+    done
+    return 0
+}
+
+cmd_restore() {
+    [ $# -ge 1 ] || die "usage: dotswitch restore <theme> [<snapshot>]"
+    local id="$1" snap="${2:-}"
+    # The theme may be gone from the store: then the id is the snapshot folder.
+    local r; if r="$(resolve "$id" 2>/dev/null)"; then id="$r"; fi
+    [ -d "$BACKUPS/$id" ] || die "no snapshots of $id (see: dotswitch snapshots)"
+    if [ -z "$snap" ]; then snap="$({ ls -1t "$BACKUPS/$id"/*.tar.zst 2>/dev/null || true; } | head -n1)"
+    elif [ ! -f "$snap" ]; then snap="$BACKUPS/$id/${snap##*/}"; fi
+    [ -f "$snap" ] || die "no snapshot $snap"
+    say "${B}restore $id from ${snap##*/}${N}"
+    confirm "Replace the current $id with this snapshot? (it is saved first)" || exit 1
+    lock
+
+    local ts tmp; ts="$(stamp)"; tmp="$STORE/.restore-$id-$ts"
+    run mkdir -p "$tmp"
+    run tar -C "$tmp" --zstd -xf "$snap"
+    [ "$DRY" = 1 ] || [ -d "$tmp/$id/.config" ] || { rm -rf -- "$tmp"; die "the snapshot does not contain $id/"; }
+
+    local is_active=0 had=0; [ "$(active)" = "$id" ] && is_active=1
+    [ -d "$STORE/$id" ] && had=1
+    if [ "$had" = 1 ]; then
+        if [ "$CARRY" = 1 ]; then
+            step "keeping your current data"
+            carry "$STORE/$id" "$tmp/$id" "$BACKUPS/restore-$ts/from-snapshot" "the snapshot"
+        fi
+        [ "$is_active" = 1 ] && { hook "$id" deactivate "$id" "$id" || true; }
+        step "moving the current $id to $BACKUPS/$id/before-restore-$ts"
+        run mv -- "$STORE/$id" "$BACKUPS/$id/before-restore-$ts"
+    fi
+    run mv -- "$tmp/$id" "$STORE/$id"
+    run rmdir -- "$tmp"
+    if [ "$is_active" = 1 ]; then
+        # Same paths, so the links still hold; just restart the theme.
+        if [ "$RELOAD" = 1 ] && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && command -v hyprctl >/dev/null; then
+            run hyprctl reload >/dev/null || true
+        fi
+        hook "$id" activate "$id" "$id" || say "Log out and back in to restart it."
+    fi
+    if [ "$had" = 1 ]; then say "${G}Restored.${N} The replaced copy is in $BACKUPS/$id/before-restore-$ts"
+    else say "${G}Restored.${N} Switch with: dotswitch use $id"; fi
+}
+
+cmd_remove() {
+    [ $# -ge 1 ] || die "usage: dotswitch remove <theme>"
+    local id; id="$(resolve "$1")"
+    [ "$id" = "$(active)" ] && die "$id is active; switch to another theme first"
+    confirm "Move $(name_of "$id") out of $STORE?" || exit 1
+    run mkdir -p "$BACKUPS/$id"
+    run mv -- "$STORE/$id" "$BACKUPS/$id/removed-$(stamp)"
+    say "Moved to $BACKUPS/$id/. Bring it back with: mv $BACKUPS/$id/removed-* $STORE/$id"
+}
+
+# Everything a UI needs, as one JSON object:
+# { active, previous, keepFile, keepCount,
+#   themes: [{ id, name, description, active, live, preview, path }],
+#   snapshots: [{ theme, name, file, size, time }] (newest first) }
+cmd_json() {
+    command -v jq >/dev/null || die "jq is needed for --json"
+    local a prev t f themes_json snaps_json
+    a="$(active)"
+    prev="$(tail -n1 "$STATE_DIR/history" 2>/dev/null | cut -f2)"; [ "$prev" = "-" ] && prev=""
+    themes_json="$(for t in $(themes); do
+        f="$STORE/$t/.dotswitch/preview.png"; [ -f "$f" ] || f=""
+        jq -nc --arg id "$t" --arg name "$(name_of "$t")" --arg desc "$(info_get "$t" description)" \
+            --argjson active "$([ "$t" = "$a" ] && echo true || echo false)" \
+            --argjson live "$([ -f "$STORE/$t/.dotswitch/activate" ] && echo true || echo false)" \
+            --arg preview "$f" --arg path "$STORE/$t" \
+            '{id: $id, name: $name, description: $desc, active: $active, live: $live, preview: $preview, path: $path}'
+    done | jq -sc '.')"
+    snaps_json="$(for d in "$BACKUPS"/*/; do
+        [ -d "$d" ] || continue
+        t="${d%/}"; t="${t##*/}"
+        case "$t" in switch-*|restore-*) continue ;; esac
+        for f in "$d"*.tar.zst; do
+            [ -f "$f" ] || continue
+            jq -nc --arg theme "$t" --arg name "$(name_of "$t")" --arg file "$f" \
+                --argjson size "$(stat -c %s "$f")" --argjson time "$(stat -c %Y "$f")" \
+                '{theme: $theme, name: $name, file: $file, size: $size, time: $time}'
+        done
+    done | jq -sc 'sort_by(-.time)')"
+    jq -nc --arg active "$a" --arg previous "$prev" --arg keepFile "$KEEP_FILE" \
+        --argjson keepCount "$(keep_paths | wc -l)" \
+        --argjson themes "$themes_json" --argjson snapshots "$snaps_json" \
+        '{active: $active, previous: $previous, keepFile: $keepFile, keepCount: $keepCount, themes: $themes, snapshots: $snapshots}'
+}
+
+# A screenshot of the focused monitor as the active theme's thumbnail.
+cmd_preview() {
+    local id; id="$(active)"; [ -n "$id" ] || die "no active theme"
+    command -v grim >/dev/null || die "grim is needed for previews"
+    local out="$STORE/$id/.dotswitch/preview.png" mon=""
+    mon="$(hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.focused) | .name' 2>/dev/null || true)"
+    run mkdir -p "$(dirname "$out")"
+    if [ -n "$mon" ]; then run grim -o "$mon" -s 0.3 "$out"; else run grim -s 0.3 "$out"; fi
+    say "Preview of $(name_of "$id") saved: $out"
+}
+
+cmd_pick() {
+    local a t opts=() pick
+    a="$(active)"
+    for t in $(themes); do
+        local mark=""; [ "$t" = "$a" ] && mark=" (active)"
+        opts+=("$(name_of "$t")$mark")
+    done
+    if [ -t 0 ] && command -v gum >/dev/null; then
+        pick="$(printf '%s\n' "${opts[@]}" | gum choose --header "Switch theme" || true)"
+        [ -n "$pick" ] || exit 0
+        pick="${pick% (active)}"
+        YES=1 cmd_use "$pick"
+    else
+        cmd_list
+    fi
+}
+
+# ── Main ──────────────────────────────────────────────────────────────────
+args=()
+for a in "$@"; do
+    case "$a" in
+        -n|--dry-run) DRY=1 ;;
+        --no-hooks) HOOKS=0 ;;
+        --no-carry) CARRY=0 ;;
+        --no-reload) RELOAD=0 ;;
+        -y|--yes) YES=1 ;;
+        -h|--help) usage; exit 0 ;;
+        *) args+=("$a") ;;
+    esac
+done
+set -- "${args[@]+"${args[@]}"}"
+
+[ -d "$STORE" ] || die "$STORE does not exist"
+cmd="${1:-pick}"; [ $# -gt 0 ] && shift
+case "$cmd" in
+    pick) cmd_pick ;;
+    list|ls) cmd_list ;;
+    status|current) cmd_status ;;
+    use|switch) cmd_use "$@" ;;
+    new) cmd_new "$@" ;;
+    install) cmd_install "$@" ;;
+    save|snapshot) cmd_save "$@" ;;
+    snapshots) cmd_snapshots "$@" ;;
+    restore) cmd_restore "$@" ;;
+    remove|rm) cmd_remove "$@" ;;
+    keep) cmd_keep ;;
+    preview) cmd_preview ;;
+    json) cmd_json ;;
+    *) usage; exit 1 ;;
+esac

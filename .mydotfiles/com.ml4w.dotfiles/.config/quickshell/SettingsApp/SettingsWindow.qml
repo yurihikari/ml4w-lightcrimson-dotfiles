@@ -221,6 +221,7 @@ FloatingWindow {
                 SoundPage      { active: StackLayout.isCurrentItem && root.visible }
                 PowerPage      { active: StackLayout.isCurrentItem && root.visible }
                 AppearancePage { active: StackLayout.isCurrentItem && root.visible }
+                ThemesPage     { active: StackLayout.isCurrentItem && root.visible }
                 KeyboardPage   { active: StackLayout.isCurrentItem && root.visible }
                 PrintersPage   { active: StackLayout.isCurrentItem && root.visible }
                 SystemPage     { active: StackLayout.isCurrentItem && root.visible }

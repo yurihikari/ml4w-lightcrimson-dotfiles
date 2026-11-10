@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# LightCrimson is being switched away from: stop what its autostart runs.
+# (Run by dotswitch while ~/.config still points to this theme.)
+
+# Every Quickshell instance: the bar, ML4W settings, overview, app switcher
+killall -q qs
+# Per-workspace wallpapers, the waybar fallback and the network applet
+pkill -f "$HOME/.config/hypr/conf/custom/workspace-wallpapers.sh"
+pkill -x waybar
+pkill -x nm-applet
+exit 0

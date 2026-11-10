@@ -1,0 +1,704 @@
+import Quickshell
+import Quickshell.Wayland
+import Quickshell.Io
+import Quickshell.Services.Mpris
+import QtQuick
+import QtQuick.Layouts
+import QtQuick.Controls
+import Qt5Compat.GraphicalEffects
+import qs.CustomTheme
+import qs.BarApp.services
+import qs.BarApp.components
+
+BarPopup {
+    id: popup
+    ipcTarget: "bar-media"
+    keyboardFocusValue: WlrLayershell.OnDemand
+    closeOnBackdrop: false
+    onBackdropClicked: {
+        if (popup.selectingSink) popup.selectingSink = false
+        else popup.active = false
+    }
+
+    property var p: Sys.activePlayer
+
+    function formatTime(s) {
+        if (!s || isNaN(s) || s < 0) return "0:00"
+        let mins = Math.floor(s / 60)
+        let secs = Math.floor(s % 60)
+        return mins + ":" + (secs < 10 ? "0" : "") + secs
+    }
+
+    // --- STATE & MODELS ---
+    property bool selectingSink: false
+    ListModel { id: sinkModel }
+
+    // --- INTERNAL COMPONENTS ---
+    // Glass-style App Button
+    component AppButton: Rectangle {
+        id: appBtn
+        property string icon: ""
+        property string cmd: ""
+        property string check: ""
+        width: 44; height: 44; radius: 14
+        visible: false 
+        Layout.alignment: Qt.AlignHCenter
+        
+        // Soft glass styling
+        color: btnMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.04)
+        border.color: "transparent" /* was primary @ 0.1; surfaces use tone, not outlines */
+        border.width: 1
+
+        scale: btnMouse.pressed ? 0.9 : (btnMouse.containsMouse ? 1.08 : 1.0)
+        
+        Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+        Behavior on color { ColorAnimation { duration: 150 } }
+        
+        Text { 
+            anchors.centerIn: parent
+            text: icon
+            color: Theme.primary
+            font.pixelSize: 20
+            opacity: 0.9
+        }
+
+        MouseArea { 
+            id: btnMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            onClicked: {
+                Sys.run([
+                    "hyprctl",
+                    "dispatch",
+                    "hl.dsp.exec_cmd(\"" + cmd + "\")"
+                ])
+                popup.active = false
+            }
+        }
+
+        // Keyboard focus handler for ESC
+        FocusScope {
+            anchors.fill: parent
+            focus: popup.active
+            Keys.onEscapePressed: {
+                if (popup.selectingSink) popup.selectingSink = false
+                else popup.active = false
+            }
+        }
+
+        Process {
+            running: true
+            command: ["bash", "-c", "command -v " + (check !== "" ? check : cmd.split(" ")[0])]
+            onExited: appBtn.visible = (exitCode === 0)
+        }
+    }
+
+    // --- CAVA ENGINE ---
+    property var cavaData: []
+    property string cavaConfigPath: "/tmp/qs_cava_bar.ini"
+
+    Process {
+        id: cavaConfigWriter
+        command: ["bash", "-c",
+            "cat > /tmp/qs_cava_bar.ini << 'EOF'\n" +
+            "[general]\nframerate=30\nsensitivity=200\nbars=64\n" +
+            "[smoothing]\nmonstercat=1\n" +
+            "[output]\nmethod=raw\ndata_format=ascii\nascii_max_range=200\nbar_delimiter=32\nbars=64\nEOF"
+        ]
+        running: true
+    }
+
+    Process {
+        id: cava
+        running: (popup.active || popup.isAnimating) && cavaConfigWriter.running === false
+        command: ["cava", "-p", popup.cavaConfigPath]
+        stdout: SplitParser {
+            onRead: {
+                var clean = data.trim()
+                if (clean.length > 0) {
+                    var parts = clean.split(/\s+/)
+                    if (parts.length >= 64) {
+                        popup.cavaData = parts
+                        cavaCanvas.requestPaint()
+                    }
+                }
+            }
+        }
+    }
+
+    // --- SINK ENGINE ---
+    property string currentSinkFull: ""
+    property string currentSinkName: "Default"
+
+    Process {
+        id: sinkGetter
+        running: popup.active || popup.isAnimating
+        command: ["bash", "-c", "pactl get-default-sink"]
+        stdout: SplitParser { 
+            onRead: { 
+                let full = data.trim()
+                popup.currentSinkFull = full
+                let readable = full.replace(/.*HiFi__/, "").replace(/__sink/, "").replace(/alsa_output\./, "")
+                popup.currentSinkName = readable
+            } 
+        }
+    }
+
+    Process {
+        id: sinkListLoader
+        command: ["bash", "-c", "pactl list short sinks | awk '{print $2}'"]
+        stdout: SplitParser {
+            onRead: {
+                let line = data.trim()
+                if (line !== "") {
+                    let readable = line.replace(/.*HiFi__/, "").replace(/__sink/, "").replace(/alsa_output\./, "")
+                    sinkModel.append({ "fullName": line, "displayName": readable })
+                }
+            }
+        }
+    }
+
+    Timer {
+        interval: 5000; running: popup.active; repeat: true
+        onTriggered: sinkGetter.running = true
+    }
+
+    Timer {
+        interval: 1000; repeat: true
+        running: (popup.active || popup.isAnimating) && p !== null && p.playbackState === MprisPlaybackState.Playing
+        onTriggered: { if (p) p.positionChanged() }
+    }
+
+    // --- MAIN POPUP CONTAINER ---
+    // Hangs from the bar as part of the frame (fill, blur and border colour as before).
+    PopoutContent {
+        open: popup.active
+        onClosed: popup.isAnimating = false
+        // HyperBA: drops down from the media capsule (just after the level
+        // card), not the middle of the screen
+        hAlign: "left"
+        hMargin: popup.anchorItem ? popup.anchorItem.x : 360
+        panelWidth: container.width
+        panelHeight: container.height
+
+    Rectangle {
+        id: container
+        width: 560; height: 410 // Slightly expanded for breathing room
+        radius: 30; color: "transparent"
+
+        MouseArea { anchors.fill: parent } // Prevent click-through
+
+        // --- SINK SELECTOR OVERLAY ---
+        Rectangle {
+            anchors.fill: parent; anchors.margins: 10; z: 100
+            radius: 25; color: "transparent"
+            
+            visible: opacity > 0
+            opacity: popup.selectingSink ? 1.0 : 0.0
+            scale: popup.selectingSink ? 1.0 : 0.95
+            Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+            Behavior on scale { NumberAnimation { duration: 300; easing.type: Easing.OutBack } }
+
+            // Backdrop for overlay readability
+            Rectangle { anchors.fill: parent; radius: 25; color: Theme.background; opacity: 0.95 }
+
+            ColumnLayout {
+                anchors.fill: parent; anchors.margins: 25; spacing: 15
+                Text { text: "Select Audio Output"; color: Theme.primary; font.bold: true; font.pixelSize: 18; Layout.alignment: Qt.AlignHCenter }
+                
+                Rectangle {
+                    Layout.fillWidth: true; Layout.fillHeight: true
+                    color: "transparent"; radius: 15; clip: true
+                    ListView {
+                        id: sinkListView; anchors.fill: parent; anchors.margins: 10; model: sinkModel; spacing: 8
+                        delegate: Rectangle {
+                            width: sinkListView.width; height: 48; radius: 14
+                            
+                            property bool isCurrent: fullName === popup.currentSinkFull
+                            // Glass card look for items
+                            color: isCurrent ? Theme.primary : (sinkDelegateMouse.containsMouse ? Theme.withAlpha(Theme.primary, 0.11) : Theme.withAlpha(Theme.primary, 0.06))
+                            
+                            scale: sinkDelegateMouse.pressed ? 0.97 : 1.0
+                            Behavior on scale { NumberAnimation { duration: 150 } }
+                            Behavior on color { ColorAnimation { duration: 150 } }
+
+                            RowLayout {
+                                anchors.fill: parent; anchors.leftMargin: 16; anchors.rightMargin: 16
+                                Text { text: "󰓃"; color: isCurrent ? Theme.background : Theme.primary; font.pixelSize: 16; opacity: isCurrent ? 1.0 : 0.8 }
+                                Text { text: displayName; color: isCurrent ? Theme.background : Theme.primary; font.bold: isCurrent; font.pixelSize: 13; Layout.fillWidth: true; opacity: isCurrent ? 1.0 : 0.9 }
+                                Text { text: "󰄬"; color: Theme.background; visible: isCurrent; font.bold: true }
+                            }
+                            MouseArea { 
+                                id: sinkDelegateMouse
+                                anchors.fill: parent; hoverEnabled: true
+                                onClicked: { Sys.run(["pactl", "set-default-sink", fullName]); popup.selectingSink = false; sinkGetter.running = true }
+                            }
+                        }
+                    }
+                }
+                
+                // Glass style close button
+                Rectangle {
+                    Layout.preferredWidth: 140; Layout.preferredHeight: 40; radius: 20
+                    color: closeSinkMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.05)
+                    border.color: "transparent" /* was primary @ 0.2; surfaces use tone, not outlines */; border.width: 1; Layout.alignment: Qt.AlignHCenter
+                    
+                    scale: closeSinkMouse.pressed ? 0.95 : (closeSinkMouse.containsMouse ? 1.05 : 1.0)
+                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+                    Behavior on color { ColorAnimation { duration: 150 } }
+
+                    Text { anchors.centerIn: parent; text: "Close"; color: Theme.primary; font.bold: true; opacity: 0.9 }
+                    MouseArea { 
+                        id: closeSinkMouse
+                        anchors.fill: parent; hoverEnabled: true
+                        onClicked: popup.selectingSink = false 
+                    }
+                }
+            }
+        }
+
+        // --- MAIN CONTENT ---
+        ColumnLayout {
+            anchors.fill: parent; anchors.margins: 25; spacing: 20
+            
+            // Fade out when overlay is open
+            opacity: popup.selectingSink ? 0.0 : 1.0
+            enabled: !popup.selectingSink
+            Behavior on opacity { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
+
+            // --- PLAYER SWITCHER ---
+            Row {
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignHCenter
+                spacing: 8
+                visible: Mpris.players.values.length > 1
+
+                Repeater {
+                    model: Mpris.players.values
+                    delegate: Rectangle {
+                        required property var modelData
+                        property bool isSelected: Sys.activePlayer === modelData
+                        height: 32
+                        width: pillLabel.implicitWidth + 36
+                        radius: 16
+                        
+                        // Glass pill styling
+                        color: isSelected ? Theme.primary : (pillMouse.containsMouse ? Theme.withAlpha(Theme.primary, 0.11) : Theme.withAlpha(Theme.primary, 0.06))
+                        
+                        scale: pillMouse.pressed ? 0.95 : (pillMouse.containsMouse ? 1.05 : 1.0)
+                        Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+                        Behavior on color { ColorAnimation { duration: 200 } }
+
+                        Row {
+                            anchors.centerIn: parent
+                            spacing: 8
+                            height: parent.height
+
+                            Text {
+                                text: {
+                                    let n = (modelData.identity || "").toLowerCase()
+                                    if (n.includes("spotify")) return "󰓇"
+                                    if (n.includes("firefox") || n.includes("chrome") || n.includes("chromium")) return "󰖟"
+                                    if (n.includes("vlc")) return "󰕼"
+                                    if (n.includes("mpv")) return "󰎁"
+                                    if (n.includes("ncmpcpp") || n.includes("mpd")) return "󱍙"
+                                    return "󰎆"
+                                }
+                                color: isSelected ? Theme.background : Theme.primary
+                                font.pixelSize: 13
+                                height: parent.height
+                                verticalAlignment: Text.AlignVCenter
+                                opacity: isSelected ? 1.0 : 0.8
+                                Behavior on color { ColorAnimation { duration: 200 } }
+                            }
+                            Text {
+                                id: pillLabel
+                                text: {
+                                    let n = modelData.identity || "Unknown"
+                                    n = n.replace(/\.[a-zA-Z0-9]+$/, "")
+                                    return n.charAt(0).toUpperCase() + n.slice(1)
+                                }
+                                color: isSelected ? Theme.background : Theme.primary
+                                font.pixelSize: 12
+                                font.bold: isSelected
+                                height: parent.height
+                                verticalAlignment: Text.AlignVCenter
+                                opacity: isSelected ? 1.0 : 0.8
+                                Behavior on color { ColorAnimation { duration: 200 } }
+                            }
+                        }
+
+                        MouseArea {
+                            id: pillMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            onClicked: Sys.activePlayer = modelData
+                        }
+                    }
+                }
+            }
+
+            // --- MEDIA DISPLAY ROW ---
+            RowLayout {
+                Layout.fillWidth: true; spacing: 25
+
+                // Album art + cava
+                Item {
+                    Layout.preferredWidth: 160; Layout.fillHeight: true
+                    Canvas {
+                        id: cavaCanvas; anchors.fill: parent
+                        renderTarget: Canvas.FramebufferObject
+                        onPaint: {
+                            var ctx = getContext("2d"); ctx.clearRect(0, 0, width, height)
+                            var centerX = width/2; var centerY = height/2; var innerRadius = 55; var barCount = 64
+                            ctx.strokeStyle = Theme.primary; ctx.lineWidth = 2.5; ctx.lineCap = "round"
+                            for (var i = 0; i < barCount; i++) {
+                                var val = parseInt(popup.cavaData[i]) || 0
+                                var angle = (i * (360 / barCount)) * (Math.PI / 180)
+                                var h = (val / 200) * 25; if (h < 2) h = 2
+                                var x1 = centerX + Math.cos(angle) * innerRadius
+                                var y1 = centerY + Math.sin(angle) * innerRadius
+                                var x2 = centerX + Math.cos(angle) * (innerRadius + h)
+                                var y2 = centerY + Math.sin(angle) * (innerRadius + h)
+                                ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke()
+                            }
+                        }
+                    }
+                    Rectangle {
+                        id: albumArtContainer; anchors.centerIn: parent; width: 100; height: 100; radius: 50
+                        layer.enabled: true
+                        layer.effect: OpacityMask { maskSource: albumArtMask }
+                        Image {
+                            id: albumArt; anchors.fill: parent
+                            source: p ? p.trackArtUrl : ""
+                            fillMode: Image.PreserveAspectCrop
+                        }
+                        Text {
+                            anchors.centerIn: parent; text: "󰎆"; color: Theme.primary
+                            font.pixelSize: 35; opacity: 0.2
+                            visible: albumArt.status !== Image.Ready
+                        }
+                    }
+                    Rectangle { id: albumArtMask; width: 100; height: 100; radius: 50; visible: false }
+                }
+
+                // Title, artist, controls
+                ColumnLayout {
+                    Layout.fillWidth: true; Layout.maximumWidth: 320; spacing: 22
+
+                    ColumnLayout {
+                        spacing: 4
+                        Text {
+                            text: p ? (p.trackTitle || "No Media") : "No Media"
+                            color: Theme.primary; font.bold: true; font.pixelSize: 22
+                            elide: Text.ElideRight; Layout.fillWidth: true
+                        }
+                        Text {
+                            text: p ? (p.trackArtist || "") : ""
+                            color: Theme.primary; opacity: 0.6; font.pixelSize: 15
+                            elide: Text.ElideRight; Layout.fillWidth: true
+                        }
+                    }
+
+                    // --- MEDIA CONTROLS ---
+                    RowLayout {
+                        Layout.alignment: Qt.AlignHCenter; spacing: 15
+                        
+                        // Previous
+                        Rectangle {
+                            width: 44; height: 44; radius: 22
+                            color: prevMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : "transparent"
+                            opacity: (p && p.canGoPrevious) ? 1.0 : 0.3
+                            scale: prevMouse.pressed ? 0.85 : (prevMouse.containsMouse ? 1.1 : 1.0)
+                            Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+                            Behavior on color { ColorAnimation { duration: 150 } }
+                            
+                            Text { anchors.centerIn: parent; text: "󰒮"; color: Theme.primary; font.pixelSize: 28; opacity: 0.9 }
+                            MouseArea { 
+                                id: prevMouse; anchors.fill: parent; hoverEnabled: true
+                                onClicked: { if (p && p.canGoPrevious) p.previous() } 
+                            }
+                        }
+                        
+                        // Play/Pause (Prominent solid button)
+                        Rectangle {
+                            width: 60; height: 60; radius: 30
+                            color: (p && p.canTogglePlaying) ? (playMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.9) : Theme.primary) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.2)
+                            scale: playMouse.pressed ? 0.85 : (playMouse.containsMouse ? 1.08 : 1.0)
+                            Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+                            Behavior on color { ColorAnimation { duration: 150 } }
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: (p && p.playbackState === MprisPlaybackState.Playing) ? "󰏤" : "󰐊"
+                                color: Theme.background; font.pixelSize: 32
+                            }
+                            MouseArea { 
+                                id: playMouse; anchors.fill: parent; hoverEnabled: true
+                                onClicked: { if (p && p.canTogglePlaying) p.togglePlaying() } 
+                            }
+                        }
+                        
+                        // Next
+                        Rectangle {
+                            width: 44; height: 44; radius: 22
+                            color: nextMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : "transparent"
+                            opacity: (p && p.canGoNext) ? 1.0 : 0.3
+                            scale: nextMouse.pressed ? 0.85 : (nextMouse.containsMouse ? 1.1 : 1.0)
+                            Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+                            Behavior on color { ColorAnimation { duration: 150 } }
+                            
+                            Text { anchors.centerIn: parent; text: "󰒭"; color: Theme.primary; font.pixelSize: 28; opacity: 0.9 }
+                            MouseArea { 
+                                id: nextMouse; anchors.fill: parent; hoverEnabled: true
+                                onClicked: { if (p && p.canGoNext) p.next() } 
+                            }
+                        }
+                    }
+                }
+
+                Rectangle { Layout.fillHeight: true; width: 1; color: Theme.primary; opacity: 0.1 }
+
+                // Music apps
+                ColumnLayout {
+                    Layout.preferredWidth: 80; spacing: 15
+                    Text { text: "MUSIC APPS"; color: Theme.primary; font.pixelSize: 10; font.bold: true; opacity: 0.3; Layout.alignment: Qt.AlignHCenter }
+                    AppButton { icon: "󰓇"; cmd: "spotify" }
+                    AppButton { icon: "󰎆"; cmd: "pear-desktop" }
+                    AppButton { icon: "󱍙"; cmd: "kitty ncmpcpp"; check: "ncmpcpp" }
+                }
+            }
+
+            // --- PROGRESS SLIDER ---
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 6
+
+                Item {
+                    id: sliderTrack
+                    Layout.fillWidth: true
+                    height: 22
+
+                    readonly property real amp: 4.0
+                    readonly property real wavelen: 26
+                    // Played width in pixels — drives the clip and the dot position.
+                    property real played: width * prog
+
+                    // Smoothed playback progress (0..1). The Behavior keeps the fill
+                    // gliding between the once-a-second position updates.
+                    property real prog: (p && p.lengthSupported && p.length > 0)
+                        ? Math.min(1, p.position / p.length) : 0
+                    Behavior on prog {
+                        enabled: !sliderKnob.dragging
+                        NumberAnimation { duration: 900; easing.type: Easing.Linear }
+                    }
+
+                    // Ahead of the dot (unplayed) — a plain straight line.
+                    Rectangle {
+                        anchors.verticalCenter: parent.verticalCenter
+                        x: sliderTrack.played
+                        width: Math.max(0, parent.width - sliderTrack.played)
+                        height: 2; radius: 1
+                        color: Theme.withAlpha(Theme.primary, 0.18)
+                    }
+
+                    // Behind the dot (played) — the wave. It is painted ONCE and then
+                    // only scrolled on the GPU (a pure transform, no per-frame Canvas
+                    // repaint), so it's very light on the iGPU. Clipped to the played
+                    // width, which animates as playback advances.
+                    Item {
+                        id: playedClip
+                        height: parent.height
+                        width: sliderTrack.played
+                        clip: true
+
+                        Canvas {
+                            id: waveTile
+                            height: parent.height
+                            width: sliderTrack.width + sliderTrack.wavelen
+                            renderTarget: Canvas.FramebufferObject
+                            property color tint: Theme.primary
+                            onTintChanged: requestPaint()
+                            onWidthChanged: requestPaint()
+                            onPaint: {
+                                var ctx = getContext("2d"); ctx.reset()
+                                var w = width, h = height, mid = h / 2
+                                var amp = sliderTrack.amp, k = 2 * Math.PI / sliderTrack.wavelen
+                                var c = tint
+                                function trace() {
+                                    ctx.beginPath()
+                                    for (var x = 0; x <= w; x += 2) {
+                                        var y = mid + amp * Math.sin(k * x)
+                                        if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y)
+                                    }
+                                }
+                                trace()
+                                ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath()
+                                var grad = ctx.createLinearGradient(0, 0, 0, h)
+                                grad.addColorStop(0, Qt.rgba(c.r, c.g, c.b, 0.35))
+                                grad.addColorStop(1, Qt.rgba(c.r, c.g, c.b, 0.05))
+                                ctx.fillStyle = grad; ctx.fill()
+                                trace()
+                                ctx.strokeStyle = c
+                                ctx.lineWidth = 2.5; ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.stroke()
+                            }
+
+                            // Scroll one wavelength on repeat — GPU transform only.
+                            // Only runs while the popup is actually on screen.
+                            NumberAnimation on x {
+                                running: (popup.active || popup.isAnimating)
+                                         && p !== null && p.playbackState === MprisPlaybackState.Playing
+                                from: 0; to: -sliderTrack.wavelen
+                                duration: 1200; loops: Animation.Infinite
+                            }
+                        }
+                    }
+
+                    // Play head — a rounded square on the line. Its off-round shape
+                    // makes the slow spin readable while playing.
+                    Rectangle {
+                        id: sliderKnob
+                        property bool dragging: false
+                        width: 13; height: 13; radius: 3.5
+                        antialiasing: true
+                        color: Theme.primary
+                        x: sliderTrack.played - width / 2
+                        y: sliderTrack.height / 2 - height / 2
+                        scale: (sliderMouse.containsMouse || dragging) ? 1.3 : 1.0
+                        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
+
+                        RotationAnimator on rotation {
+                            running: (popup.active || popup.isAnimating)
+                                     && p !== null && p.playbackState === MprisPlaybackState.Playing
+                            loops: Animation.Infinite
+                            from: 0; to: 360
+                            duration: 3000
+                        }
+                    }
+
+                    MouseArea {
+                        id: sliderMouse
+                        anchors.fill: parent
+                        anchors.margins: -12
+                        hoverEnabled: true
+                        preventStealing: true
+
+                        function seek(mouse) {
+                            if (!p || !p.positionSupported) return
+                            let ratio = Math.max(0, Math.min(1, mouse.x / width))
+                            let target = ratio * p.length
+                            p.position = target
+                        }
+
+                        onPressed: { sliderKnob.dragging = true; seek(mouse) }
+                        onPositionChanged: { if (pressed) seek(mouse) }
+                        onReleased: { seek(mouse); sliderKnob.dragging = false }
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Text {
+                        text: formatTime(p ? p.position : 0)
+                        color: Theme.primary; font.pixelSize: 11; opacity: 0.5
+                    }
+                    Item { Layout.fillWidth: true }
+                    Text {
+                        text: formatTime(p ? p.length : 0)
+                        color: Theme.primary; font.pixelSize: 11; opacity: 0.5
+                    }
+                }
+            }
+
+            Rectangle { Layout.fillWidth: true; height: 1; color: Theme.primary; opacity: 0.1 }
+
+            // --- BOTTOM: VOLUME + SINK ---
+            RowLayout {
+                Layout.fillWidth: true; spacing: 20
+
+                RowLayout {
+                    spacing: 12
+                    
+                    // Circular Volume Button
+                    Rectangle {
+                        width: 36; height: 36; radius: 18
+                        color: muteMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : "transparent"
+                        scale: muteMouse.pressed ? 0.8 : (muteMouse.containsMouse ? 1.1 : 1.0)
+                        Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+                        Behavior on color { ColorAnimation { duration: 150 } }
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: Sys.isMuted ? "󰝟" : (Sys.volValue > 0.6 ? "󰕾" : (Sys.volValue > 0.2 ? "󰖀" : "󰕿"))
+                            color: Sys.isMuted ? Theme.error : Theme.primary
+                            font.pixelSize: 22
+                            opacity: 0.9
+                        }
+
+                        MouseArea {
+                            id: muteMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            onClicked: Sys.run(["bash", "-c", "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"])
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.preferredWidth: 150; height: 10; radius: 5; 
+                        color: Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1)
+                        
+                        Rectangle {
+                            width: parent.width * Sys.volValue; height: parent.height; radius: 5
+                            color: Sys.isMuted ? Theme.error : Theme.primary
+                            opacity: 0.9
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            anchors.margins: -10
+                            cursorShape: Qt.PointingHandCursor
+                            function updateVol(mouse) {
+                                let pv = Math.max(0, Math.min(1, mouse.x / width))
+                                Sys.volValue = pv
+                                Sys.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", pv.toFixed(2)])
+                            }
+                            onPressed: updateVol(mouse)
+                            onPositionChanged: updateVol(mouse)
+                        }
+                    }
+                    Text { text: Math.round(Sys.volValue * 100) + "%"; color: Theme.primary; font.bold: true; font.pixelSize: 13; opacity: 0.9 }
+                }
+
+                Item { Layout.fillWidth: true }
+
+                // --- SINK SELECT BUTTON (Glass Card) ---
+                Rectangle {
+                    Layout.preferredWidth: 220; height: 44; radius: 22
+                    
+                    color: sinkBtnMouse.containsMouse ? Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.1) : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, 0.04)
+                    border.color: "transparent" /* was primary @ 0.15; surfaces use tone, not outlines */; border.width: 1
+                    
+                    scale: sinkBtnMouse.pressed ? 0.96 : (sinkBtnMouse.containsMouse ? 1.03 : 1.0)
+                    Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+                    Behavior on color { ColorAnimation { duration: 150 } }
+
+                    RowLayout {
+                        anchors.fill: parent; anchors.leftMargin: 16; anchors.rightMargin: 16
+                        Text { text: "󰓃"; color: Theme.primary; font.pixelSize: 18; opacity: 0.8 }
+                        Text { text: popup.currentSinkName; color: Theme.primary; font.bold: true; font.pixelSize: 12; opacity: 0.9; elide: Text.ElideRight; Layout.fillWidth: true }
+                    }
+                    MouseArea {
+                        id: sinkBtnMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        onClicked: {
+                            sinkModel.clear()
+                            sinkListLoader.running = true
+                            popup.selectingSink = true
+                        }
+                    }
+                }
+            }
+        }
+    }
+    } // PopoutContent
+}

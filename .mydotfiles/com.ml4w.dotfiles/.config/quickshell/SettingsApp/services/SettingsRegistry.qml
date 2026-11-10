@@ -17,6 +17,7 @@ QtObject {
         { id: "sound",      title: "Sound",       icon: "󰕾", keywords: "sound audio volume output input microphone speaker mute device" },
         { id: "power",      title: "Power",       icon: "󰂄", keywords: "power battery profile performance saver suspend sleep" },
         { id: "appearance", title: "Appearance",  icon: "󰸉", keywords: "appearance wallpaper background theme look transition" },
+        { id: "themes",     title: "Themes",      icon: "󰏘", keywords: "themes theme dotfiles setup switch rice profile snapshot restore backup dotswitch" },
         { id: "keyboard",   title: "Keyboard",    icon: "󰌌", keywords: "keyboard layout variant input language repeat" },
         { id: "printers",   title: "Printers",    icon: "󰐪", keywords: "printer print cups queue scanner" },
         { id: "system",     title: "System",      icon: "󰒓", keywords: "system about info hostname kernel os cpu memory uptime" }
@@ -50,6 +51,9 @@ QtObject {
         { page: "power",      title: "Suspend & power off",   keywords: "sleep suspend shutdown reboot logout" },
         { page: "appearance", title: "Wallpaper",             keywords: "background image picture wallpaper" },
         { page: "appearance", title: "Transition effect",     keywords: "animation transition fade slide" },
+        { page: "themes",     title: "Switch theme",          keywords: "switch change theme setup dotfiles" },
+        { page: "themes",     title: "New theme",             keywords: "create new copy duplicate theme" },
+        { page: "themes",     title: "Theme snapshots",       keywords: "snapshot backup restore roll back theme" },
         { page: "keyboard",   title: "Keyboard layout",       keywords: "layout variant language us fr de" },
         { page: "printers",   title: "Printers",              keywords: "printer cups queue add" },
         { page: "system",     title: "About this system",     keywords: "hostname kernel os distro version" },

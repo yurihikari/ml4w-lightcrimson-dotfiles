@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# LightCrimson was switched to: start what Hyprland's autostart would start
+# at login. (Hyprland has already reloaded this theme's config.)
+log="$HOME/.local/state/dotswitch/lightcrimson-activate.log"
+mkdir -p "${log%/*}"
+
+# Quickshell bar, wallpaper theming, ML4W settings, overview, ...
+setsid -f "$HOME/.config/ml4w/scripts/ml4w-autostart" > "$log" 2>&1 < /dev/null
+# Per-workspace wallpapers (after the wallpaper is set)
+setsid -f bash -c 'sleep 2; exec "$HOME/.config/hypr/conf/custom/workspace-wallpapers.sh"' \
+    >> "$HOME/.cache/workspace-wallpapers.log" 2>&1 < /dev/null
+# GTK theme, cursor
+"$HOME/.config/hypr/scripts/gtk.sh" > /dev/null 2>&1 || true
+hyprctl setcursor Bibata-Modern-Ice 24 > /dev/null 2>&1 || true
+exit 0
