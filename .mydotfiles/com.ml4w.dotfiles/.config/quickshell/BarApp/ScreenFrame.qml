@@ -56,6 +56,10 @@ Item {
         exclusionMode: WlrLayershell.Ignore
         color: "transparent"
 
+        // Drawers' focus grabs include the frame (FrameState)
+        Component.onCompleted: FrameState.addFrame(frameWindow)
+        Component.onDestruction: FrameState.removeFrame(frameWindow)
+
         readonly property real fw: width
         readonly property real fh: height
 
@@ -173,17 +177,53 @@ Item {
         }
 
         // ── Frame actions ───────────────────────────────────────────────────
+        // Every hit area runs a few pixels past the screen edge. Pushed against
+        // an edge, the pointer sits a hair inside the screen, but Wayland's
+        // fixed-point coordinates round that up to exactly the screen's width
+        // or height, which is just outside an area that stops at the edge. So
+        // the very corner (where the pointer lands when flung there) did
+        // nothing until the pointer moved back a pixel.
+        readonly property real overhang: 6
         MouseArea {
-            x: 0; y: root.frameBar; width: root.frameSide; height: frameWindow.fh - root.frameBar
+            x: -frameWindow.overhang; y: root.frameBar
+            width: root.frameSide + frameWindow.overhang; height: frameWindow.fh - root.frameBar + frameWindow.overhang
             onClicked: Sys.run(["qs", "ipc", "call", "wallpaper", "toggle"])
         }
         MouseArea {
-            x: frameWindow.fw - root.frameSide; y: root.frameBar; width: root.frameSide; height: frameWindow.fh - root.frameBar
+            x: frameWindow.fw - root.frameSide; y: root.frameBar
+            width: root.frameSide + frameWindow.overhang; height: frameWindow.fh - root.frameBar + frameWindow.overhang
             onClicked: Sys.run(["qs", "ipc", "call", "sidebar", "toggle"])
         }
         MouseArea {
-            x: root.frameSide; y: frameWindow.fh - root.frameBottom; width: frameWindow.fw - 2 * root.frameSide; height: root.frameBottom
+            x: root.frameSide; y: frameWindow.fh - root.frameBottom
+            width: frameWindow.fw - 2 * root.frameSide; height: root.frameBottom + frameWindow.overhang
             onClicked: dockPopup.active = !dockPopup.active
+        }
+
+        // ── Corners ─────────────────────────────────────────────────────────
+        // The bottom corners open their drawers (CornerDrawer): hover opens
+        // after a short pause, a click opens it until dismissed (or pins one
+        // that hover opened). They take the corner's end of the side and
+        // bottom strips, in front of the strips' own actions (the input mask
+        // keeps them to the frame itself).
+        readonly property real cornerSize: 64
+        MouseArea {
+            id: quickCorner
+            x: -frameWindow.overhang; y: frameWindow.fh - frameWindow.cornerSize
+            width: frameWindow.cornerSize + frameWindow.overhang
+            height: frameWindow.cornerSize + frameWindow.overhang
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: Corners.toggle("quick", root.screenName)
+        }
+        MouseArea {
+            id: captureCorner
+            x: frameWindow.fw - frameWindow.cornerSize; y: frameWindow.fh - frameWindow.cornerSize
+            width: frameWindow.cornerSize + frameWindow.overhang
+            height: frameWindow.cornerSize + frameWindow.overhang
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: Corners.toggle("capture", root.screenName)
         }
 
         // ── The bar ─────────────────────────────────────────────────────────
@@ -191,4 +231,37 @@ Item {
     }
 
     DockPopup { id: dockPopup; screen: root.screen }
+
+    // Bottom left: quick settings
+    CornerDrawer {
+        id: quickDrawer
+        screen: root.screen
+        key: "quick"; side: "left"
+        cornerHovered: quickCorner.containsMouse
+        panelW: 380
+        bodyHeight: quickPanel.implicitHeight
+        busy: quickPanel.vpnOpen && quickDrawer.open
+        QuickPanel {
+            id: quickPanel
+            width: parent ? parent.width : 0
+            screenName: root.screenName
+            shown: quickDrawer.open
+        }
+    }
+
+    // Bottom right: capture
+    CornerDrawer {
+        id: captureDrawer
+        screen: root.screen
+        key: "capture"; side: "right"
+        cornerHovered: captureCorner.containsMouse
+        panelW: 380
+        bodyHeight: capturePanel.implicitHeight
+        CapturePanel {
+            id: capturePanel
+            width: parent ? parent.width : 0
+            screenName: root.screenName
+            shown: captureDrawer.open
+        }
+    }
 }

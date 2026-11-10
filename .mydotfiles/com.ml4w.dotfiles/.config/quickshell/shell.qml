@@ -18,6 +18,12 @@ import "SettingsApp"
 ShellRoot {
     // Test IPC tools: qs ipc show
 
+    // Load the saved palette (colors.json) every time the shell loads,
+    // including Quickshell's hot reload after a config file changes: the
+    // Theme singleton is rebuilt with its built-in defaults then, and nothing
+    // else would ask it to read the file again.
+    Component.onCompleted: Theme.reloadTheme()
+
     IpcHandler {
         target: "theme-manager"
         function reload(): void {

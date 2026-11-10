@@ -304,6 +304,81 @@ Item {
             Layout.alignment: Qt.AlignRight; spacing: 15
             anchors.verticalCenter: parent.verticalCenter
 
+            // What is running from the corners: recording (click: stop),
+            // instant replay (click: save the clip), presenting / keep awake
+            // (click: quick settings)
+            Row {
+                spacing: 10
+                anchors.verticalCenter: parent.verticalCenter
+                visible: Capture.recording || Capture.replayOn || QuickSettings.presenting || QuickSettings.keepAwake
+
+                Rectangle {
+                    visible: Capture.recording
+                    anchors.verticalCenter: parent.verticalCenter
+                    height: 24; width: recRow.implicitWidth + 18; radius: 12
+                    color: Theme.withAlpha(Theme.error, recMouse.containsMouse ? 0.3 : 0.18)
+                    Behavior on color { ColorAnimation { duration: 150 } }
+                    Row {
+                        id: recRow
+                        anchors.centerIn: parent
+                        spacing: 6
+                        Rectangle {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 8; height: 8; radius: 4
+                            color: Theme.error
+                            SequentialAnimation on opacity {
+                                running: Capture.recording && !Capture.paused
+                                loops: Animation.Infinite
+                                alwaysRunToEnd: true
+                                NumberAnimation { to: 0.25; duration: 700 }
+                                NumberAnimation { to: 1; duration: 700 }
+                            }
+                        }
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: recMouse.containsMouse ? "Stop" : Capture.clock(Capture.elapsed)
+                            color: Theme.error
+                            font.pixelSize: 11; font.bold: true
+                        }
+                    }
+                    MouseArea {
+                        id: recMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: Capture.stopRecording()
+                    }
+                }
+
+                Repeater {
+                    model: [
+                        { show: Capture.replayOn, icon: "󰕧", act: "replay" },
+                        { show: QuickSettings.presenting, icon: "󰐨", act: "quick" },
+                        { show: QuickSettings.keepAwake && !QuickSettings.presenting, icon: "󰅶", act: "quick" }
+                    ]
+                    Text {
+                        required property var modelData
+                        visible: modelData.show
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: modelData.icon
+                        color: Theme.primary
+                        font.pixelSize: 16
+                        scale: statusMouse.pressed ? 0.85 : (statusMouse.containsMouse ? 1.15 : 1.0)
+                        Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
+                        MouseArea {
+                            id: statusMouse
+                            anchors.fill: parent; anchors.margins: -4
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                if (modelData.act === "replay") Capture.saveReplay()
+                                else Corners.toggle("quick", bar.screen ? bar.screen.name : "")
+                            }
+                        }
+                    }
+                }
+            }
+
             // Compact Cluster (Mic, Brightness, Volume, Layout)
             Row {
                 spacing: 12; anchors.verticalCenter: parent.verticalCenter

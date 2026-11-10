@@ -20,3 +20,9 @@ hl.bind(mainMod .. " + N", hl.dsp.exec_cmd("qs ipc call bar-system toggle"), { d
 hl.bind(mainMod .. " + SHIFT + K", hl.dsp.exec_cmd("qs ipc call bar-keyboard toggle"), { description = "Toggle keyboard layout popup" })
 hl.bind(mainMod .. " + A", hl.dsp.exec_cmd("qs ipc call dock toggle"), { description = "Toggle dock" })
 hl.bind(mainMod .. " + X", hl.dsp.exec_cmd("qs ipc call bar-power toggle"), { description = "Toggle power menu" })
+
+-- Corner drawers (Quickshell IPC): capture bottom right, quick settings bottom left
+hl.bind("PRINT", hl.dsp.exec_cmd("qs ipc call capture toggle"), { description = "Toggle capture drawer" })
+hl.bind("SHIFT + PRINT", hl.dsp.exec_cmd("qs ipc call capture screenshot region"), { description = "Screenshot a region" })
+hl.bind("CTRL + PRINT", hl.dsp.exec_cmd("qs ipc call capture record screen"), { description = "Start / stop screen recording" })
+hl.bind(mainMod .. " + ALT + Q", hl.dsp.exec_cmd("qs ipc call quicksettings toggle"), { description = "Toggle quick settings" })
