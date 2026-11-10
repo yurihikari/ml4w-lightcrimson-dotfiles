@@ -129,6 +129,26 @@ cp -f "$REPO_ROOT/.config/fish/conf.d/10-aliases.fish" "$TARGET_STORAGE/.config/
 cp -f "$REPO_ROOT/.config/bashrc/10-aliases" "$TARGET_STORAGE/.config/bashrc/10-aliases" 2>/dev/null
 cp -f "$REPO_ROOT/.config/zshrc/25-aliases" "$TARGET_STORAGE/.config/zshrc/25-aliases" 2>/dev/null
 
+# ==========================================
+# 6. THEME SWITCHER (dotswitch)
+# ==========================================
+# Switch between complete themes in ~/.mydotfiles/<id>, keeping your data
+# (see dotswitch/README.md). The keep list is only seeded, never overwritten.
+echo -e "\n========================================"
+echo "🎭 Installing the theme switcher (dotswitch)"
+echo "========================================"
+install -Dm755 "$REPO_ROOT/dotswitch/dotswitch" "$HOME/.local/bin/dotswitch"
+[ -f "$HOME/.config/dotswitch/keep" ] || install -Dm644 "$REPO_ROOT/dotswitch/keep" "$HOME/.config/dotswitch/keep"
+# LightCrimson's name and activate/deactivate scripts
+rsync -a "$REPO_ROOT/.mydotfiles/com.ml4w.dotfiles/.dotswitch/" "$TARGET_STORAGE/.dotswitch/"
+# Other themes kept in this repo: installed next to LightCrimson, not activated
+for theme in "$REPO_ROOT"/.mydotfiles/*/; do
+    id="$(basename "$theme")"
+    [ "$id" = "com.ml4w.dotfiles" ] && continue
+    [ -d "$theme/.config" ] || continue
+    "$HOME/.local/bin/dotswitch" install "$theme" --id "$id" -y || echo "⚠️ Warning: could not install theme $id."
+done
+
 echo "
 ============================================================
         ✅ CUSTOM DOTFILES CHANGES SUMMARY
@@ -149,6 +169,9 @@ echo "
      → Keyboard Layout (META+SHIFT+K): switch layout/variant
      → Power (META+X): power menu with keyboard selection
      → Radial Menu (META+R) + Display Manager (META+ALT+M)
+
+🎭 Theme switcher: dotswitch (switch / snapshot / restore themes,
+   keeping your data; see dotswitch/README.md)
 
 🎨 ML4W Theme & Wallpaper Customizations
    • ml4w-toggle-theme: Added 'Save' theme mode variable

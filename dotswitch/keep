@@ -1,0 +1,40 @@
+# dotswitch keep list: your data, as opposed to a theme's look.
+#
+# When you switch themes, these are copied from the theme you leave to the
+# theme you switch to, so they follow you. `dotswitch restore` keeps them too.
+#
+# One path per line, relative to your home folder (as you see it through the
+# active theme). Folders are merged: nothing is deleted on the other side.
+# Whatever a carried file replaces is saved under ~/.mydotfiles/backups/dotswitch/.
+# A path is only carried when the other theme uses that app at all (it has
+# ~/.config/<app>), so a theme without Quickshell or ML4W stays clean.
+
+## Screens, keyboard and touchpad
+.config/hypr/monitors.lua
+.config/hypr/monitors.conf
+.config/hypr/workspaces.lua
+.config/hypr/workspaces.conf
+.config/hypr/input.lua
+.config/hypr/conf/custom/keyboard.lua
+.config/hypr/conf/custom/keyboard.conf
+.config/nwg-displays/config
+
+## Your things
+.config/quickshell/dock-notes.txt
+.config/quickshell/dock-todos.txt
+.config/ml4w/wallpapers/
+.config/hypr/conf/custom/workspace-wallpapers.json
+.config/gtk-3.0/bookmarks
+.config/fish/fish_variables
+
+## Preferences: default apps, wallpaper, weather, screenshots
+.config/ml4w/settings/browser.sh
+.config/ml4w/settings/filemanager
+.config/ml4w/settings/terminal.sh
+.config/ml4w/settings/editor.sh
+.config/ml4w/settings/email
+.config/ml4w/settings/wallpaper-folder
+.config/ml4w/settings/weather-location
+.config/ml4w/settings/screenshot-folder
+.config/ml4w/settings/screenshot-filename
+.config/ml4w/settings/screenshot-editor

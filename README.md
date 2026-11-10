@@ -44,6 +44,12 @@ A fully custom [Quickshell](https://quickshell.outfoxxed.me/) desktop shell, bui
    - **Power** (`META+X`) — power menu (lock / suspend / log out / reboot / shutdown) with keyboard selection
    - **Radial Menu** (`META+R`) and **Display Manager** (`META+ALT+M`)
 
+### 🎭 Theme switcher (`dotswitch`)
+Switch between complete themes (different bars, drawers, Hyprland config) while your data follows you: notes, wallpapers, monitor layout, default apps. Each theme can be snapshotted and restored.
+   - `dotswitch` picks a theme, `dotswitch use <theme>` switches, `dotswitch new <id> --from lightcrimson` starts a new one
+   - `dotswitch save` / `dotswitch restore <theme>` snapshot and roll back a theme
+   - See [dotswitch/README.md](dotswitch/README.md)
+
 ### 🎨 ML4W Theme & Wallpaper Customizations
    - ml4w-toggle-theme: Added 'Save' theme mode variable
      - Theme stays consistent after waybar/matugen changes
