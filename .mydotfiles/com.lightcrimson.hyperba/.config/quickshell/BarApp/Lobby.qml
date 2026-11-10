@@ -34,15 +34,19 @@ PanelWindow {
     color: "transparent"
 
     readonly property string screenName: screen ? screen.name : ""
-    // Only on a screen without tiled windows (they would cover it anyway):
-    // elsewhere it is unmapped, so it costs nothing while you work.
-    visible: !Hud.busy(screenName)
+    // Only on a screen without tiled windows (they would cover it anyway).
+    // The window itself stays mapped: on a busy screen its contents are
+    // hidden (not drawn) and it takes no input. Unmapping and remapping it
+    // whenever a window moved between screens crashed Qt: a remapped surface
+    // gets its scale anew, and Qt tripped walking the lobby's layered items
+    // on that scale change (QQuickWindow::physicalDpiChanged).
+    readonly property bool active: !Hud.busy(screenName)
     readonly property real margin: 26
     readonly property real topClear: 86          // under the top HUD (level card)
     readonly property real barH: 74              // bottom menu bar plate
 
     // Shown unless in view mode; fades as a whole.
-    readonly property bool shown: !Hud.viewMode
+    readonly property bool shown: active && !Hud.viewMode
     property real reveal: shown ? 1 : 0
     Behavior on reveal { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
 
@@ -55,20 +59,20 @@ PanelWindow {
     // Input only where there is something to click; in view mode the whole
     // screen, so a click anywhere on the desktop brings the lobby back.
     mask: Region {
-        Region { item: Hud.viewMode ? fullArea : null }
-        Region { item: Hud.viewMode ? null : shortcuts }
-        Region { item: Hud.viewMode ? null : leftArrow }
-        Region { item: Hud.viewMode ? null : rightArrow }
-        Region { item: Hud.viewMode ? null : topRight }
-        Region { item: Hud.viewMode ? null : captureBadge }
-        Region { item: Hud.viewMode ? null : banner }
-        Region { item: Hud.viewMode ? null : menuBar }
-        Region { item: Hud.viewMode ? null : bigButton }
+        Region { item: lobby.active && Hud.viewMode ? fullArea : null }
+        Region { item: lobby.active && !Hud.viewMode ? shortcuts : null }
+        Region { item: lobby.active && !Hud.viewMode ? leftArrow : null }
+        Region { item: lobby.active && !Hud.viewMode ? rightArrow : null }
+        Region { item: lobby.active && !Hud.viewMode ? topRight : null }
+        Region { item: lobby.active && !Hud.viewMode ? captureBadge : null }
+        Region { item: lobby.active && !Hud.viewMode ? banner : null }
+        Region { item: lobby.active && !Hud.viewMode ? menuBar : null }
+        Region { item: lobby.active && !Hud.viewMode ? bigButton : null }
     }
     Item { id: fullArea; anchors.fill: parent }
     MouseArea {
         anchors.fill: parent
-        enabled: Hud.viewMode
+        enabled: lobby.active && Hud.viewMode
         onClicked: Hud.viewMode = false
     }
 
