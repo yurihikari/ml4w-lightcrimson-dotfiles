@@ -10,6 +10,7 @@ import Qt5Compat.GraphicalEffects
 import QtQuick.Effects
 import qs.CustomTheme
 import qs.BarApp.components
+import qs.BarApp.services
 
 PanelWindow {
     id: root
@@ -36,8 +37,10 @@ PanelWindow {
     }
 
     // --- CLICK OUTSIDE TO CLOSE ---
+    // The frame is part of the grab, so clicking it doesn't just close this:
+    // the click reaches the frame and opens what it opens (FrameState).
     HyprlandFocusGrab {
-        windows: [root]
+        windows: [root].concat(FrameState.frames)
         active: root.isOpen
         onCleared: {
             if (root.isOpen) {
@@ -60,7 +63,13 @@ PanelWindow {
     property bool isOpen: false
     // Stays mapped until the drawer has slid back into the frame.
     property bool animating: false
-    onIsOpenChanged: if (isOpen) animating = true
+    onIsOpenChanged: if (isOpen) { animating = true; FrameState.claim("wallpaper") }
+    Connections {
+        target: FrameState
+        function onClaimed(k) { if (k !== "wallpaper") root.isOpen = false }
+    }
+    // Input everywhere but the frame (see FrameState)
+    mask: FrameHoleMask { window: root }
     visible: isOpen || animating
 
     // --- IPC HANDLER ---

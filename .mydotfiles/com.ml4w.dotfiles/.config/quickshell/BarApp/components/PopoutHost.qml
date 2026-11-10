@@ -2,6 +2,7 @@ import Quickshell
 import Quickshell.Wayland
 import QtQuick
 import qs.CustomTheme
+import qs.BarApp.services
 
 // The shared popout: one surface, hanging from the bar, that every bar popup
 // (BarPopup) shows its content in. Opening a popup slides it out of the frame;
@@ -25,7 +26,16 @@ PanelWindow {
     exclusionMode: WlrLayershell.Ignore
     WlrLayershell.keyboardFocus: open && current ? current.keyboardFocusValue : WlrLayershell.None
 
-    mask: Region { x: 0; y: 40; width: host.width; height: Math.max(0, host.height - 40) }
+    // Everything but the frame: the bar and the side and bottom strips stay
+    // clickable, and whatever they open takes over (FrameState).
+    mask: FrameHoleMask { window: host }
+    readonly property string claimKey: "popout:" + (host.screen ? host.screen.name : "")
+    Connections {
+        target: FrameState
+        function onClaimed(k) {
+            if (k !== host.claimKey && host.current && host.current.active) host.current.active = false
+        }
+    }
 
     property var popups: []
     // The popup being shown (kept while the popout slides closed with it).
@@ -106,6 +116,7 @@ PanelWindow {
 
     onOpenChanged: {
         if (open) {
+            FrameState.claim(claimKey)
             animating = true
             // Reopened while it was still closing: widen out again from
             // wherever it got to (a fresh open runs through growFrom instead).
@@ -184,7 +195,7 @@ PanelWindow {
         panelHeight: host.curH
         radius: host.spec ? host.spec.radius : 20
         borderColor: host.spec ? host.spec.borderColor : Theme.withAlpha(Theme.primary, 0.8)
-        borderWidth: host.spec ? host.spec.borderWidth : 2
+        borderWidth: host.spec ? host.spec.borderWidth : PanelStyle.outlineWidth
         duration: host.spec ? host.spec.duration : 400
         outlineSuppressed: host.switching
         clipContent: host.switching || host.morphing
