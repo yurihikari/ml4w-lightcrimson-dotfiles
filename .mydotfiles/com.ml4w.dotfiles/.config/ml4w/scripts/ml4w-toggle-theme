@@ -63,6 +63,16 @@ else
     exit 1
 fi
 
+# A video wallpaper is themed from its first frame (its poster), like
+# ml4w-wallpaper does: matugen only reads images.
+VIDEO_LIB="$HOME/.config/hypr/conf/custom/video-wallpaper.sh"
+if [ -f "$VIDEO_LIB" ]; then
+    source "$VIDEO_LIB"
+    if vw_is_video "$IMAGE_PATH"; then
+        IMAGE_PATH="$(vw_poster "$IMAGE_PATH")" || { echo "Warning: Could not extract a frame from $IMAGE_PATH."; exit 1; }
+    fi
+fi
+
 # 2. Determine matugen binary path
 MATUGEN_BIN="matugen"
 if [ -f "$HOME/.cargo/bin/matugen" ]; then
