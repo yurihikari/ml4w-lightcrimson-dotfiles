@@ -4,6 +4,7 @@ import Quickshell.Hyprland
 import Quickshell.Services.Mpris
 import Quickshell.Services.SystemTray
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Layouts
 import qs.CustomTheme
 import qs.BarApp.services
@@ -670,6 +671,14 @@ Item {
                                 scale: trayMouse.pressed ? 0.85 : (trayMouse.containsMouse ? 1.15 : 1.0)
                                 Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
 
+                                // Tray icons come from the apps themselves (a
+                                // themed name or a raw D-Bus pixmap), and the
+                                // monochrome ones (nm-applet, Steam...) are
+                                // drawn white for a dark panel, so they vanish
+                                // on a light plate. A monochrome icon is
+                                // redrawn in the bar's ink, like the glyphs
+                                // next to it, in either palette; a coloured
+                                // one (an app logo) is left as it is.
                                 Image {
                                     anchors.fill: parent
                                     source: trayItem.modelData.icon
@@ -677,6 +686,52 @@ Item {
                                     sourceSize.height: 16
                                     fillMode: Image.PreserveAspectFit
                                     smooth: true
+                                    layer.enabled: trayProbe.monochrome
+                                    layer.effect: MultiEffect {
+                                        colorization: 1.0
+                                        colorizationColor: Theme.ink
+                                    }
+                                }
+
+                                // Samples the icon once it is loaded to tell
+                                // monochrome from coloured. Never shown.
+                                Canvas {
+                                    id: trayProbe
+                                    property bool monochrome: false
+                                    property string loaded: ""
+                                    readonly property string src: trayItem.modelData.icon
+                                    width: 16; height: 16
+                                    opacity: 0
+
+                                    function probe() {
+                                        if (src === "") { monochrome = false; return }
+                                        if (loaded !== "" && loaded !== src) unloadImage(loaded)
+                                        loaded = src
+                                        if (isImageLoaded(src)) requestPaint()
+                                        else loadImage(src)
+                                    }
+                                    onSrcChanged: probe()
+                                    Component.onCompleted: probe()
+                                    onImageLoaded: requestPaint()
+
+                                    onPaint: {
+                                        if (!isImageLoaded(src)) return
+                                        const ctx = getContext("2d")
+                                        ctx.clearRect(0, 0, width, height)
+                                        ctx.drawImage(src, 0, 0, width, height)
+                                        const px = ctx.getImageData(0, 0, width, height).data
+                                        // Average channel spread (max - min)
+                                        // over the solid pixels: near zero for
+                                        // white, grey or black, high for colour.
+                                        let solid = 0, spread = 0
+                                        for (let i = 0; i < px.length; i += 4) {
+                                            if (px[i + 3] < 128) continue
+                                            const r = px[i], g = px[i + 1], b = px[i + 2]
+                                            spread += Math.max(r, g, b) - Math.min(r, g, b)
+                                            solid++
+                                        }
+                                        monochrome = solid > 0 && spread / solid < 24
+                                    }
                                 }
 
                                 MouseArea {
