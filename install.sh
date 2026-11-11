@@ -36,6 +36,9 @@ DEPENDENCIES=(
     xdg-utils            # opening files and folders (xdg-open)
     zenity               # file picker for VPN imports
     nemo                 # the file manager this setup uses
+    adw-gtk-theme        # GTK 3 apps in the wallpaper's colours (adw-gtk3)
+    qt6ct breeze         # Qt apps in the wallpaper's colours (palette, style)
+    inotify-tools        # light / dark set in a GTK settings tool follows
 )
 
 echo -e "\n========================================"
@@ -125,6 +128,14 @@ fi
 
 # Ensure custom scripts remain executable after rsync
 chmod +x "$TARGET_STORAGE/.config/hypr/conf/custom/workspace-wallpapers.sh" 2>/dev/null || true
+chmod +x "$TARGET_STORAGE/.config/matugen/post-hook-scripts/"*.sh 2>/dev/null || true
+
+# GTK and Qt apps now take matugen's colours (adw-gtk3, qt6ct). Drop the links
+# a GTK theme installer leaves in gtk-4.0 (Catppuccin, nwg-look...): rsync
+# replaced gtk.css but leaves extra files behind, and they belong to that theme.
+for f in gtk-dark.css assets; do
+    [ -L "$TARGET_STORAGE/.config/gtk-4.0/$f" ] && rm -f "$TARGET_STORAGE/.config/gtk-4.0/$f"
+done
 
 # ==========================================
 # 4b. QUICKSHELL OVERVIEW (META+Tab)
