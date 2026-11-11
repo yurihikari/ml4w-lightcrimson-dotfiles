@@ -12,21 +12,74 @@ echo "📂 Repo: $REPO_ROOT"
 echo "📂 Storage: $TARGET_STORAGE"
 
 # ==========================================
-# 2. INSTALL DEPENDENCIES (cava, zoxide, rsync, socat, ffmpeg, mpvpaper)
+# 2. INSTALL DEPENDENCIES
 # ==========================================
+# Only what this setup adds on top of ML4W: the ML4W installer (step 3)
+# installs ML4W's own dependencies (Hyprland, Quickshell, awww, matugen,
+# cliphist, grimblast, ...). Packages come from the official repositories
+# when they are there, otherwise from the AUR through paru or yay (mpvpaper
+# is AUR-only on plain Arch).
+DEPENDENCIES=(
+    rsync                # merging these dotfiles (step 4), dotswitch
+    gum                  # dotswitch's theme picker
+    cava                 # audio visualizer (media popup)
+    zoxide               # 'cd' directory jumping in bash, fish and zsh
+    socat                # per-workspace wallpaper daemon (Hyprland events)
+    ffmpeg mpvpaper      # video wallpapers (first frames, playback)
+    gpu-screen-recorder  # screen recording and instant replay (capture drawer)
+    qt6-5compat          # Quickshell effects (album art, wallpaper picker)
+    wireplumber libpulse # volume, mic and output switching (wpctl, pactl)
+    networkmanager       # Wi-Fi, VPN and network settings (nmcli)
+    bluez bluez-utils    # Bluetooth popup and settings (bluetoothctl)
+    gnome-keyring        # secrets and SSH keys (custom autostart)
+    pciutils             # GPU name in Settings > Hardware (lspci)
+    xdg-utils            # opening files and folders (xdg-open)
+    zenity               # file picker for VPN imports
+    nemo                 # the file manager this setup uses
+)
+
 echo -e "\n========================================"
 echo "📦 Installing Dependencies"
 echo "========================================"
-# Loop through required packages to install them cleanly
-for pkg in cava zoxide rsync socat ffmpeg mpvpaper; do
-    if ! command -v "$pkg" &> /dev/null; then
-        echo "📦 $pkg not found. Installing..."
-        # Added --noconfirm so the script doesn't pause waiting for "Y"
-        sudo pacman -Sy --noconfirm "$pkg" || echo "⚠️ Warning: Failed to install $pkg. You may need to do it manually."
-    else
+missing=()
+for pkg in "${DEPENDENCIES[@]}"; do
+    if pacman -Qi "$pkg" &> /dev/null; then
         echo "✅ $pkg is already installed."
+    else
+        missing+=("$pkg")
     fi
 done
+
+if [ ${#missing[@]} -gt 0 ]; then
+    repo_pkgs=(); aur_pkgs=()
+    for pkg in "${missing[@]}"; do
+        if pacman -Si "$pkg" &> /dev/null; then repo_pkgs+=("$pkg"); else aur_pkgs+=("$pkg"); fi
+    done
+    if [ ${#repo_pkgs[@]} -gt 0 ]; then
+        echo "📦 Installing: ${repo_pkgs[*]}"
+        sudo pacman -S --needed --noconfirm "${repo_pkgs[@]}" \
+            || echo "⚠️ Warning: Failed to install some of: ${repo_pkgs[*]}. You may need to do it manually."
+    fi
+    if [ ${#aur_pkgs[@]} -gt 0 ]; then
+        aur_helper=""
+        for helper in paru yay; do
+            command -v "$helper" &> /dev/null && { aur_helper="$helper"; break; }
+        done
+        if [ -n "$aur_helper" ]; then
+            echo "📦 Installing from the AUR with $aur_helper: ${aur_pkgs[*]}"
+            "$aur_helper" -S --needed --noconfirm "${aur_pkgs[@]}" \
+                || echo "⚠️ Warning: Failed to install some of: ${aur_pkgs[*]}. You may need to do it manually."
+        else
+            echo "⚠️ Warning: ${aur_pkgs[*]} are not in your repositories and no AUR helper (paru, yay) was found. Install them manually."
+        fi
+    fi
+fi
+
+# Not installed, used when present:
+#   pear-desktop                 the music app the media popup's button opens
+#   ufw                          Settings > Firewall
+#   cups system-config-printer   Settings > Printers
+#   nvidia-utils                 NVIDIA GPU stats (nvidia-smi)
 
 # ==========================================
 # 3. OFFICIAL ML4W UPDATE / INSTALLATION
@@ -151,72 +204,28 @@ done
 
 echo "
 ============================================================
-        ✅ CUSTOM DOTFILES CHANGES SUMMARY
+        ✅ ML4W LightCrimson installed
 ============================================================
 
-🐚 Custom Quickshell Bar (replaces Waybar)
-   • Top bar: workspaces w/ app icons, system tray, media pill,
-     mic/brightness/volume ring controls, kb layout, notifications,
-     clock, network/bluetooth/battery pill, instant OSD + screen frame
-   • Multi-monitor aware — popups open on the monitor under your mouse
-   • Popups (keybinding or click):
-     → Media (META+M): MPRIS player, Cava visualizer, sink switcher
-     → Calendar (META+C): calendar + weather + world clock
-     → System/Network (META+N): Wi-Fi, Bluetooth, network
-     → Dashboard (META+I): system info, mounted disks & drives
-     → Dock (META+A): app launcher w/ keyboard nav, notes, todo, screenshots
-     → Clipboard (META+SHIFT+V): clipboard history (cliphist)
-     → Keyboard Layout (META+SHIFT+K): switch layout/variant
-     → Power (META+X): power menu with keyboard selection
-     → Radial Menu (META+R) + Display Manager (META+ALT+M)
+🐚 Quickshell shell (replaces Waybar and SwayNC)
+   • Popups: media (META+M), calendar (META+C), system (META+N),
+     dashboard (META+I), dock (META+A), clipboard (META+SHIFT+V),
+     keyboard (META+SHIFT+K), power (META+X)
+   • Corner drawers: quick settings (META+ALT+Q), capture (PRINT)
+   • Notifications, OSD, Settings app (META+SHIFT+I)
 
-🎭 Theme switcher: dotswitch (switch / snapshot / restore themes,
-   keeping your data; see dotswitch/README.md)
+🖼️ Wallpapers
+   • Images and videos (mp4, webm, mkv, mov, m4v)
+   • Per workspace: META+SHIFT+E
+   • Selector: META+CTRL+W   Carousel: META+W
 
-🎨 ML4W Theme & Wallpaper Customizations
-   • ml4w-toggle-theme: Added 'Save' theme mode variable
-     → Theme stays consistent after waybar/matugen changes
-   • darkmode: Custom darkmode state file preserved
-   • ml4w-wallpaper: Added darkmode variable
-     → Matugen won't override darkmode unless desired
+📸 Capture: screenshots, recording (CTRL+PRINT), instant replay,
+   text from the screen, colour picker (META+P)
 
-🖼️ Per-Workspace Wallpapers
-   • workspace-wallpapers.sh: Different wallpaper per Hyprland workspace
-     → Autostarted via ~/.config/hypr/conf/custom/autostart.lua
-   • WorkspaceWallpaperAPP: Separate Quickshell app to select wallpapers per workspace
-     → Open with SUPER + SHIFT + E
-     → Saves assignments to ~/.config/hypr/conf/custom/workspace-wallpapers.json
+🎮 Game mode (META+ALT+G): no animations or blur, videos stopped
 
-📸 Screenshot & Colorpicker Enhancements
-   • screenshot.sh: Screenshots now copied to clipboard
-     + saved to file (dual functionality)
-   • colorpicker.sh: Added hyprpicker integration
-     → Press META+P to pick colors
+🎭 Themes: run 'dotswitch' (LightCrimson, BA Inspired, HyperBA)
 
-⌨️ Custom Keybindings
-   • META+D → Application launcher
-   • META+P → Colorpicker (hyprpicker)
-   • META+R → Radial menu
-   • META+ALT+M → Display manager
-   • META+Tab → Window overview (quickshell-overview)
-   • META+CTRL+C → Calculator (META+C is taken by the calendar)
-   • Quickshell popups: META+M (media), META+C (calendar),
-     META+N (network/system), META+I (dashboard), META+A (dock),
-     META+SHIFT+V (clipboard), META+SHIFT+K (keyboard), META+X (power)
-   • Plus other custom overrides in default.conf
-
-🖥️ Fastfetch Customization
-   • Custom logo image added (you can replace it with your own)
-   • GPU information display enabled
-
-🐚 Shell Configuration Fixes
-   • zsh plugins: Fixed path issue for AUR vs git clone
-     → 00-init & 20-customization updated
-   • zoxide: Installed and initialized for bash/fish/zsh
-     → 'cd' alias with directory jumping available
-   • Aliases: Added for bash, fish, and zsh
-
-============================================================
-        All changes successfully saved!
+Log out and back in to start everything.
 ============================================================
 "
