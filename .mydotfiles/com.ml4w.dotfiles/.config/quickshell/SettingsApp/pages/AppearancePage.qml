@@ -6,6 +6,7 @@ import Quickshell.Io
 import Qt.labs.folderlistmodel
 import qs.CustomTheme
 import qs.SettingsApp.components
+import qs.WallpaperApp
 
 StPage {
     id: page
@@ -328,11 +329,7 @@ StPage {
                     showDirs: false
                     caseSensitive: false
                     sortField: FolderListModel.Name
-                    nameFilters: {
-                        let s = page.search.trim()
-                        if (s === "") return ["*.jpg", "*.jpeg", "*.png"]
-                        return ["*" + s + "*.jpg", "*" + s + "*.jpeg", "*" + s + "*.png"]
-                    }
+                    nameFilters: WallpaperService.nameFilters(page.search)
                 }
 
                 delegate: Item {
@@ -353,7 +350,7 @@ StPage {
                         Image {
                             anchors.fill: parent
                             anchors.margins: 2
-                            source: "file://" + filePath
+                            source: WallpaperService.thumb(filePath)
                             fillMode: Image.PreserveAspectCrop
                             asynchronous: true
                             sourceSize.width: 320
@@ -546,11 +543,7 @@ StPage {
                     showDirs: false
                     caseSensitive: false
                     sortField: FolderListModel.Name
-                    nameFilters: {
-                        let s = page.wsSearch.trim()
-                        if (s === "") return ["*.jpg", "*.jpeg", "*.png"]
-                        return ["*" + s + "*.jpg", "*" + s + "*.jpeg", "*" + s + "*.png"]
-                    }
+                    nameFilters: WallpaperService.nameFilters(page.wsSearch)
                 }
 
                 delegate: Item {
@@ -573,7 +566,7 @@ StPage {
                         Image {
                             anchors.fill: parent
                             anchors.margins: 2
-                            source: "file://" + filePath
+                            source: WallpaperService.thumb(filePath)
                             fillMode: Image.PreserveAspectCrop
                             asynchronous: true
                             sourceSize.width: 320
