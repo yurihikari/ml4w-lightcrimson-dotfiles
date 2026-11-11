@@ -159,8 +159,12 @@ reload_pywalfox() {
 }
 
 reload_swaync() {
+    # swaync-client blocks forever when SwayNC isn't running (notifications are
+    # handled by Quickshell here), which stalled every run before the
+    # variants and the per-workspace hook below.
+    pgrep -x swaync >/dev/null || { info "SwayNC not running, skipping refresh"; return; }
     sleep 0.1
-    swaync-client -rs
+    timeout 3 swaync-client -rs
     info "SwayNC refreshed"
 }
 
