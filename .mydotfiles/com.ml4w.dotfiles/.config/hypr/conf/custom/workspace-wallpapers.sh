@@ -311,7 +311,9 @@ SOCKET="$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock"
 log "Listening on Hyprland socket2: $SOCKET"
 
 while true; do
-    socat -u UNIX-CONNECT:"$SOCKET" - | while read -r event; do
+    # 9>&-: socat must not inherit the lock, or an orphaned socat left by a
+    # killed daemon keeps it held and the next daemon refuses to start.
+    socat -u UNIX-CONNECT:"$SOCKET" - 9>&- | while read -r event; do
         case "$event" in
             workspace\>\>*|focusedmon\>\>*|moveworkspace\>\>*)
                 log "Event: $event"

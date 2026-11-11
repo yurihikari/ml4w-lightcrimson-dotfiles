@@ -86,8 +86,10 @@ vw_play() {  # $1 = monitor, $2 = video
     fi
     vw_stop "$mon"
     mkdir -p "$VW_RUN"
-    # -p: pause while the wallpaper is fully hidden behind windows
-    setsid mpvpaper -p -o "$VW_MPV_OPTS" "$mon" "$video" >/dev/null 2>&1 < /dev/null &
+    # -p: pause while the wallpaper is fully hidden behind windows.
+    # 9>&-: don't hand the per-workspace daemon's lock (fd 9) to the video,
+    # which outlives it and would keep a restarted daemon from starting.
+    setsid mpvpaper -p -o "$VW_MPV_OPTS" "$mon" "$video" >/dev/null 2>&1 < /dev/null 9>&- &
     pid=$!
     disown "$pid" 2>/dev/null
     echo "$pid" > "$VW_RUN/$mon.pid"
