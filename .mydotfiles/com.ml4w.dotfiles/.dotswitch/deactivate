@@ -2,8 +2,9 @@
 # LightCrimson is being switched away from: stop what its autostart runs.
 # (Run by dotswitch while ~/.config still points to this theme.)
 
-# Every Quickshell instance: the bar, ML4W settings, overview, app switcher
-killall -q qs
+# Every Quickshell instance: the bar, ML4W settings, overview, app switcher.
+# Quickshell relaunches itself as `quickshell` after a crash, so both names.
+killall -q qs quickshell
 # Per-workspace wallpapers, the waybar fallback and the network applet
 pkill -f "$HOME/.config/hypr/conf/custom/workspace-wallpapers.sh"
 pkill -x waybar
