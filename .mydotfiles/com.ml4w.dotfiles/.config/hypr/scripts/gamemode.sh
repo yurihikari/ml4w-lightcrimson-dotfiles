@@ -14,6 +14,9 @@ source "$HOME/.config/ml4w/scripts/ml4w-notification-handler"
 APP_NAME="System"
 NOTIFICATION_ICON="joystick"
 
+# Video wallpapers stop while game mode is on (their still first frame stays)
+VIDEO_WALLPAPER="$HOME/.config/hypr/conf/custom/video-wallpaper.sh"
+
 if [ -f $HOME/.config/ml4w/settings/gamemode-enabled ]; then
   if [ -f $ml4w_cache_folder/restart-wpauto ]; then
     rm $ml4w_cache_folder/restart-wpauto
@@ -21,10 +24,11 @@ if [ -f $HOME/.config/ml4w/settings/gamemode-enabled ]; then
   fi
   hyprctl reload
   rm $HOME/.config/ml4w/settings/gamemode-enabled
+  [ -x "$VIDEO_WALLPAPER" ] && "$VIDEO_WALLPAPER" resume
   notify_user --a "${APP_NAME}" \
             --i "${NOTIFICATION_ICON}" \
             --s "Gamemode deactivated" \
-            --m "Animations and blur are now enabled."
+            --m "Animations, blur and video wallpapers are now enabled."
 else
   if [ -f $ml4w_cache_folder/wallpaper-automation ]; then
     touch $ml4w_cache_folder/restart-wpauto
@@ -32,8 +36,9 @@ else
   fi
   hyprctl eval "activate_gamemode()"
   touch $HOME/.config/ml4w/settings/gamemode-enabled
+  [ -x "$VIDEO_WALLPAPER" ] && "$VIDEO_WALLPAPER" suspend
   notify_user --a "${APP_NAME}" \
           --i "${NOTIFICATION_ICON}" \
           --s "Gamemode activated" \
-          --m "Animations and blur are now disabled."
+          --m "Animations, blur and video wallpapers are now disabled."
 fi

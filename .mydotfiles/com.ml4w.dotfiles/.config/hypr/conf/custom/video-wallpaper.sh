@@ -16,13 +16,22 @@
 #   video-wallpaper.sh posters <folder>     make posters for every video in folder
 #   video-wallpaper.sh play <monitor> <video>
 #   video-wallpaper.sh stop <monitor> | stop-all | status
+#   video-wallpaper.sh suspend | resume
+#
+# Game mode: while ~/.config/ml4w/settings/gamemode-enabled exists, no video
+# plays. `suspend` (run by gamemode.sh when it turns on) stops the running
+# videos, which frees their decoder and memory; the poster underneath stays, so
+# the desktop keeps its wallpaper as a still frame. Any video asked for while
+# suspended (a workspace switch, a new wallpaper) is only remembered, and
+# `resume` starts whatever each monitor should be playing by then.
 #
 # Posters are cached as ~/.cache/video-wallpapers/posters/<md5 of path>.jpg; the
 # Quickshell pickers compute the same name with Qt.md5() to show thumbnails.
 # ============================================================================
 
 VW_POSTERS="$HOME/.cache/video-wallpapers/posters"
-VW_RUN="${XDG_RUNTIME_DIR:-/tmp}/video-wallpapers"   # per-monitor pid/video/want files
+VW_RUN="${XDG_RUNTIME_DIR:-/tmp}/video-wallpapers"   # per-monitor pid/video/want/paused files
+VW_SUSPEND_FLAG="${VW_SUSPEND_FLAG:-$HOME/.config/ml4w/settings/gamemode-enabled}"
 # mpv options: silent, looped, hardware-decoded, cropped to fill like awww's crop.
 VW_MPV_OPTS="${VW_MPV_OPTS:-no-audio loop-file=inf hwdec=auto panscan=1.0 really-quiet}"
 
@@ -58,9 +67,11 @@ vw_current() {  # $1 = monitor → video currently playing there (empty if none)
     vw_running "$1" && cat "$VW_RUN/$1.video" 2>/dev/null
 }
 
+vw_suspended() { [[ -f "$VW_SUSPEND_FLAG" ]]; }
+
 vw_stop() {  # $1 = monitor
     local pid
-    rm -f "$VW_RUN/$1.want"   # cancels a pending delayed start
+    rm -f "$VW_RUN/$1.want" "$VW_RUN/$1.paused"   # cancels a pending/suspended start
     if vw_running "$1"; then
         pid="$(cat "$VW_RUN/$1.pid")"
         kill "$pid" 2>/dev/null
@@ -71,15 +82,50 @@ vw_stop() {  # $1 = monitor
 
 vw_stop_all() {
     local f
-    for f in "$VW_RUN"/*.pid "$VW_RUN"/*.want; do
+    for f in "$VW_RUN"/*.pid "$VW_RUN"/*.want "$VW_RUN"/*.paused; do
         [[ -e "$f" ]] || continue
         f="${f##*/}"; vw_stop "${f%.*}"
+    done
+}
+
+# Stop every video (running or about to start) and remember it per monitor.
+vw_suspend_all() {
+    local f mon video
+    for f in "$VW_RUN"/*.pid "$VW_RUN"/*.want; do
+        [[ -e "$f" ]] || continue
+        mon="${f##*/}"; mon="${mon%.*}"
+        if [[ "$f" == *.pid ]]; then
+            video="$(vw_current "$mon")"
+        else
+            video="$(cat "$f" 2>/dev/null)"; video="${video%|*|*}"   # token: video|pid|rand
+        fi
+        vw_stop "$mon"
+        [[ -n "$video" ]] && printf '%s\n' "$video" > "$VW_RUN/$mon.paused"
+    done
+}
+
+# Start the videos remembered while suspended.
+vw_resume_all() {
+    local f mon video
+    for f in "$VW_RUN"/*.paused; do
+        [[ -e "$f" ]] || continue
+        mon="${f##*/}"; mon="${mon%.paused}"
+        video="$(cat "$f" 2>/dev/null)"
+        rm -f "$f"
+        [[ -f "$video" ]] && vw_play "$mon" "$video"
     done
 }
 
 vw_play() {  # $1 = monitor, $2 = video
     local mon="$1" video="$2" pid
     [[ "$(vw_current "$mon")" == "$video" ]] && return 0
+    if vw_suspended; then
+        # Game mode: keep the poster, play this once it is turned off.
+        vw_stop "$mon"
+        mkdir -p "$VW_RUN"
+        printf '%s\n' "$video" > "$VW_RUN/$mon.paused"
+        return 0
+    fi
     if ! command -v mpvpaper >/dev/null 2>&1; then
         echo "video-wallpaper: mpvpaper is not installed; showing the poster only" >&2
         return 1
@@ -125,12 +171,19 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
         play)     vw_play "$2" "$3" ;;
         stop)     vw_stop "$2" ;;
         stop-all) vw_stop_all ;;
+        suspend)  vw_suspend_all ;;
+        resume)   vw_suspended || vw_resume_all ;;
         status)
             for f in "$VW_RUN"/*.pid; do
                 [[ -e "$f" ]] || continue
                 m="${f##*/}"; m="${m%.pid}"
                 vw_running "$m" && echo "$m: $(cat "$VW_RUN/$m.video")"
+            done
+            for f in "$VW_RUN"/*.paused; do
+                [[ -e "$f" ]] || continue
+                m="${f##*/}"; m="${m%.paused}"
+                echo "$m: $(cat "$f") (suspended)"
             done ;;
-        *) echo "usage: ${0##*/} poster <video> | posters <folder> | play <monitor> <video> | stop <monitor> | stop-all | status" >&2; exit 1 ;;
+        *) echo "usage: ${0##*/} poster <video> | posters <folder> | play <monitor> <video> | stop <monitor> | stop-all | suspend | resume | status" >&2; exit 1 ;;
     esac
 fi
