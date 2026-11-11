@@ -20,7 +20,8 @@ import qs.BarApp.components
 //   bottom left now-playing banner
 //   bottom      menu bar (apps, files, terminal, browser, capture, wallpaper,
 //               settings, themes) with the clock at its end
-//   bottom right the big "Overview" button
+//   bottom right the big "Overview" button: a folder behind the menu bar's
+//               end and a plate laid over it
 //
 // Colours come from the theme (matugen), so the lobby follows the wallpaper.
 PanelWindow {
@@ -48,6 +49,9 @@ PanelWindow {
     readonly property real margin: 26
     readonly property real topClear: 86          // under the top HUD (level card)
     readonly property real barH: 74              // bottom menu bar plate
+    readonly property real overviewW: 270        // the Overview plate, over the bar's right end
+    readonly property bool overviewHot: ovCardMouse.containsMouse || ovPlateMouse.containsMouse
+    readonly property bool overviewDown: ovCardMouse.pressed || ovPlateMouse.pressed
 
     // Shown unless in view mode; fades as a whole.
     readonly property bool shown: active && !Hud.viewMode
@@ -58,6 +62,7 @@ PanelWindow {
     // A popup on this screen (the bar / drawer of this screen opens it)
     function ask(what, arg) { Hud.request(lobby.screenName, what, arg) }
     function ipc(target, fn, arg) { Sys.run(["qs", "ipc", "call", target, fn].concat(arg !== undefined ? [String(arg)] : [])) }
+    function openOverview() { run("qs -p $HOME/.local/share/quickshell-overview ipc call overview toggle") }
     function workspace(rel) { Sys.run(["hyprctl", "dispatch", "hl.dsp.focus({ workspace = \"" + rel + "\" })"]) }
 
     // Input only where there is something to click; in view mode the whole
@@ -75,7 +80,8 @@ PanelWindow {
         Region { item: lobby.active && !Hud.viewMode ? captureBadge : null }
         Region { item: lobby.active && !Hud.viewMode ? banner : null }
         Region { item: lobby.active && !Hud.viewMode ? menuBar : null }
-        Region { item: lobby.active && !Hud.viewMode ? bigButton : null }
+        Region { item: lobby.active && !Hud.viewMode ? ovCard : null }
+        Region { item: lobby.active && !Hud.viewMode ? ovPlate : null }
     }
     Item { id: fullArea; anchors.fill: parent }
     MouseArea {
@@ -160,13 +166,13 @@ PanelWindow {
         }
     }
 
-    // A small square button (top right)
+    // A small slanted button (top right), like the shortcut tiles
     component SquareButton: Item {
         id: sb
         property string icon: ""
         property string label: ""
         signal clicked()
-        width: 64; height: 50
+        width: 70; height: 50
         Text {
             anchors.top: parent.bottom; anchors.topMargin: 6
             anchors.horizontalCenter: parent.horizontalCenter
@@ -181,17 +187,18 @@ PanelWindow {
         }
         scale: sm.pressed ? 0.92 : (sm.containsMouse ? 1.05 : 1)
         Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
-        PlateShadow { anchors.fill: parent; radius: 8 }
-        Rectangle {
-            anchors.fill: parent; radius: 8
-            color: sm.containsMouse ? Theme.blue : Theme.plate
-            border.color: Theme.withAlpha(Theme.ink, 0.12)
+        Slanted {
+            anchors.fill: parent; slant: 10; shadow: true
+            fill: sm.containsMouse ? Theme.blue : Theme.plate
+            fill2: sm.containsMouse ? Qt.lighter(Theme.blue, 1.15) : Theme.plate
+            stroke: sm.containsMouse ? "transparent" : Theme.withAlpha(Theme.ink, 0.12)
+            strokeWidth: 1
         }
         Text {
             anchors.centerIn: parent
             text: sb.icon
-            color: sm.containsMouse ? Theme.accentInk : Theme.ink
-            font.pixelSize: 24
+            color: sm.containsMouse ? Theme.accentInk : Theme.blue
+            font.pixelSize: 26
         }
         MouseArea { id: sm; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: sb.clicked() }
     }
@@ -442,68 +449,63 @@ PanelWindow {
             MouseArea { id: bm; anchors.fill: parent; z: -1; cursorShape: Qt.PointingHandCursor; onClicked: lobby.ask("media") }
         }
 
-        // ── Bottom right: the Overview card, above the menu bar's end ──────
-        // A folder-like card, and under it a dark label plate running to the
-        // screen edge (straight there, slanted on its left).
+        // ── Bottom right: Overview ──────────────────────────────────────────
+        // Like the game's Campaign button: a folder standing behind the menu
+        // bar's end, and a deep plate laid over the bar's end, running to the
+        // screen edge (it is declared after the menu bar, to sit on top).
+        // The folder: a back panel with its tab, a sheet sticking out, and a
+        // front panel. Its foot is hidden behind the bar.
         Item {
-            id: bigButton
-            width: 250; height: 132
-            x: lobby.width - width + (1 - lobby.reveal) * 40
-            y: menuBar.restY + menuBar.rise - height - 30
+            id: ovCard
+            width: 220; height: 150
+            x: ovPlate.x - 28
+            y: menuBar.y + menuBar.rise + 10 - height + (lobby.overviewHot ? -6 : 0)
+            Behavior on y { NumberAnimation { duration: 220; easing.type: Easing.OutBack } }
+            scale: lobby.overviewDown ? 0.97 : 1
+            transformOrigin: Item.Bottom
+            Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutBack } }
 
-            // Card
-            Item {
-                id: cardBox
-                x: 70; y: 0
-                width: 150; height: 104
-                scale: gm.pressed ? 0.96 : (gm.containsMouse ? 1.03 : 1)
-                Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
-                PlateShadow { anchors.fill: card; radius: 8 }
-                Rectangle {
-                    x: 8; y: 0; width: 56; height: 16; radius: 5
-                    color: Qt.lighter(Theme.blue, 1.08)
-                    Row { anchors.centerIn: parent; spacing: 3
-                        Repeater { model: 3; Rectangle { width: 5; height: 5; radius: 2.5; color: Theme.withAlpha(Theme.accentInk, 0.7) } }
-                    }
-                }
-                Rectangle {
-                    id: card
-                    anchors.fill: parent; anchors.topMargin: 11
-                    radius: 8
-                    border.color: Theme.withAlpha(Theme.accentInk, 0.35); border.width: 1
-                    gradient: Gradient {
-                        GradientStop { position: 0; color: Qt.lighter(Theme.blue, gm.containsMouse ? 1.18 : 1.08) }
-                        GradientStop { position: 1; color: Theme.blueDeep }
-                    }
-                    // Diagonal sheen
-                    Item {
-                        anchors.fill: parent; clip: true
-                        Rectangle { x: parent.width * 0.5; y: -40; width: 24; height: 200; rotation: 25; color: Theme.withAlpha(Theme.accentInk, 0.10) }
-                        Rectangle { x: parent.width * 0.68; y: -40; width: 9; height: 200; rotation: 25; color: Theme.withAlpha(Theme.accentInk, 0.08) }
-                    }
-                    Text { anchors.centerIn: parent; anchors.verticalCenterOffset: -8; text: "󰕰"; color: Theme.accentInk; font.pixelSize: 38 }
-                }
-            }
-
-            // Label plate to the screen edge
-            Item {
-                x: 0; y: cardBox.height - 26
-                width: parent.width; height: 40
-                Slanted {
-                    anchors.fill: parent
-                    rightEdge: false; slant: 14; shadow: true
-                    fill: Theme.plateDark
-                    fill2: Theme.plateDark
+            PlateShadow { x: 0; y: 16; width: parent.width; height: parent.height - 16; radius: 10 }
+            // Back panel and its tab
+            Rectangle { x: 10; y: 0; width: 76; height: 30; radius: 8; color: Theme.blueDeep }
+            Rectangle { y: 14; width: parent.width; height: parent.height - 14; radius: 10; color: Theme.blueDeep }
+            // A sheet in the folder
+            Rectangle {
+                x: 16; y: 22; width: parent.width - 30; height: 70; radius: 5
+                rotation: -2
+                color: Theme.plate
+                Column {
+                    x: 14; y: 12; spacing: 7
+                    Repeater { model: [0.55, 0.4]; Rectangle { required property real modelData; width: ovCard.width * modelData; height: 4; radius: 2; color: Theme.withAlpha(Theme.blue, 0.3) } }
                 }
                 Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    x: 34
-                    text: "Overview"
-                    color: Theme.ink
-                    font.family: Theme.fontFamily; font.pixelSize: 21; font.weight: Font.Black
+                    anchors.right: parent.right; anchors.rightMargin: 12; y: 6
+                    text: "󰄰 󰅖 󰐕"
+                    color: Theme.withAlpha(Theme.blue, 0.45); font.pixelSize: 11
                 }
             }
-            MouseArea { id: gm; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: lobby.run("qs -p $HOME/.local/share/quickshell-overview ipc call overview toggle") }
+            // Front panel
+            Rectangle {
+                id: ovFront
+                y: 40; width: parent.width; height: parent.height - 40; radius: 10
+                border.color: Theme.withAlpha(Theme.accentInk, 0.35); border.width: 1
+                gradient: Gradient {
+                    GradientStop { position: 0; color: Qt.lighter(Theme.blue, lobby.overviewHot ? 1.22 : 1.1) }
+                    GradientStop { position: 1; color: Theme.blue }
+                }
+                // Diagonal sheen
+                Item {
+                    anchors.fill: parent; clip: true
+                    Rectangle { x: parent.width * 0.55; y: -60; width: 30; height: 240; rotation: 28; color: Theme.withAlpha(Theme.accentInk, 0.12) }
+                    Rectangle { x: parent.width * 0.74; y: -60; width: 10; height: 240; rotation: 28; color: Theme.withAlpha(Theme.accentInk, 0.09) }
+                }
+                // Icon, in the part above the bar
+                Text { x: 46; y: 10; text: "󰕰"; color: Theme.accentInk; font.pixelSize: 44 }
+            }
+            MouseArea {
+                id: ovCardMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                onClicked: lobby.openOverview()
+            }
         }
 
         // ── Bottom menu bar ─────────────────────────────────────────────────
@@ -520,7 +522,9 @@ PanelWindow {
             readonly property real restY: lobby.height - height - 14
             x: lobby.margin
             y: restY + (1 - lobby.reveal) * 60
-            width: lobby.width - 2 * lobby.margin
+            // Its end runs under the Overview plate
+            readonly property real underPlate: 70   // how far its end runs under the plate
+            width: lobby.width - lobby.margin - lobby.overviewW + underPlate
             height: plateH + rise
 
             Item {
@@ -550,8 +554,9 @@ PanelWindow {
 
             RowLayout {
                 anchors.fill: parent
-                // Clear of the plate's slanted ends
-                anchors.leftMargin: menuBar.slant * 0.6 + 14; anchors.rightMargin: menuBar.slant + 16
+                // Clear of the plate's slanted start and of the Overview plate
+                anchors.leftMargin: menuBar.slant * 0.6 + 14
+                anchors.rightMargin: menuBar.underPlate + 14
                 spacing: 4
                 Repeater {
                     model: [
@@ -567,7 +572,10 @@ PanelWindow {
                     Item {
                         id: mi
                         required property var modelData
-                        Layout.fillWidth: true
+                        // Evenly spaced, up to a width; what is left goes to
+                        // the gap before the clock
+                        Layout.preferredWidth: 180
+                        Layout.minimumWidth: 90
                         Layout.fillHeight: true
 
                         // Icon: big, in its own colour, half out of the plate
@@ -608,20 +616,49 @@ PanelWindow {
                         MouseArea { id: mm; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: mi.modelData.a() }
                     }
                 }
-                // Clock at the end, on the plate
-                Rectangle {
-                    Layout.alignment: Qt.AlignBottom; Layout.bottomMargin: 14
-                    Layout.preferredWidth: 1; Layout.preferredHeight: 38
-                    color: Theme.withAlpha(Theme.ink, 0.15)
-                }
+                // An airy gap, then the clock at the end, on the plate, with
+                // a divider before the Overview plate
+                Item { Layout.fillWidth: true; Layout.minimumWidth: 40 }
                 Column {
-                    Layout.leftMargin: 12
                     Layout.alignment: Qt.AlignBottom; Layout.bottomMargin: 10
                     property var now: new Date()
                     Timer { interval: 1000; running: true; repeat: true; onTriggered: parent.now = new Date() }
                     Text { anchors.right: parent.right; text: Qt.formatDateTime(parent.now, "HH:mm"); color: Theme.ink; font.family: Theme.fontFamily; font.pixelSize: 24; font.weight: Font.Black }
                     Text { anchors.right: parent.right; text: Qt.formatDateTime(parent.now, "ddd d MMM"); color: Theme.inkSoft; font.family: Theme.fontFamily; font.pixelSize: 12; font.weight: Font.Bold }
                 }
+                Rectangle {
+                    Layout.leftMargin: 14
+                    Layout.alignment: Qt.AlignBottom; Layout.bottomMargin: 14
+                    Layout.preferredWidth: 1; Layout.preferredHeight: 38
+                    color: Theme.withAlpha(Theme.ink, 0.15)
+                }
+            }
+        }
+
+        // The Overview plate, over the menu bar's end (see ovCard)
+        Item {
+            id: ovPlate
+            width: lobby.overviewW; height: menuBar.plateH + 4
+            x: lobby.width - width + (1 - lobby.reveal) * 40
+            y: menuBar.y + menuBar.rise - 12      // a little above the bar's top
+            Slanted {
+                anchors.fill: parent
+                rightEdge: false; slant: menuBar.slant; shadow: true
+                // Opaque: the bar's end and the folder's foot are under it
+                fill: Theme.withAlpha(lobby.overviewHot ? Qt.lighter(Theme.deepPlate, 1.2) : Theme.deepPlate, 1)
+                fill2: Theme.withAlpha(Qt.lighter(Theme.deepPlate, 1.25), 1)
+                stroke: Theme.withAlpha(Theme.deepAccent, 0.3); strokeWidth: 1
+            }
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                x: menuBar.slant * PanelStyle.lean + 26
+                text: "Overview"
+                color: Theme.deepInk
+                font.family: Theme.fontFamily; font.pixelSize: 30; font.weight: Font.Black
+            }
+            MouseArea {
+                id: ovPlateMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                onClicked: lobby.openOverview()
             }
         }
     }

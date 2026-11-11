@@ -170,18 +170,24 @@ Item {
                     Slanted {
                         anchors.fill: parent
                         leftEdge: false; slant: lvPlate.slant; shadow: true
-                        fill: dashPopup.active || lvMouse.containsMouse ? Qt.lighter(Theme.plateDark, 1.15) : Theme.plateDark
-                        fill2: Theme.withAlpha(Theme.plateDark, Theme.plateDark.a * Theme.plateFade)
+                        // A deep primary card (the game's navy one), set apart
+                        // from the other plates
+                        fill: dashPopup.active || lvMouse.containsMouse ? Qt.lighter(Theme.deepPlate, 1.2) : Theme.deepPlate
+                        fill2: Theme.withAlpha(Qt.lighter(Theme.deepPlate, 1.25), Theme.deepPlate.a * Theme.plateFade)
+                        stroke: Theme.withAlpha(Theme.deepAccent, 0.3); strokeWidth: 1
                     }
-                    // Accent stripe along the foot, cut along the slanted edge
-                    Slanted {
-                        x: 0; y: lvPlate.height - lvPlate.stripe
-                        width: lvPlate.width - lvPlate.slant * (lvPlate.height - lvPlate.stripe) / lvPlate.height
-                        height: lvPlate.stripe
-                        leftEdge: false
-                        slant: lvPlate.slant * lvPlate.stripe / lvPlate.height
-                        fill: Theme.blue
-                        fill2: Theme.withAlpha(Theme.blue, 0.35)
+                    // Highlight line along the foot (the game's line under the
+                    // name), ending short of the slanted edge
+                    Rectangle {
+                        readonly property real lineY: lvPlate.height - lvPlate.stripe - (logoIcon.compact ? 1 : 4)
+                        x: 0; y: lineY
+                        width: lvPlate.width - lvPlate.slant * PanelStyle.lean * (lineY + lvPlate.stripe) / lvPlate.height - 14
+                        height: lvPlate.stripe; radius: height / 2
+                        gradient: Gradient {
+                            orientation: Gradient.Horizontal
+                            GradientStop { position: 0; color: Theme.deepHighlight }
+                            GradientStop { position: 1; color: Theme.withAlpha(Theme.deepHighlight, 0.3) }
+                        }
                     }
 
                     // Lv. + level (click: dashboard)
@@ -192,7 +198,7 @@ Item {
                             id: lvTag
                             x: 0; y: logoIcon.compact ? 11 : 12
                             text: "Lv."
-                            color: Theme.yellow
+                            color: Theme.deepHighlight
                             font.family: Theme.fontFamily; font.pixelSize: logoIcon.compact ? 11 : 15
                             font.weight: Font.Black; font.italic: true
                         }
@@ -200,7 +206,7 @@ Item {
                             x: logoIcon.compact ? lvTag.width + 3 : 10
                             y: logoIcon.compact ? (parent.height - height) / 2 - 1 : 22
                             text: lvPlate.level
-                            color: Theme.ink
+                            color: Theme.deepInk
                             font.family: Theme.fontFamily; font.pixelSize: logoIcon.compact ? 22 : 40
                             font.weight: Font.Black; font.italic: true
                         }
@@ -213,7 +219,7 @@ Item {
                     Rectangle {
                         x: lvPlate.contentX - 10; y: 10
                         width: 1; height: parent.height - 20 - lvPlate.stripe
-                        color: Theme.withAlpha(Theme.ink, 0.18)
+                        color: Theme.withAlpha(Theme.deepInk, 0.22)
                     }
 
                     // Workspaces, memory bar, count
@@ -240,16 +246,16 @@ Item {
                                     Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
                                     Slanted {
                                         anchors.fill: parent; slant: 6
-                                        fill: wsTab.modelData.focused ? Theme.blue
-                                            : wsTab.modelData.active ? Theme.withAlpha(Theme.blue, 0.22)
-                                            : wsTabMouse.containsMouse ? Theme.withAlpha(Theme.ink, 0.12) : "transparent"
-                                        fill2: wsTab.modelData.focused ? Qt.lighter(Theme.blue, 1.18) : fill
+                                        fill: wsTab.modelData.focused ? Theme.deepAccent
+                                            : wsTab.modelData.active ? Theme.withAlpha(Theme.deepAccent, 0.28)
+                                            : wsTabMouse.containsMouse ? Theme.withAlpha(Theme.deepInk, 0.14) : "transparent"
+                                        fill2: wsTab.modelData.focused ? Theme.deepInk : fill
                                     }
                                     Text {
                                         anchors.centerIn: parent
                                         text: wsTab.modelData.name
-                                        color: wsTab.modelData.focused ? Theme.accentInk
-                                            : wsTab.occupied || wsTab.modelData.active ? Theme.ink : Theme.withAlpha(Theme.ink, 0.45)
+                                        color: wsTab.modelData.focused ? Theme.on_primary_fixed
+                                            : wsTab.occupied || wsTab.modelData.active ? Theme.deepInk : Theme.withAlpha(Theme.deepInk, 0.5)
                                         font.family: Theme.fontFamily; font.pixelSize: 15; font.weight: Font.Black
                                     }
                                     MouseArea {
@@ -269,14 +275,14 @@ Item {
                             y: 46; width: parent.width; height: 26
                             Rectangle {
                                 width: parent.width; height: 7; radius: 3.5
-                                color: Theme.withAlpha(Theme.ink, 0.15)
+                                color: Theme.withAlpha(Theme.deepInk, 0.18)
                                 Rectangle {
                                     width: parent.width * (Hud.memTotalGb > 0 ? Hud.memUsedGb / Hud.memTotalGb : Sys.ramUsage)
                                     height: parent.height; radius: 3.5
                                     gradient: Gradient {
                                         orientation: Gradient.Horizontal
-                                        GradientStop { position: 0; color: Theme.blue }
-                                        GradientStop { position: 1; color: Theme.sky }
+                                        GradientStop { position: 0; color: Theme.deepAccent }
+                                        GradientStop { position: 1; color: Theme.deepInk }
                                     }
                                     Behavior on width { NumberAnimation { duration: 400 } }
                                 }
@@ -284,7 +290,7 @@ Item {
                             Text {
                                 y: 12
                                 text: Hud.memUsedGb.toFixed(1) + " / " + Math.round(Hud.memTotalGb) + " GB"
-                                color: Theme.inkSoft
+                                color: Theme.withAlpha(Theme.deepInk, 0.75)
                                 font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.Bold
                             }
                         }
@@ -569,7 +575,7 @@ Item {
                         id: sysBtItem
                     flat: bar.compactness
                         Layout.alignment: Qt.AlignVCenter; visible: Sys.bluetooth
-                        icon: "󰂯"; tone: "#5b8def"; value: ""; plus: false
+                        icon: "󰂯"; tone: Theme.tertiary; value: ""; plus: false
                         hot: sysMouse.containsMouse && sysMouse.over(sysBtItem)
                     }
                 }
@@ -623,9 +629,9 @@ Item {
                     property bool danger: false
                     property alias mouse: gbMouse
                     signal clicked(var mouse)
-                    width: 40; height: 38
+                    width: 42; height: 38
                     Rectangle {
-                        anchors.fill: parent; anchors.margins: 5; radius: 6
+                        anchors.fill: parent; anchors.margins: 4; radius: 6
                         color: gb.lit || gbMouse.containsMouse
                             ? (gb.danger && gbMouse.containsMouse ? Theme.coral : Theme.blue)
                             : "transparent"
@@ -634,8 +640,8 @@ Item {
                     Text {
                         anchors.centerIn: parent
                         text: gb.glyph
-                        color: gb.lit || gbMouse.containsMouse ? Theme.accentInk : Theme.ink
-                        font.pixelSize: 18
+                        color: gb.lit || gbMouse.containsMouse ? Theme.accentInk : Theme.blue
+                        font.pixelSize: 21
                     }
                     scale: gbMouse.pressed ? 0.9 : 1
                     Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
@@ -650,7 +656,7 @@ Item {
                     width: 1.5; height: 18; radius: 1
                     anchors.verticalCenter: parent.verticalCenter
                     rotation: 20
-                    color: Theme.withAlpha(Theme.ink, 0.28)
+                    color: Theme.withAlpha(Theme.blue, 0.35)
                 }
 
                 Row {
@@ -672,7 +678,7 @@ Item {
                             delegate: Item {
                                 id: trayItem
                                 required property var modelData
-                                width: 16; height: 16
+                                width: 19; height: 19
                                 anchors.verticalCenter: parent.verticalCenter
 
                                 scale: trayMouse.pressed ? 0.85 : (trayMouse.containsMouse ? 1.15 : 1.0)
@@ -683,20 +689,20 @@ Item {
                                 // monochrome ones (nm-applet, Steam...) are
                                 // drawn white for a dark panel, so they vanish
                                 // on a light plate. A monochrome icon is
-                                // redrawn in the bar's ink, like the glyphs
+                                // redrawn in the accent colour, like the glyphs
                                 // next to it, in either palette; a coloured
                                 // one (an app logo) is left as it is.
                                 Image {
                                     anchors.fill: parent
                                     source: trayItem.modelData.icon
-                                    sourceSize.width: 16
-                                    sourceSize.height: 16
+                                    sourceSize.width: 19
+                                    sourceSize.height: 19
                                     fillMode: Image.PreserveAspectFit
                                     smooth: true
                                     layer.enabled: trayProbe.monochrome
                                     layer.effect: MultiEffect {
                                         colorization: 1.0
-                                        colorizationColor: Theme.ink
+                                        colorizationColor: Theme.blue
                                     }
                                 }
 
@@ -707,7 +713,7 @@ Item {
                                     property bool monochrome: false
                                     property string loaded: ""
                                     readonly property string src: trayItem.modelData.icon
-                                    width: 16; height: 16
+                                    width: 19; height: 19
                                     opacity: 0
 
                                     function probe() {

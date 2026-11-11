@@ -23,6 +23,9 @@ QtObject {
     // Horizontal lean of slanted controls (tabs, chips, buttons), in px over
     // their height: the shape leans this far to the right at the top.
     readonly property real slant: 8
+    // HyperBA's shapes lean this much of `slant` (a bit less than BA
+    // Inspired's, closer to the game's)
+    readonly property real lean: 0.8
 
     // Where floating windows start (below the bar), and whether the bar's
     // plates float over the wallpaper with their own shadow (HyperBA).

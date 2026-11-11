@@ -81,11 +81,25 @@ QtObject {
     property color tertiary_fixed_dim: "#afc9e7"
 
     // ── HUD colour names (derived from the palette above) ───────────────────
-    readonly property color ink: on_surface                 // text and icons
-    readonly property color inkSoft: on_surface_variant     // secondary text
+    // Text and icons are tones of the primary colour, never plain black or
+    // white: a deep primary in light mode (darker than the accent itself, so
+    // it reads on pale plates) and a pale one in dark mode. The fixed tones
+    // are the same in both palettes, so these follow the wallpaper's hue at
+    // a lightness that keeps them readable.
+    readonly property color ink: isLight ? mix(on_primary_fixed_variant, on_primary_fixed, 0.45)   // text and icons
+                                         : mix(primary_fixed, on_surface, 0.3)
+    readonly property color inkSoft: mix(ink, surface_container, isLight ? 0.3 : 0.28)           // secondary text
     readonly property color blue: primary                   // accent
     readonly property color blueDeep: Qt.darker(primary, 1.25)
-    readonly property color accentInk: on_primary           // text on the accent
+    // Text on the accent: a pale primary on the light palette's accent (its
+    // on_primary is pure white), the deep one on the dark palette's
+    readonly property color accentInk: isLight ? mix(on_primary, primary_fixed, 0.6) : on_primary
+    // The level card and the Overview plate: deep primary plates, like the
+    // game's navy ones, with pale primary text and a pale tertiary highlight
+    readonly property color deepPlate: withAlpha(mix(on_primary_fixed_variant, on_primary_fixed, 0.25), isLight ? 0.94 : 0.9)
+    readonly property color deepInk: primary_fixed
+    readonly property color deepAccent: primary_fixed_dim
+    readonly property color deepHighlight: tertiary_fixed_dim
     readonly property color sky: primary_fixed_dim
     readonly property color yellow: tertiary                // highlight
     readonly property color coral: error
