@@ -315,9 +315,25 @@ PanelWindow {
                     // sized (measuring the shown one fed back into its size)
                     readonly property real natW: artProbe.implicitWidth
                     readonly property real natH: artProbe.implicitHeight
-                    readonly property bool lowRes: artProbe.status === Image.Ready
-                        && (natW < width * dpr * 0.9 || natH < height * dpr * 0.9)
-                    Image { id: artProbe; visible: false; source: artBox.src; asynchronous: true; cache: false }
+                    // Set a moment after its inputs change, never by a binding:
+                    // the pixel ratio changes while Qt walks this window's items
+                    // for a scale change (monitors waking up, a new surface),
+                    // and flipping lowRes there turned the art's layer and blur
+                    // on or off under that walk, which crashed Qt
+                    // (QQuickWindow::physicalDpiChanged).
+                    property bool lowRes: false
+                    function measureLowRes() {
+                        lowRes = artProbe.status === Image.Ready
+                            && (natW < width * dpr * 0.9 || natH < height * dpr * 0.9)
+                    }
+                    Timer { id: lowResCheck; interval: 50; onTriggered: artBox.measureLowRes() }
+                    onDprChanged: lowResCheck.restart()
+                    onNatWChanged: lowResCheck.restart()
+                    onNatHChanged: lowResCheck.restart()
+                    onWidthChanged: lowResCheck.restart()
+                    onHeightChanged: lowResCheck.restart()
+                    Image { id: artProbe; visible: false; source: artBox.src; asynchronous: true; cache: false
+                        onStatusChanged: lowResCheck.restart() }
 
                     // Blurred backdrop (small art only)
                     Image {
