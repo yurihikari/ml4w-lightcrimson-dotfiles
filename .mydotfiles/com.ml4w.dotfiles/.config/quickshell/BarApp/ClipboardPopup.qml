@@ -309,7 +309,8 @@ BarPopup {
                         PanelButton {
                             icon: "󰃢"
                             text: "Clear"
-                            onClicked: { Sys.run(["bash", "-c", "cliphist wipe"]); clipModel.clear(); root.active = false }
+                            // Every history (cliphist, elephant) and the current selection
+                            onClicked: { Sys.run(["bash", "-c", "$HOME/.config/ml4w/scripts/ml4w-cliphist w"]); clipModel.clear(); root.active = false }
                         }
                         SectionNav { host: root.host; current: root.ipcTarget }
                     }

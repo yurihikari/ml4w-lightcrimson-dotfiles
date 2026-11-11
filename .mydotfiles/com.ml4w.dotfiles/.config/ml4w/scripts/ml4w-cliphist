@@ -7,6 +7,21 @@
 #           |_|
 #
 # -----------------------------------------------------
+# Wipe (w): every clipboard history, whatever the launcher
+# -----------------------------------------------------
+# Two histories run side by side: cliphist (the Quickshell clipboard and the
+# rofi picker) and elephant's clipboard provider (walker's picker, its own
+# store in ~/.cache/elephant). The current selection is cleared first, as it
+# would otherwise be stored straight back into history.
+if [ "$1" == "w" ]; then
+    wl-copy --clear
+    cliphist wipe
+    # Removes elephant's unpinned entries and their images (pinned ones stay)
+    pgrep -x elephant >/dev/null && elephant activate "clipboard;;remove_all;;"
+    exit 0
+fi
+
+# -----------------------------------------------------
 # Load Launcher
 # -----------------------------------------------------
 launcher=$($HOME/.config/ml4w/scripts/ml4w-launcher which)
@@ -18,9 +33,6 @@ else
             selected=$(cliphist list | $HOME/.config/ml4w/scripts/ml4w-launcher dmenu -c ~/.config/rofi/config-cliphist.rasi)
             [ -z "$selected" ] && exit 0
             echo "$selected" | cliphist delete
-        ;;
-        w)
-            cliphist wipe
         ;;
         *)
             selected=$(cliphist list | $HOME/.config/ml4w/scripts/ml4w-launcher dmenu -c ~/.config/rofi/config-cliphist.rasi)
