@@ -183,7 +183,7 @@ Item {
         }
 
         // ── The bar ─────────────────────────────────────────────────────────
-        MainBar { id: bar; screen: root.screen; onOpenDock: dockPopup.active = !dockPopup.active }
+        MainBar { id: bar; screen: root.screen; lobbyBanner: lobby.nowPlaying; onOpenDock: dockPopup.active = !dockPopup.active }
     }
 
     DockPopup { id: dockPopup; screen: root.screen }
@@ -197,7 +197,7 @@ Item {
     }
 
     // HyperBA: the game-lobby desktop layer (under the windows)
-    Lobby { screen: root.screen }
+    Lobby { id: lobby; screen: root.screen; mediaOpen: bar.mediaFromBanner && bar.mediaOpen }
 
     // Bottom left: quick settings
     CornerDrawer {

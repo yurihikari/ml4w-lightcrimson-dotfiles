@@ -23,6 +23,13 @@ Item {
     // 0 on a screen without tiled windows (floating lobby HUD), 1 with them
     // (plates shrink into BA Inspired's band). Animated, so the top morphs.
     readonly property bool compact: bar.screen ? Hud.busy(bar.screen.name) : false
+    // The lobby's now-playing banner on this screen (set by ScreenFrame). On
+    // the lobby the media player grows out of it (and shrinks back into it),
+    // as there is no media capsule up here; with tiled windows it drops from
+    // the capsule as before.
+    property Item lobbyBanner: null
+    readonly property bool mediaFromBanner: !compact && lobbyBanner !== null && lobbyBanner.visible
+    readonly property bool mediaOpen: mediaPopup.active
     property real compactness: compact ? 1 : 0
     Behavior on compactness { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
 
@@ -806,7 +813,13 @@ Item {
     // morphs it instead of closing one window and opening another.
     PopoutHost { id: popoutHost; screen: bar.screen }
     // anchorItem: the bar item each popup grows out of (and is highlighted).
-    MediaPopup { id: mediaPopup; host: popoutHost; anchorItem: centerPill }
+    MediaPopup {
+        id: mediaPopup; host: popoutHost
+        anchorItem: bar.mediaFromBanner ? bar.lobbyBanner : centerPill
+        // "banner": grows out of the lobby's banner; "capsule": drops from the
+        // band's media capsule; "center": the lobby without a banner
+        placement: bar.mediaFromBanner ? "banner" : bar.compact ? "capsule" : "center"
+    }
     SystemPopup { id: systemPopup; host: popoutHost; anchorItem: sysPill }
     CalendarPopup { id: calendarPopup; host: popoutHost; anchorItem: clockContainer }
     ClipboardPopup { id: clipboardPopup; host: popoutHost; anchorItem: clipIcon }

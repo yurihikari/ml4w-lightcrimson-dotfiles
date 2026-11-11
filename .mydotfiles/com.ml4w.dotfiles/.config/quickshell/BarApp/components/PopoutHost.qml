@@ -81,6 +81,10 @@ PanelWindow {
     property bool morphing: false
     property real anchorX: 0
     property real anchorW: 0
+    // A free-edge popup (PopoutContent edge "free") grows out of the anchor's
+    // whole rectangle: these are its top and height.
+    property real anchorY: 0
+    property real anchorH: 0
     readonly property real anchorPad: 8
     readonly property bool hasAnchor: anchorW > 0
 
@@ -90,8 +94,14 @@ PanelWindow {
         // The bar lives in another full-screen window on the same screen, so
         // its window coordinates are ours.
         const pt = a.mapToItem(null, 0, 0)
-        anchorX = pt.x - anchorPad
-        anchorW = a.width + 2 * anchorPad
+        if (p.spec && p.spec.edge === "free") {
+            // Exactly the anchor, so the popup reads as the item turning into it
+            anchorX = pt.x; anchorW = a.width
+            anchorY = pt.y; anchorH = a.height
+        } else {
+            anchorX = pt.x - anchorPad
+            anchorW = a.width + 2 * anchorPad
+        }
     }
 
     function growFrom(p) {
@@ -137,10 +147,13 @@ PanelWindow {
 
     // ── Geometry ────────────────────────────────────────────────────────────
     readonly property var spec: current ? current.spec : null
+    readonly property bool freeEdge: spec !== null && spec.edge === "free"
     readonly property real restW: spec ? spec.panelWidth : 400
     readonly property real targetW: collapsed && hasAnchor ? anchorW : restW
-    readonly property real targetH: spec ? spec.panelHeight : 300
+    readonly property real targetH: collapsed && hasAnchor && freeEdge ? anchorH : (spec ? spec.panelHeight : 300)
     readonly property real targetX: collapsed && hasAnchor ? anchorX : restX
+    // Only free-edge popups have a top of their own (others hang from the bar)
+    readonly property real targetY: !freeEdge ? 0 : collapsed && hasAnchor ? anchorY : spec.freeY
     readonly property real restX: {
         if (!spec) return 0
         if (spec.hAlign === "free") return spec.freeX
@@ -155,6 +168,7 @@ PanelWindow {
     Timer { id: switchDone; interval: 480; onTriggered: host.switching = false }
 
     property real curX: targetX
+    property real curY: targetY
     property real curW: targetW
     property real curH: targetH
     // Same emphasized curve as the drawers: quick to leave, long soft settle.
@@ -165,7 +179,9 @@ PanelWindow {
     readonly property bool closing: morphing && !open
     Behavior on curX { enabled: host.switching || host.morphing; NumberAnimation { duration: host.closing ? 300 : 460; easing.type: Easing.BezierSpline; easing.bezierCurve: host.closing ? host.exitCurve : host.morphCurve } }
     Behavior on curW { enabled: host.switching || host.morphing; NumberAnimation { duration: host.closing ? 300 : 460; easing.type: Easing.BezierSpline; easing.bezierCurve: host.closing ? host.exitCurve : host.morphCurve } }
-    Behavior on curH { enabled: host.switching; NumberAnimation { duration: 460; easing.type: Easing.BezierSpline; easing.bezierCurve: host.morphCurve } }
+    // A free-edge popup also grows out of its anchor's height and top
+    Behavior on curY { enabled: host.switching || host.morphing; NumberAnimation { duration: host.closing ? 300 : 460; easing.type: Easing.BezierSpline; easing.bezierCurve: host.closing ? host.exitCurve : host.morphCurve } }
+    Behavior on curH { enabled: host.switching || (host.morphing && host.freeEdge); NumberAnimation { duration: host.closing ? 300 : 460; easing.type: Easing.BezierSpline; easing.bezierCurve: host.closing ? host.exitCurve : host.morphCurve } }
 
     // Click outside the popout
     MouseArea {
@@ -189,8 +205,10 @@ PanelWindow {
                 c.isAnimating = false
             }
         }
+        edge: host.freeEdge ? "free" : "top"
         hAlign: "free"
         freeX: host.curX
+        freeY: host.curY
         panelWidth: host.curW
         panelHeight: host.curH
         radius: host.spec ? host.spec.radius : 20

@@ -34,6 +34,10 @@ PanelWindow {
     color: "transparent"
 
     readonly property string screenName: screen ? screen.name : ""
+    // The now-playing banner: the media player grows out of it (MainBar)
+    readonly property Item nowPlaying: banner
+    // The media player is open on this screen: the banner has turned into it
+    property bool mediaOpen: false
     // Only on a screen without tiled windows (they would cover it anyway).
     // The window itself stays mapped: on a busy screen its contents are
     // hidden (not drawn) and it takes no input. Unmapping and remapping it
@@ -283,6 +287,10 @@ PanelWindow {
             x: lobby.margin + menuBar.slant + (1 - lobby.reveal) * -40   // the bar's top-left corner
             y: menuBar.restY + menuBar.rise - height - 52
             scale: bm.pressed ? 0.98 : 1
+            // Hidden while it has turned into the media player (which starts
+            // at this exact rectangle, and shrinks back into it on closing)
+            opacity: lobby.mediaOpen ? 0 : 1
+            Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
 
             PlateShadow { anchors.fill: parent; radius: 8 }
             ClippingRectangle {

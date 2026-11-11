@@ -21,6 +21,8 @@ BarPopup {
     }
 
     property var p: Sys.activePlayer
+    // Where it opens: "capsule" | "banner" | "center" (see the PopoutContent)
+    property string placement: "capsule"
 
     function formatTime(s) {
         if (!s || isNaN(s) || s < 0) return "0:00"
@@ -172,12 +174,31 @@ BarPopup {
     // --- MAIN POPUP CONTAINER ---
     // Hangs from the bar as part of the frame (fill, blur and border colour as before).
     PopoutContent {
+        id: placementSpec
         open: popup.active
         onClosed: popup.isAnimating = false
-        // HyperBA: drops down from the media capsule (just after the level
-        // card), not the middle of the screen
-        hAlign: "left"
+        // HyperBA, by `placement` (set by MainBar):
+        // - "capsule": drops down from the band's media capsule, just after
+        //   the level card
+        // - "banner": on the lobby, the player grows out of the now-playing
+        //   banner: it shares the banner's bottom-left corner and reaches up
+        //   and to the right (PopoutHost starts it at the banner's rectangle)
+        // - "center": the lobby without a banner, from the top's middle
+        readonly property bool fromBanner: popup.placement === "banner" && popup.anchorItem !== null
+        // The banner's corner in window coordinates (its window and the
+        // popout's both cover the screen); x/y/height are read so the binding
+        // follows the banner when it moves
+        readonly property point bannerCorner: {
+            const a = popup.anchorItem
+            if (!fromBanner) return Qt.point(0, 0)
+            a.x; a.y; a.height
+            return a.mapToItem(null, 0, a.height)
+        }
+        edge: fromBanner ? "free" : "top"
+        hAlign: fromBanner ? "free" : popup.placement === "capsule" ? "left" : "center"
         hMargin: popup.anchorItem ? popup.anchorItem.x : 360
+        freeX: bannerCorner.x
+        freeY: bannerCorner.y - panelHeight
         panelWidth: container.width
         panelHeight: container.height
 

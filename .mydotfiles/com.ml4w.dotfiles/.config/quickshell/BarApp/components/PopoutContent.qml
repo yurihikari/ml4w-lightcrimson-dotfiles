@@ -19,6 +19,13 @@ Item {
     property string hAlign: "center"   // "center" | "left" | "right" | "free"
     property real hMargin: 0
     property real freeX: 0
+    // "top": hangs from the bar. "free": a floating panel whose top is freeY
+    // (window coords); only frameless themes (BA Inspired, HyperBA) draw it
+    // there. With "free", the popout grows out of the anchor item's whole
+    // rectangle instead of just its width, and the content is pinned to the
+    // panel's bottom so it is revealed upward.
+    property string edge: "top"
+    property real freeY: 0
     property real panelWidth: 400
     property real panelHeight: 300
     property real radius: 20
@@ -35,6 +42,7 @@ Item {
         : hAlign === "right" ? parent.width - width
         : hAlign === "center" ? Math.round((parent.width - width) / 2)
         : 0
+    y: parent && edge === "free" ? parent.height - height : 0
 
     Component.onCompleted: if (parent && parent.spec !== undefined) parent.spec = root
 }

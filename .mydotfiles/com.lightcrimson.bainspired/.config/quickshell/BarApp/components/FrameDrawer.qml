@@ -26,10 +26,14 @@ Item {
     property bool open: false
     signal closed()
 
-    property string edge: "top"             // "top" | "bottom" | "left" | "right"
-    property string hAlign: "center"        // top/bottom: "center" | "left" | "right" | "free"
+    property string edge: "top"             // "top" | "bottom" | "left" | "right" | "free"
+    property string hAlign: "center"        // top/bottom/free: "center" | "left" | "right" | "free"
     property real hMargin: 0
     property real freeX: 0
+    // Edge "free": the window's top (window coords), for a window that isn't
+    // attached to an edge, like the media player growing out of HyperBA's
+    // now-playing banner. It doesn't rise from an edge, it only fades.
+    property real freeY: 0
     property real panelWidth: 400
     property real panelHeight: 300
 
@@ -55,7 +59,7 @@ Item {
     property bool castsShadow: true
 
     readonly property string screenName: QsWindow.window && QsWindow.window.screen ? QsWindow.window.screen.name : ""
-    readonly property bool horizontal: edge === "top" || edge === "bottom"
+    readonly property bool horizontal: edge === "top" || edge === "bottom" || edge === "free"
     readonly property bool fromTop: edge !== "bottom"
 
     // Wait for the window's real size (see LightCrimson's FrameDrawer)
@@ -96,7 +100,8 @@ Item {
     readonly property real alongOffset: horizontal ? panelX - area.x : 0
 
     readonly property real bodyX: horizontal ? panelX : edge === "left" ? area.x : area.x + area.width - panelWidth
-    readonly property real bodyY: edge === "top" || !horizontal ? area.y : area.y + area.height - panelHeight
+    readonly property real bodyY: edge === "free" ? freeY
+        : edge === "top" || !horizontal ? area.y : area.y + area.height - panelHeight
     readonly property real bodyW: panelWidth
     readonly property real bodyH: horizontal ? panelHeight : area.height
 

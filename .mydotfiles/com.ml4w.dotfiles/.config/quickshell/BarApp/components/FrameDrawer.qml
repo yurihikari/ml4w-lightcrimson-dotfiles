@@ -63,6 +63,10 @@ Item {
     property string hAlign: "center"
     property real hMargin: 0
     property real freeX: 0
+    // The panel's top for edge "free" (window coords). The frame only grows
+    // panels out of its edges, so it ignores it; frameless themes (BA
+    // Inspired) place a floating window there. PopoutHost always sets it.
+    property real freeY: 0
     property real panelWidth: 400
     property real panelHeight: 300
 
