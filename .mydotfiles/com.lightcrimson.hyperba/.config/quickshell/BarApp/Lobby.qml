@@ -58,6 +58,10 @@ PanelWindow {
 
     // Input only where there is something to click; in view mode the whole
     // screen, so a click anywhere on the desktop brings the lobby back.
+    // slideNote: a Region follows its item's x/y/width/height only, not its
+    // transforms, so the plates slide in by moving x/y; with a Translate the
+    // input area stayed where the slide started (the menu bar's icons were
+    // left out of it, only their labels took clicks).
     mask: Region {
         Region { item: lobby.active && Hud.viewMode ? fullArea : null }
         Region { item: lobby.active && !Hud.viewMode ? shortcuts : null }
@@ -214,10 +218,9 @@ PanelWindow {
         // Left shortcuts, under the level plate
         Column {
             id: shortcuts
-            x: lobby.margin
+            x: lobby.margin + (1 - lobby.reveal) * -30   // slides in (see slideNote)
             y: lobby.topClear + 40
             spacing: 20
-            transform: Translate { x: (1 - lobby.reveal) * -30 }
             Row {
                 spacing: 22
                 IconTile { icon: "󰂚"; label: "Alerts"; badge: Notifs.count; onClicked: lobby.ask("notifications") }
@@ -277,9 +280,8 @@ PanelWindow {
             readonly property var player: Sys.activePlayer
             readonly property bool playing: player && player.playbackState === MprisPlaybackState.Playing
             width: 450; height: 140
-            x: lobby.margin + menuBar.slant      // the bar's top-left corner
-            y: menuBar.y + menuBar.rise - height - 52
-            transform: Translate { x: (1 - lobby.reveal) * -40 }
+            x: lobby.margin + menuBar.slant + (1 - lobby.reveal) * -40   // the bar's top-left corner
+            y: menuBar.restY + menuBar.rise - height - 52
             scale: bm.pressed ? 0.98 : 1
 
             PlateShadow { anchors.fill: parent; radius: 8 }
@@ -422,9 +424,8 @@ PanelWindow {
         Item {
             id: bigButton
             width: 250; height: 132
-            x: lobby.width - width
-            y: menuBar.y + menuBar.rise - height - 30
-            transform: Translate { x: (1 - lobby.reveal) * 40 }
+            x: lobby.width - width + (1 - lobby.reveal) * 40
+            y: menuBar.restY + menuBar.rise - height - 30
 
             // Card
             Item {
@@ -491,11 +492,12 @@ PanelWindow {
             readonly property real slant: 28
             readonly property real rise: 30
             readonly property real plateH: lobby.barH
+            // Where it rests once revealed (what the plates above it follow)
+            readonly property real restY: lobby.height - height - 14
             x: lobby.margin
-            y: lobby.height - height - 14
+            y: restY + (1 - lobby.reveal) * 60
             width: lobby.width - 2 * lobby.margin
             height: plateH + rise
-            transform: Translate { y: (1 - lobby.reveal) * 60 }
 
             Item {
                 id: plate
