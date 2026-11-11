@@ -64,6 +64,7 @@ send_notification() {
 }
 
 apply_effect() {
+    [ -n "$VIDEO_PATH" ] && return   # effects are image-only; a video keeps its poster as is
     [ -f "$SETTINGS_WALLPAPER_EFFECT" ] || return
     EFFECT=$(cat "$SETTINGS_WALLPAPER_EFFECT")
     [ "$EFFECT" = "off" ] && return
@@ -243,6 +244,19 @@ if [[ ! -f "$IMAGE_PATH" ]]; then
     error "Image file does not exist -> $IMAGE_PATH"; exit 1
 fi
 
+# Video wallpaper: theme from (and let awww show) the video's first frame; the
+# per-workspace daemon then plays the video on top with mpvpaper.
+VIDEO_PATH=""
+VIDEO_LIB="$HOME/.config/hypr/conf/custom/video-wallpaper.sh"
+if [[ -f "$VIDEO_LIB" ]]; then
+    source "$VIDEO_LIB"
+    if vw_is_video "$IMAGE_PATH"; then
+        VIDEO_PATH="$IMAGE_PATH"
+        IMAGE_PATH="$(vw_poster "$VIDEO_PATH")" || { error "Could not extract a frame from video -> $VIDEO_PATH"; exit 1; }
+        info "Video wallpaper: $VIDEO_PATH (poster: $IMAGE_PATH)"
+    fi
+fi
+
 # ============================================================
 # Main
 # ============================================================
@@ -254,8 +268,8 @@ if "$SKIP_THEMING"; then
 else
     # Update cache file for future theming updates
     mkdir -p "$CACHE_FOLDER"
-    echo "$IMAGE_PATH" > "$CACHE_FILE"
-    info "Cache updated: $IMAGE_PATH"
+    echo "${VIDEO_PATH:-$IMAGE_PATH}" > "$CACHE_FILE"
+    info "Cache updated: ${VIDEO_PATH:-$IMAGE_PATH}"
 
     run_matugen
     reload_waybar
@@ -264,7 +278,7 @@ else
     reload_swaync
     generate_image_variants
 fi
-send_notification "Wallpaper Updated" "$(basename "$IMAGE_PATH")${MONITOR_OUTPUT:+ on output $MONITOR_OUTPUT}"
+send_notification "Wallpaper Updated" "$(basename "${VIDEO_PATH:-$IMAGE_PATH}")${MONITOR_OUTPUT:+ on output $MONITOR_OUTPUT}"
 info "Done"
 
 # Pin a newly chosen wallpaper to the focused workspace (per-workspace
@@ -273,5 +287,5 @@ info "Done"
 # focused workspace's own wallpaper with the global one every time.
 WS_WALLPAPER_SCRIPT="$HOME/.config/hypr/conf/custom/workspace-wallpapers.sh"
 if [ "$SKIP_WALLPAPER" != true ] && [ -x "$WS_WALLPAPER_SCRIPT" ]; then
-    "$WS_WALLPAPER_SCRIPT" --record-current "$IMAGE_PATH" >/dev/null 2>&1 || true
+    "$WS_WALLPAPER_SCRIPT" --record-current "${VIDEO_PATH:-$IMAGE_PATH}" >/dev/null 2>&1 || true
 fi
