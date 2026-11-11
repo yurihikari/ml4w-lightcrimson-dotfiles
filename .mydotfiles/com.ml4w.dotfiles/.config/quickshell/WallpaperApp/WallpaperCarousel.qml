@@ -52,6 +52,7 @@ PanelWindow {
 
     onIsOpenChanged: {
         if (isOpen) {
+            WallpaperService.refreshPosters()
             focusCurrentWallpaper()
             keyHandler.forceActiveFocus()
         }
@@ -131,7 +132,7 @@ PanelWindow {
         showDirs: false
         caseSensitive: false
         sortField: FolderListModel.Name
-        nameFilters: ["*.jpg", "*.jpeg", "*.png"]
+        nameFilters: WallpaperService.nameFilters("")
 
         onStatusChanged: {
             if (status === FolderListModel.Ready && root.isOpen)
@@ -166,7 +167,7 @@ PanelWindow {
 
             Image {
                 anchors.fill: parent
-                source: WallpaperService.currentWallpaper === "" ? "" : "file://" + WallpaperService.currentWallpaper
+                source: WallpaperService.thumb(WallpaperService.currentWallpaper)
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
                 sourceSize.width: root.width
@@ -177,7 +178,7 @@ PanelWindow {
             Image {
                 id: appliedBackdrop
                 anchors.fill: parent
-                source: root.appliedWallpaper === "" ? "" : "file://" + root.appliedWallpaper
+                source: WallpaperService.thumb(root.appliedWallpaper)
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
                 sourceSize.width: root.width
@@ -388,7 +389,7 @@ PanelWindow {
 
                     Image {
                         anchors.fill: parent
-                        source: "file://" + card.filePath
+                        source: WallpaperService.thumb(card.filePath)
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         sourceSize.width: root.cardWidth

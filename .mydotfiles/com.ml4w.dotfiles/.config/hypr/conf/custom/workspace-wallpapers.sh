@@ -37,6 +37,15 @@ ACTIVE_WALLPAPER_FILE="$HOME/.cache/ml4w/hyprland-dotfiles/current_wallpaper"
 DEFAULT_WALLPAPER="$HOME/.config/ml4w/wallpapers/default.jpg"
 TRANSITION_SETTING="$HOME/.config/ml4w/settings/wallpaper-transition-effect"
 
+# Video wallpapers: a video path is shown as an awww poster + mpvpaper on top.
+VIDEO_LIB="$HOME/.config/hypr/conf/custom/video-wallpaper.sh"
+if [[ -f "$VIDEO_LIB" ]]; then
+    source "$VIDEO_LIB"
+else
+    vw_is_video() { return 1; }; vw_stop() { :; }; vw_stop_all() { :; }
+fi
+TRANSITION_DURATION=0.4
+
 # State: remembers what we last put on each monitor so we can skip redundant
 # work (this is what keeps workspace switching from flickering).
 STATE_DIR="$HOME/.cache/workspace-wallpapers"
@@ -126,6 +135,10 @@ start_awww() {
         return 0
     fi
     log "Starting awww-daemon..."
+    # A new awww surface would cover running videos; stop them so they are
+    # restarted on top, and forget monitor state so everything is repainted.
+    vw_stop_all
+    rm -f "$STATE_DIR"/monitor-*
     awww-daemon >/dev/null 2>&1 &
     for _ in 1 2 3 4 5 6 7 8 9 10; do
         awww query >/dev/null 2>&1 && { log "awww-daemon started"; return 0; }
@@ -160,18 +173,45 @@ set_wallpapers() {
         state_file="$STATE_DIR/monitor-$monitor"
         [[ -f "$state_file" ]] && last="$(cat "$state_file")"
 
+        if [[ ! -f "$wallpaper" ]]; then
+            log "Wallpaper not found: $wallpaper"
+            continue
+        fi
+
+        if vw_is_video "$wallpaper"; then
+            # Poster underneath via awww, then the video on top once the
+            # transition has finished (the poster is the first frame, so the
+            # hand-over is seamless).
+            local delay="${VW_START_DELAY:-0}"
+            if [[ "$wallpaper" != "$last" ]]; then
+                local poster
+                if ! poster="$(vw_poster "$wallpaper")"; then
+                    log "Could not extract a poster frame from: $wallpaper"
+                    continue
+                fi
+                [[ -n "$(vw_current "$monitor")" ]] && vw_stop "$monitor"
+                log "Setting $monitor (workspace $workspace) -> $wallpaper (video)"
+                awww img "$poster" -o "$monitor" \
+                    --transition-type "$transition" --transition-duration "$TRANSITION_DURATION"
+                echo "$wallpaper" > "$state_file"
+                delay="$TRANSITION_DURATION"
+            fi
+            vw_play_after "$delay" "$monitor" "$wallpaper"
+            continue
+        fi
+
+        # Still image: drop any video on this monitor (reveals awww underneath).
+        vw_stop "$monitor"
+
         if [[ "$wallpaper" == "$last" ]]; then
             continue  # already correct on this monitor — no flicker
         fi
 
-        if [[ -f "$wallpaper" ]]; then
-            log "Setting $monitor (workspace $workspace) -> $wallpaper"
-            awww img "$wallpaper" -o "$monitor" \
-                --transition-type "$transition" --transition-duration 0.4
-            echo "$wallpaper" > "$state_file"
-        else
-            log "Wallpaper not found: $wallpaper"
-        fi
+        log "Setting $monitor (workspace $workspace) -> $wallpaper"
+        awww img "$wallpaper" -o "$monitor" \
+            --transition-type "$transition" --transition-duration "$TRANSITION_DURATION"
+        echo "$wallpaper" > "$state_file"
+
     done < <(echo "$monitors_json" | jq -r '.[] | "\(.name)\t\(.activeWorkspace.name)"')
 }
 
@@ -227,7 +267,9 @@ case "$1" in
             rm -f "$sf"
         done
         log "Recorded global change: workspace $ws -> $2; re-applying other monitors"
-        set_wallpapers
+        # ML4W already painted the poster with its own transition; give it a
+        # moment before a video covers the focused monitor.
+        VW_START_DELAY=1 set_wallpapers
         exit 0
         ;;
     --apply-now)
@@ -262,13 +304,16 @@ fi
 
 # Forget stale monitor state on a fresh start so the first apply always paints.
 rm -f "$STATE_DIR"/monitor-*
+vw_stop_all
 set_wallpapers
 
 SOCKET="$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock"
 log "Listening on Hyprland socket2: $SOCKET"
 
 while true; do
-    socat -u UNIX-CONNECT:"$SOCKET" - | while read -r event; do
+    # 9>&-: socat must not inherit the lock, or an orphaned socat left by a
+    # killed daemon keeps it held and the next daemon refuses to start.
+    socat -u UNIX-CONNECT:"$SOCKET" - 9>&- | while read -r event; do
         case "$event" in
             workspace\>\>*|focusedmon\>\>*|moveworkspace\>\>*)
                 log "Event: $event"

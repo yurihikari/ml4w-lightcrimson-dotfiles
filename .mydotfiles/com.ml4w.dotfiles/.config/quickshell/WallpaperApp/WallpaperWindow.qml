@@ -63,7 +63,7 @@ PanelWindow {
     property bool isOpen: false
     // Stays mapped until the drawer has slid back into the frame.
     property bool animating: false
-    onIsOpenChanged: if (isOpen) { animating = true; FrameState.claim("wallpaper") }
+    onIsOpenChanged: if (isOpen) { animating = true; FrameState.claim("wallpaper"); WallpaperService.refreshPosters() }
     Connections {
         target: FrameState
         function onClaimed(k) { if (k !== "wallpaper") root.isOpen = false }
@@ -605,13 +605,7 @@ PanelWindow {
                     
                     sortField: FolderListModel.Name
                     
-                    nameFilters: {
-                        let s = searchInput.text.trim();
-                        if (s === "") {
-                            return ["*.jpg", "*.jpeg", "*.png"];
-                        }
-                        return ["*" + s + "*.jpg", "*" + s + "*.jpeg", "*" + s + "*.png"];
-                    }
+                    nameFilters: WallpaperService.nameFilters(searchInput.text)
 
                     onCountChanged: {
                         emptyWallpaperDirectoryMsg.visible = (count === 0 && this.status === FolderListModel.Ready)
@@ -660,7 +654,7 @@ PanelWindow {
                             Image {
                                 id: thumbnail 
                                 anchors.fill: parent 
-                                source: "file://" + model.filePath 
+                                source: WallpaperService.thumb(model.filePath)
                                 fillMode: Image.PreserveAspectCrop
                                 asynchronous: true
                                 sourceSize.width: 250
@@ -678,6 +672,23 @@ PanelWindow {
                                     if (status === Image.Error) {
                                         console.log("Failed to load image at: " + source);
                                     }
+                                }
+                            }
+
+                            // Video badge
+                            Rectangle {
+                                visible: WallpaperService.isVideo(model.filePath)
+                                anchors.top: parent.top
+                                anchors.right: parent.right
+                                anchors.margins: 6
+                                width: 22; height: 22; radius: 11
+                                color: "#aa000000"
+                                Text {
+                                    anchors.centerIn: parent
+                                    anchors.horizontalCenterOffset: 1
+                                    text: "▶"
+                                    color: "white"
+                                    font.pixelSize: 10
                                 }
                             }
 

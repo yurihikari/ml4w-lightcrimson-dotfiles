@@ -9,6 +9,8 @@ import QtQuick.Controls
 import Qt.labs.folderlistmodel
 import qs.CustomTheme
 import qs.BarApp.components
+import qs.WallpaperApp
+import QtMultimedia
 
 // Per-workspace wallpaper picker (META+SHIFT+E). Slides out of the left frame
 // as a frame drawer, like the wallpaper selector.
@@ -53,6 +55,7 @@ PanelWindow {
             selectedWorkspace = activeWorkspaceId()
             searchInput.text = ""
             configFile.reload()
+            WallpaperService.refreshPosters()   // thumbnails for newly added videos
         }
     }
 
@@ -328,7 +331,7 @@ PanelWindow {
                     font.pixelSize: 12
                     text: searchInput.text.trim() !== ""
                         ? "No wallpaper matches \"" + searchInput.text.trim() + "\""
-                        : "No images in " + root.wallpaperFolder
+                        : "No wallpapers in " + root.wallpaperFolder
                 }
 
                 // --- IMAGE GRID ---
@@ -351,10 +354,10 @@ PanelWindow {
                         showDirs: false
                         caseSensitive: false
                         sortField: FolderListModel.Name
+                        // Images and videos (videos play with mpvpaper on top of awww)
                         nameFilters: {
                             const s = searchInput.text.trim()
-                            if (s === "") return ["*.jpg", "*.jpeg", "*.png", "*.webp"]
-                            return ["*" + s + "*.jpg", "*" + s + "*.jpeg", "*" + s + "*.png", "*" + s + "*.webp"]
+                            return WallpaperService.nameFilters(s).concat(s === "" ? ["*.webp"] : ["*" + s + "*.webp"])
                         }
                     }
 
@@ -363,6 +366,7 @@ PanelWindow {
                         required property string filePath
                         required property string fileName
                         readonly property bool assigned: root.wallpaperFor(root.selectedWorkspace) === filePath
+                        readonly property bool isVideo: WallpaperService.isVideo(filePath)
 
                         width: grid.cellWidth
                         height: grid.cellHeight
@@ -384,13 +388,27 @@ PanelWindow {
                                 Image {
                                     id: thumbnail
                                     anchors.fill: parent
-                                    source: "file://" + cell.filePath
+                                    // Videos show their first frame (cached poster)
+                                    source: WallpaperService.thumb(cell.filePath)
                                     fillMode: Image.PreserveAspectCrop
                                     asynchronous: true
                                     sourceSize.width: 256
                                     sourceSize.height: 256
                                     opacity: status === Image.Ready ? 1 : 0
                                     Behavior on opacity { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+                                }
+
+                                // Live preview: play the video while hovered (one decoder at a time)
+                                Loader {
+                                    anchors.fill: parent
+                                    active: cell.isVideo && thumbMouse.containsMouse && root.isOpen
+                                    sourceComponent: Video {
+                                        source: "file://" + cell.filePath
+                                        autoPlay: true
+                                        muted: true
+                                        loops: MediaPlayer.Infinite
+                                        fillMode: VideoOutput.PreserveAspectCrop
+                                    }
                                 }
 
                                 // Name strip
@@ -420,6 +438,23 @@ PanelWindow {
                                 color: "transparent"
                                 border.width: cell.assigned ? 2 : (thumbMouse.containsMouse ? 1 : 0)
                                 border.color: cell.assigned ? Theme.primary : Theme.withAlpha(Theme.primary, 0.6)
+                            }
+
+                            // Video badge
+                            Rectangle {
+                                visible: cell.isVideo
+                                anchors.top: parent.top
+                                anchors.left: parent.left
+                                anchors.margins: 6
+                                width: 20; height: 20; radius: 10
+                                color: Theme.withAlpha(Theme.background, 0.75)
+                                Text {
+                                    anchors.centerIn: parent
+                                    anchors.horizontalCenterOffset: 1
+                                    text: "▶"
+                                    color: Theme.primary
+                                    font.pixelSize: 9
+                                }
                             }
 
                             // Assigned badge

@@ -42,9 +42,38 @@ BarPopup {
     property real localCpuUsage: 0
     property real cpuTemp: 0
     property real cpuFreq: 0
-    property real gpuTemp: 0
-    property real gpuUsage: 0
-    property string gpuVendor: ""
+    // Every GPU in the machine, dedicated first, as
+    // { pci, vendor, kind: "dedicated"|"integrated", asleep, temp, usage }.
+    // temp is 0 and usage -1 when the driver does not report them (Intel has
+    // no load counter; a runtime-suspended GPU is left asleep, not polled).
+    property var gpus: []
+    // The GPU the cards show (its PCI address). Until the user picks one, it
+    // follows the dedicated GPU while that is awake, so a hybrid laptop shows
+    // the dGPU whenever it is actually in use.
+    property string gpuSelected: ""
+    property bool gpuPinned: false
+    property var gpuTempHistories: ({})   // pci -> last 30 temperatures
+    readonly property var gpu: {
+        for (const g of gpus) if (g.pci === gpuSelected) return g
+        return gpus.length > 0 ? gpus[0] : null
+    }
+    readonly property real gpuTemp: gpu && !gpu.asleep ? gpu.temp : 0
+    readonly property real gpuUsage: gpu && gpu.usage >= 0 ? gpu.usage / 100 : 0
+    readonly property string gpuVendor: gpu ? gpu.vendor : ""
+
+    // "dGPU" / "iGPU", numbered when two GPUs share a kind.
+    function gpuLabel(g) {
+        const same = gpus.filter(o => o.kind === g.kind)
+        const base = g.kind === "integrated" ? "iGPU" : "dGPU"
+        if (same.length < 2) return base
+        return base + " " + (same.findIndex(o => o.pci === g.pci) + 1)
+    }
+    function gpuUsageText(g) {
+        if (!g) return "—"
+        if (g.asleep) return "Asleep"
+        if (g.usage >= 0) return Math.round(g.usage) + "%"
+        return g.vendor === "intel" ? "n/a" : "—"
+    }
     property real memUsedGB: 0
     property real memTotalGB: 0
     property real netRxKBs: 0
@@ -55,7 +84,7 @@ BarPopup {
 
     // ─── Sparkline history (last 30 samples) ───────────────────────────────
     property var cpuTempHistory: []
-    property var gpuTempHistory: []
+    readonly property var gpuTempHistory: gpu ? (gpuTempHistories[gpu.pci] || []) : []
     property var cpuUsageHistory: []
     property var netRxHistory: []
     property var netTxHistory: []
@@ -147,7 +176,8 @@ BarPopup {
     Process {
         id: gamemodeExec
         function apply(enable) {
-            command = ["bash", "-c", "$HOME/.mydotfiles/com.ml4w.dotfiles/.config/hypr/scripts/gamemode.sh"]
+            // The active theme's copy, like the keybind and quick panel use
+            command = ["bash", "-c", "$HOME/.config/hypr/scripts/gamemode.sh"]
             running = true
         }
     }
@@ -188,6 +218,58 @@ BarPopup {
         }
     }
 
+    // One "gpu=pci|vendor|kind|asleep|temp|usage" line per GPU (DRM card).
+    // Dedicated vs integrated: amdgpu only exposes mem_info_vram_vendor on
+    // cards with their own VRAM, Intel's iGPU always sits at 00:02.0, and
+    // NVIDIA GPUs are dedicated. A runtime-suspended GPU (a hybrid laptop's
+    // idle dGPU) is reported asleep without reading it: nvidia-smi or the
+    // amdgpu counters would wake it up every poll and drain the battery.
+    readonly property string _gpuProbe: `
+nv_seen=0
+for c in /sys/class/drm/card*; do
+  case "$(basename "$c")" in *-*) continue ;; esac
+  d=$(readlink -f "$c/device") || continue
+  pci=$(basename "$d")
+  drv=$(basename "$(readlink "$d/driver" 2>/dev/null)")
+  case "$drv" in
+    amdgpu|radeon) vendor=amd ;;
+    nvidia|nouveau) vendor=nvidia ;;
+    i915|xe) vendor=intel ;;
+    *) continue ;;
+  esac
+  if [ "$vendor" = amd ]; then
+    [ -e "$d/mem_info_vram_vendor" ] && kind=dedicated || kind=integrated
+  elif [ "$vendor" = intel ]; then
+    [ "$pci" = 0000:00:02.0 ] && kind=integrated || kind=dedicated
+  else
+    kind=dedicated
+  fi
+  [ "$drv" = nvidia ] && nv_seen=1
+  if [ "$(cat "$d/power/runtime_status" 2>/dev/null)" = suspended ]; then
+    echo "gpu=$pci|$vendor|$kind|1||"
+    continue
+  fi
+  temp=; usage=
+  if [ "$drv" = nvidia ]; then
+    out=$(nvidia-smi --query-gpu=pci.bus_id,temperature.gpu,utilization.gpu --format=csv,noheader,nounits 2>/dev/null |
+      awk -F', *' -v p="$pci" 'tolower(substr($1, length($1) - 6)) == substr(p, length(p) - 6) { print $2 "|" $3; exit }')
+    temp=$(echo "$out" | cut -d'|' -f1); usage=$(echo "$out" | cut -d'|' -f2)
+  else
+    [ -r "$d/gpu_busy_percent" ] && usage=$(cat "$d/gpu_busy_percent" 2>/dev/null)
+    for h in "$d"/hwmon/hwmon*; do
+      t=$(cat "$h/temp1_input" 2>/dev/null)
+      [ -n "$t" ] && temp=$((t / 1000)) && break
+    done
+  fi
+  echo "gpu=$pci|$vendor|$kind|0|$temp|$usage"
+done
+# The NVIDIA driver without modesetting has no DRM card: ask nvidia-smi.
+if [ "$nv_seen" = 0 ] && command -v nvidia-smi >/dev/null; then
+  nvidia-smi --query-gpu=pci.bus_id,temperature.gpu,utilization.gpu --format=csv,noheader,nounits 2>/dev/null |
+    awk -F', *' '{ print "gpu=" tolower(substr($1, length($1) - 11)) "|nvidia|dedicated|0|" $2 "|" $3 }'
+fi
+`
+
     property string _metricsBuf: ""
     Process {
         id: metricsCollector
@@ -208,31 +290,7 @@ BarPopup {
                 +"while((getline < \"/proc/stat\")>0){split($0,a);if(a[1]==\"cpu\"){t2=a[2]+a[3]+a[4]+a[5]+a[6]+a[7]+a[8];i2=a[5];break}};"
                 +"dt=t2-t1;print dt>0?(dt-(i2-i1))/dt*100:0}')\n" +
             "echo \"cpuusage=$cpuusage\"\n" +
-            "if command -v nvidia-smi &>/dev/null; then\n" +
-            "  out=$(nvidia-smi --query-gpu=temperature.gpu,utilization.gpu --format=csv,noheader,nounits 2>/dev/null | head -1)\n" +
-            "  if [ -n \"$out\" ]; then\n" +
-            "    echo \"gpuvendor=nvidia\"\n" +
-            "    echo \"gputemp=$(echo $out | cut -d, -f1 | tr -d ' ')\"\n" +
-            "    echo \"gpuusage=$(echo $out | cut -d, -f2 | tr -d ' ')\"\n" +
-            "  fi\n" +
-            "fi\n" +
-            "for d in /sys/class/drm/card*/device; do\n" +
-            "  [ -f \"$d/gpu_busy_percent\" ] && {\n" +
-            "    busy=$(cat \"$d/gpu_busy_percent\" 2>/dev/null)\n" +
-            "    [ -n \"$busy\" ] && echo \"gpuvendor=amd\" && echo \"gpuusage=$busy\"\n" +
-            "    for h in \"$d/hwmon/\"hwmon*; do\n" +
-            "      t=$(cat \"$h/temp1_input\" 2>/dev/null)\n" +
-            "      [ -n \"$t\" ] && echo \"gputemp=$((t/1000))\" && break\n" +
-            "    done\n" +
-            "    break\n" +
-            "  }\n" +
-            "done\n" +
-            "for f in /sys/class/hwmon/hwmon*/temp1_input; do\n" +
-            "  name=$(cat \"$(dirname \"$f\")/name\" 2>/dev/null)\n" +
-            "  if [ \"$name\" = \"i915\" ] || [ \"$name\" = \"xe\" ]; then\n" +
-            "    t=$(cat \"$f\" 2>/dev/null); [ -n \"$t\" ] && echo \"gpuvendor=intel\" && echo \"gputemp=$((t/1000))\" && break\n" +
-            "  fi\n" +
-            "done\n" +
+            popup._gpuProbe +
             "awk '/MemTotal:/ {tot=$2} /MemAvailable:/ {avail=$2} END {\n" +
             "  used = tot - avail\n" +
             "  printf \"memused=%.2f\\n\", used/1024/1024\n" +
@@ -265,6 +323,7 @@ BarPopup {
             if (!running) {
                 let lines = popup._metricsBuf.trim().split("\n")
                 popup._metricsBuf = ""
+                let gpus = []
                 for (let l of lines) {
                     let i = l.indexOf("=")
                     if (i < 1) continue
@@ -274,9 +333,17 @@ BarPopup {
                         case "cpuusage":    popup.localCpuUsage = (parseFloat(v) || 0) / 100; break
                         case "cputemp":     popup.cpuTemp     = parseFloat(v) || 0; break
                         case "cpufreq":     popup.cpuFreq     = parseFloat(v) || 0; break
-                        case "gpuvendor":   popup.gpuVendor   = v; break
-                        case "gputemp":     popup.gpuTemp     = parseFloat(v) || 0; break
-                        case "gpuusage":    popup.gpuUsage    = (parseFloat(v) || 0) / 100; break
+                        case "gpu": {
+                            const f = v.split("|")
+                            if (f.length < 6) break
+                            const usage = parseFloat(f[5])
+                            gpus.push({
+                                pci: f[0], vendor: f[1], kind: f[2], asleep: f[3] === "1",
+                                temp: parseFloat(f[4]) || 0,
+                                usage: isNaN(usage) ? -1 : usage
+                            })
+                            break
+                        }
                         case "memused":     popup.memUsedGB   = parseFloat(v) || 0; break
                         case "memtotal":    popup.memTotalGB  = parseFloat(v) || 0; break
                         case "netrx":       popup.netRxKBs    = parseFloat(v) || 0; break
@@ -287,7 +354,25 @@ BarPopup {
                     }
                 }
                 if (popup.cpuTemp > 0)  popup.cpuTempHistory   = popup.pushHist(popup.cpuTempHistory, popup.cpuTemp, 30)
-                if (popup.gpuTemp > 0)  popup.gpuTempHistory   = popup.pushHist(popup.gpuTempHistory, popup.gpuTemp, 30)
+                gpus.sort((a, b) => (a.kind === b.kind ? 0 : (a.kind === "dedicated" ? -1 : 1))
+                                    || a.pci.localeCompare(b.pci))
+                let hists = {}
+                for (const g of gpus) {
+                    const h = popup.gpuTempHistories[g.pci] || []
+                    hists[g.pci] = g.temp > 0 && !g.asleep ? popup.pushHist(h, g.temp, 30) : h
+                }
+                popup.gpuTempHistories = hists
+                popup.gpus = gpus
+                // Follow the busiest-capable GPU until the user picks one: an
+                // awake dedicated GPU, else an integrated one, else whatever
+                // is there. A picked GPU that disappears is let go.
+                if (popup.gpuPinned && !gpus.some(g => g.pci === popup.gpuSelected))
+                    popup.gpuPinned = false
+                if (!popup.gpuPinned) {
+                    const pick = gpus.find(g => g.kind === "dedicated" && !g.asleep)
+                              || gpus.find(g => !g.asleep) || gpus[0]
+                    popup.gpuSelected = pick ? pick.pci : ""
+                }
                 let cpuForHistory = popup.localCpuUsage > 0 ? popup.localCpuUsage : Sys.cpuUsage
                 popup.cpuUsageHistory = popup.pushHist(popup.cpuUsageHistory, cpuForHistory, 30)
                 if (popup.localCpuUsage > 0) Sys.cpuUsage = popup.localCpuUsage
@@ -770,6 +855,9 @@ BarPopup {
                     property real   yMin: 0
                     property real   yMax: 100
                     property bool   filled: true
+                    // Controls at the right end of the header (a switcher),
+                    // laid out with the label so they never overlap it.
+                    property alias  trailing: trailingSlot.data
 
                     onHistoryChanged: spark.requestPaint()
                     onYMaxChanged:    spark.requestPaint()
@@ -794,10 +882,16 @@ BarPopup {
                         }
                         ColumnLayout {
                             spacing: -1; Layout.fillWidth: true
-                            Text { text: cardLabel; color: Theme.primary; opacity: 0.5; font.pixelSize: 9; font.bold: true }
-                            Text { text: cardValue; color: cardColor; font.pixelSize: 16; font.weight: Font.Black }
+                            Text { text: cardLabel; color: Theme.primary; opacity: 0.5; font.pixelSize: 9; font.bold: true; Layout.fillWidth: true; elide: Text.ElideRight }
+                            Text { text: cardValue; color: cardColor; font.pixelSize: 16; font.weight: Font.Black; Layout.fillWidth: true; elide: Text.ElideRight }
                         }
                         Text { text: cardSub; color: Theme.primary; opacity: 0.4; font.pixelSize: 9 }
+                        Row {
+                            id: trailingSlot
+                            spacing: 4
+                            Layout.alignment: Qt.AlignVCenter
+                            visible: children.length > 0
+                        }
                     }
 
                     Canvas {
@@ -1054,18 +1148,57 @@ BarPopup {
 
                             SparkCard {
                                 cardIcon:  "󰍹"
-                                cardLabel: popup.gpuVendor !== "" ? "GPU TEMP · " + popup.gpuVendor.toUpperCase() : "GPU TEMP"
-                                cardValue: popup.gpuTemp > 0 ? popup.gpuTemp.toFixed(0) + "°C" : "—"
+                                // With several GPUs the switcher names them
+                                // and leaves the label no room for a vendor.
+                                cardLabel: popup.gpus.length < 2 && popup.gpuVendor !== ""
+                                    ? "GPU TEMP · " + popup.gpuVendor.toUpperCase() : "GPU TEMP"
+                                cardValue: popup.gpu && popup.gpu.asleep ? "Asleep"
+                                    : (popup.gpuTemp > 0 ? popup.gpuTemp.toFixed(0) + "°C" : "—")
                                 cardColor: popup.tempColor(popup.gpuTemp)
                                 history:   popup.gpuTempHistory
                                 yMin: 30; yMax: 95
+
+                                // GPU switcher (only with more than one GPU)
+                                trailing: Repeater {
+                                    model: popup.gpus.length > 1 ? popup.gpus : []
+                                    delegate: Rectangle {
+                                        id: gpuChip
+                                        required property var modelData
+                                        readonly property bool selected: popup.gpu !== null && popup.gpu.pci === modelData.pci
+                                        width: gpuChipText.implicitWidth + 12; height: 18; radius: 6
+                                        color: selected ? Theme.primary
+                                            : Qt.rgba(Theme.primary.r, Theme.primary.g, Theme.primary.b, gpuChipMouse.containsMouse ? 0.18 : 0.10)
+                                        Behavior on color { ColorAnimation { duration: 150 } }
+                                        Text {
+                                            id: gpuChipText
+                                            anchors.centerIn: parent
+                                            text: popup.gpuLabel(gpuChip.modelData)
+                                            color: gpuChip.selected ? Theme.background : Theme.primary
+                                            opacity: gpuChip.modelData.asleep && !gpuChip.selected ? 0.5 : 1
+                                            font.pixelSize: 9; font.bold: true
+                                        }
+                                        MouseArea {
+                                            id: gpuChipMouse
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: {
+                                                popup.gpuSelected = gpuChip.modelData.pci
+                                                popup.gpuPinned = true
+                                            }
+                                        }
+                                    }
+                                }
                             }
                             CompactCard {
                                 cardIcon:  "󰢮"
                                 cardLabel: "GPU USAGE"
-                                cardValue: popup.gpuVendor === "nvidia" || popup.gpuVendor === "amd"
-                                    ? Math.round(popup.gpuUsage * 100) + "%"
-                                    : (popup.gpuVendor === "intel" ? "n/a" : "—")
+                                cardValue: popup.gpuUsageText(popup.gpu)
+                                // The other GPUs at a glance, e.g. "iGPU 0%"
+                                cardSub: popup.gpus
+                                    .filter(g => !popup.gpu || g.pci !== popup.gpu.pci)
+                                    .map(g => popup.gpuLabel(g) + " " + popup.gpuUsageText(g))
+                                    .join("  ")
                             }
                             CompactCard {
                                 cardIcon:  "󰍛"

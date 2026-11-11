@@ -17,6 +17,16 @@ Singleton {
     // Start as default in case file does not exist
     property string wallpaperFolder: defaultWallpaperFolder
 
+    // --- Video wallpapers (see ~/.config/hypr/conf/custom/video-wallpaper.sh) ---
+    property string videoScript: Quickshell.env("HOME") + "/.config/hypr/conf/custom/video-wallpaper.sh"
+    property string posterDir: Quickshell.env("HOME") + "/.cache/video-wallpapers/posters"
+    readonly property var imageExts: ["jpg", "jpeg", "png"]
+    readonly property var videoExts: ["mp4", "webm", "mkv", "mov", "m4v"]
+    // Bumped when posters were (re)generated so thumbnails reload
+    property int posterRevision: 0
+
+    onWallpaperFolderChanged: if (wallpaperFolder !== "") posterJob.refresh()
+
     // Raw text of the folder setting, as shown in the advanced options
     property string wallpaperFolderSetting: ""
 
@@ -79,6 +89,48 @@ Singleton {
             return false
         const current = root.currentWallpaper.substring(root.currentWallpaper.lastIndexOf("/") + 1)
         return current === fileName || current.endsWith("-" + fileName)
+    }
+
+    function isVideo(path): bool {
+        const dot = path.lastIndexOf(".")
+        return dot >= 0 && root.videoExts.indexOf(path.substring(dot + 1).toLowerCase()) >= 0
+    }
+
+    // FolderListModel name filters for images and videos, optionally narrowed by a search term
+    function nameFilters(search): var {
+        const s = (search || "").trim()
+        return root.imageExts.concat(root.videoExts).map(e => "*" + s + (s === "" ? "" : "*") + "." + e)
+    }
+
+    // URL to show for a wallpaper: the file itself, or a video's cached poster frame
+    // (same name the shell script uses: md5 of the path). The fragment forces a reload
+    // after posters are regenerated.
+    function thumb(path): string {
+        if (!path)
+            return ""
+        if (!root.isVideo(path))
+            return "file://" + path
+        return "file://" + root.posterDir + "/" + Qt.md5(path) + ".jpg#" + root.posterRevision
+    }
+
+    // Make posters for videos added to the folder since the last scan
+    function refreshPosters(): void {
+        if (root.wallpaperFolder !== "")
+            posterJob.refresh()
+    }
+
+    Process {
+        id: posterJob
+        property bool pending: false
+        function refresh(): void {
+            if (running) { pending = true; return }
+            command = [root.videoScript, "posters", root.wallpaperFolder]
+            running = true
+        }
+        onExited: {
+            root.posterRevision++
+            if (pending) { pending = false; refresh() }
+        }
     }
 
     // Pass each value as its own argument. No shell reads the
