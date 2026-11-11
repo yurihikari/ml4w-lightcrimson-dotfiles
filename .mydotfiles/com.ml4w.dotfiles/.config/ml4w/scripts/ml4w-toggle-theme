@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Toggles between light and dark themes for GTK and ML4W
+# Usage: ml4w-toggle-theme [dark|light]
 
 GTK3_SETTINGS_FILE="$HOME/.config/gtk-3.0/settings.ini"
 GTK4_SETTINGS_FILE="$HOME/.config/gtk-4.0/settings.ini"
@@ -16,10 +17,18 @@ if [ ! -f "$GTK3_SETTINGS_FILE" ]; then
     exit 1
 fi
 
-# Read the current preference. It is a GTK boolean, so it can legitimately be
-# stored as 1/0 or as true/false: third-party GTK settings tools write the
-# boolean spelling. Accept both, like gtk-theme-switcher.sh already does.
-current=$(grep -E "^$KEY=" "$GTK3_SETTINGS_FILE" | awk -F'=' '{print $2}')
+# The mode to switch to: given ("dark" / "light", e.g. by the GTK settings
+# listener), or the opposite of the current one. The current mode is ML4W's
+# setting; the GTK preference (1/0 or true/false: GTK settings tools write
+# the boolean spelling) when that is missing.
+case "$1" in
+    dark) current=0 ;;
+    light) current=1 ;;
+    *)
+        current=$(cat "$ML4W_DARKMODE_FILE" 2>/dev/null)
+        [ -n "$current" ] || current=$(grep -E "^$KEY=" "$GTK3_SETTINGS_FILE" | awk -F'=' '{print $2}')
+        ;;
+esac
 
 case "$current" in
     1 | true)
@@ -40,6 +49,10 @@ case "$current" in
         ;;
 esac
 
+# ML4W's mode first: the GTK settings listener compares the files below with
+# it, and must see them agree
+echo "$darkmode_value" > "$ML4W_DARKMODE_FILE"
+
 # Assign the new value instead of rewriting one specific spelling, so the
 # toggle works regardless of how the current value happens to be written.
 sed -i "s/^$KEY=.*/$KEY=$gtk3_value/" "$GTK3_SETTINGS_FILE"
@@ -47,8 +60,6 @@ if [ -f "$GTK4_SETTINGS_FILE" ]; then
     sed -i "s/^$KEY=.*/$KEY=$gtk4_value/" "$GTK4_SETTINGS_FILE"
 fi
 
-# Update ML4W darkmode setting
-echo "$darkmode_value" > "$ML4W_DARKMODE_FILE"
 echo "$message"
 
 # ==========================================

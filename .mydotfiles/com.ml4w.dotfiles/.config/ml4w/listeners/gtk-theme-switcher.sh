@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-# This script monitors changes to the GTK settings.ini file
-# and automatically switches the 'matugen' theme between light and dark
-# based on the 'gtk-application-prefer-dark-theme' setting.
+# This script monitors changes to the GTK settings.ini file and switches the
+# desktop between light and dark when 'gtk-application-prefer-dark-theme' is
+# changed from outside ML4W (a GTK settings tool).
 
 # Path to the GTK settings file
 SETTINGS_FILE="$HOME/.config/gtk-3.0/settings.ini"
@@ -20,69 +20,25 @@ fi
 echo "Monitoring $SETTINGS_FILE for changes..."
 echo "Press Ctrl+C to stop."
 
-# Function to apply the theme based on the current settings
+# Applies a light / dark preference set in a GTK settings tool (nwg-look...):
+# when it disagrees with ML4W's mode, switch the whole desktop with
+# ml4w-toggle-theme (matugen, Quickshell, GTK and Qt). The toggle and
+# matugen's GTK hook write this file too, but always in agreement with the
+# mode, so their writes are ignored here (no loop, no second matugen run).
 apply_theme() {
-    # Check if the settings file exists
-    if [ ! -f "$SETTINGS_FILE" ]; then
-        echo "Error: $SETTINGS_FILE not found. Please ensure the file exists."
-        return 1
-    fi
-
-    # Determine matugen binary path
-    if [ -f $HOME/.cargo/bin/matugen ]; then
-        MATUGEN_BIN="$HOME/.cargo/bin/matugen"
-    elif [ -f $HOME/.local/bin/matugen ]; then
-        MATUGEN_BIN="$HOME/.local/bin/matugen"
-    else
-        MATUGEN_BIN="matugen"
-    fi
-
-    # Extract the value of gtk-application-prefer-dark-theme
-    # We use grep to find the line and awk to get the value after the '='
-    THEME_PREF=$(grep -E '^gtk-application-prefer-dark-theme=' "$SETTINGS_FILE" | awk -F'=' '{print $2}')
-
-    if [ -z "$THEME_PREF" ]; then
-        echo "Warning: 'gtk-application-prefer-dark-theme' setting not found in $SETTINGS_FILE. Skipping theme application."
-        return 0
-    fi
-
-    if [[ "$THEME_PREF" == "1" || "$THEME_PREF" == "true" ]]; then
-        echo "Detected dark theme preference (gtk-application-prefer-dark-theme=1/true). Applying dark matugen theme..."
-        $MATUGEN_BIN image $(cat ~/.cache/ml4w/hyprland-dotfiles/current_wallpaper) --source-color-index 0 -m "dark"
-
-        # Update Quickshell theme
-        qs ipc call theme-manager reload
-        echo "Quickshell Theme updated"
-
-        # Update ML4W Dotfiles Settings theme
-        qs -p $HOME/.local/share/ml4w-dotfiles-settings/quickshell ipc call theme-manager reload
-        echo "ML4W Dotfiles Settings Theme updated"
-
-        # Reload Waybar
-        nohup bash -c "$HOME/.config/waybar/launch.sh" > /dev/null 2>&1 &
-        disown
-
-        $HOME/.config/hypr/scripts/gtk.sh &
-
-        swaync-client -rs
-    elif [[ "$THEME_PREF" == "0" || "$THEME_PREF" == "false" ]]; then
-        echo "Detected light theme preference (gtk-application-prefer-dark-theme=0/false). Applying light matugen theme..."
-        $MATUGEN_BIN image $(cat ~/.cache/ml4w/hyprland-dotfiles/current_wallpaper) --source-color-index 0 -m "light"
-
-        # Update Quickshell theme
-        qs ipc call theme-manager reload
-        echo "Quickshell Theme updated"
-
-        # Reload Waybar
-        nohup bash -c "$HOME/.config/waybar/launch.sh" > /dev/null 2>&1 &
-        disown
-
-        $HOME/.config/hypr/scripts/gtk.sh &
-
-        swaync-client -rs
-    else
-        echo "Warning: Unexpected value for gtk-application-prefer-dark-theme: $THEME_PREF. Expected 0/1/true/false. Skipping theme application."
-    fi
+    [ -f "$SETTINGS_FILE" ] || return 0
+    local pref want current
+    sleep 0.5   # let a writer finish (the toggle writes several files)
+    pref=$(grep -E '^gtk-application-prefer-dark-theme=' "$SETTINGS_FILE" | awk -F'=' '{print $2}')
+    case "$pref" in
+        1|true) want=1 ;;
+        0|false) want=0 ;;
+        *) return 0 ;;
+    esac
+    current=$(cat "$HOME/.config/ml4w/settings/darkmode" 2>/dev/null)
+    [ "$current" = "$want" ] && return 0
+    echo "Preference changed to $([ "$want" = 1 ] && echo dark || echo light): switching the desktop..."
+    "$HOME/.config/ml4w/scripts/ml4w-toggle-theme" "$([ "$want" = 1 ] && echo dark || echo light)"
 }
 
 # Loop indefinitely, reading output from inotifywait

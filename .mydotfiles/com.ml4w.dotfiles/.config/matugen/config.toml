@@ -1,5 +1,11 @@
 [config]
 
+# Status colours (success, warning) for GTK and KDE apps, shifted toward the
+# wallpaper's colour so they fit its palette
+[config.custom_colors]
+green = "#2ec27e"
+yellow = "#e5a50a"
+
 [templates.colorsjson]
 input_path = '~/.config/matugen/templates/colors.json'
 output_path = '~/.config/ml4w/colors/colors.json'
@@ -42,7 +48,19 @@ output_path = '~/.config/gtk-3.0/colors.css'
 [templates.gtk4]
 input_path = '~/.config/matugen/templates/gtk-colors.css'
 output_path = '~/.config/gtk-4.0/colors.css'
-post_hook = '~/.config/matugen/post-hook-scripts/gtk-themes-reload.sh'
+# GTK 3 theme variant, light / dark preference, reload of running apps
+post_hook = '~/.config/matugen/post-hook-scripts/gtk-theme.sh'
+
+# Qt apps' palette (qt6ct), and KDE apps' colours (kdeglobals)
+[templates.qt]
+input_path = '~/.config/matugen/templates/qt-colors.conf'
+output_path = '~/.config/qt6ct/colors/matugen.conf'
+post_hook = '~/.config/matugen/post-hook-scripts/qt-theme.sh'
+
+[templates.kde]
+input_path = '~/.config/matugen/templates/kde-colors'
+output_path = '~/.config/ml4w/colors/kdeglobals'
+post_hook = '~/.config/matugen/post-hook-scripts/kde-colors.sh'
 
 [templates.pywalfox]
 input_path = '~/.config/matugen/templates/pywalfox-colors.json'
