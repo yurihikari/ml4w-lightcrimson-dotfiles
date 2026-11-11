@@ -41,6 +41,7 @@ Wi-Fi, network and VPN, firewall, Bluetooth, displays, sound, power, appearance 
 - **Per-workspace wallpapers** (`META+SHIFT+E`): give each workspace its own image or video
 - **Wallpaper selector** (`META+CTRL+W`), **carousel** (`META+W`) and Settings > Appearance list videos next to images, with a play badge
 - Colours follow the wallpaper (matugen), in light or dark mode (`META+SHIFT+M`)
+- **GTK and Qt apps too**: GTK 4 / libadwaita and GTK 3 apps (adw-gtk3), Qt apps (qt6ct) and KDE apps (Dolphin, Kate...) are drawn in the wallpaper's colours and switch between light and dark with the rest, without picking a theme. Running Qt apps take the new colours when restarted.
 
 ### 📸 Capture drawer (`PRINT`)
 - Screenshots of a region, window, screen or every screen, with a delay and annotation; saved and copied to the clipboard (`SHIFT+PRINT`: region)
@@ -175,6 +176,9 @@ The installer:
 | `xdg-utils` | opening files and folders |
 | `zenity` | the file picker for VPN imports |
 | `nemo` | the file manager |
+| `adw-gtk-theme` | GTK 3 apps in the wallpaper's colours |
+| `qt6ct`, `breeze` | Qt and KDE apps in the wallpaper's colours |
+| `inotify-tools` | light / dark set in a GTK settings tool (nwg-look) applies to the whole desktop |
 
 Optional, used when installed: `pear-desktop` (the media popup's music app button), `ufw` (Settings > Firewall), `cups` and `system-config-printer` (Settings > Printers), `nvidia-utils` (NVIDIA GPU stats).
 
