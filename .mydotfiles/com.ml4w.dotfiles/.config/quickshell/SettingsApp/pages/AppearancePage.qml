@@ -114,6 +114,10 @@ StPage {
         command: ["bash", "-c",
             "WP=$(cat \"$HOME/.cache/ml4w/hyprland-dotfiles/current_wallpaper\" 2>/dev/null); " +
             "[ -z \"$WP\" ] && exit 0; " +
+            // A video wallpaper is previewed from its first frame (matugen
+            // only reads images), like ml4w-toggle-theme themes it
+            "VL=\"$HOME/.config/hypr/conf/custom/video-wallpaper.sh\"; " +
+            "if [ -f \"$VL\" ]; then source \"$VL\"; vw_is_video \"$WP\" && { WP=$(vw_poster \"$WP\") || exit 0; }; fi; " +
             "MG=matugen; " +
             "[ -x \"$HOME/.cargo/bin/matugen\" ] && MG=\"$HOME/.cargo/bin/matugen\"; " +
             "[ -x \"$HOME/.local/bin/matugen\" ] && MG=\"$HOME/.local/bin/matugen\"; " +
