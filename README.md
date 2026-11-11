@@ -1,10 +1,7 @@
-<img width="2880" height="1800" alt="image" src="https://github.com/user-attachments/assets/22c602c9-93e4-43cb-9961-ba5c52a581eb" />
-<img width="2880" height="1800" alt="image" src="https://github.com/user-attachments/assets/33348b2e-af4b-4361-90e4-64869d55dd96" />
-
-
-
-
-
+<p align="center">
+  <img src="screenshots/lightcrimson/light.webp" width="49%" alt="LightCrimson in light mode: quick settings drawer and a terminal with fastfetch">
+  <img src="screenshots/lightcrimson/dark.webp" width="49%" alt="LightCrimson in dark mode: quick settings drawer and a terminal with fastfetch">
+</p>
 
 <h1 align="center"> ML4W LightCrimson Dotfiles </h1>
 
@@ -12,87 +9,174 @@
   <a href="https://github.com/yurihikari/ml4w-lightcrimson-dotfiles/stargazers"><img src="https://img.shields.io/github/stars/yurihikari/ml4w-lightcrimson-dotfiles?color=f5bde6&style=for-the-badge&logo=starship"></a>
   <a href="https://github.com/yurihikari/ml4w-lightcrimson-dotfiles/issues"><img src="https://img.shields.io/github/issues/yurihikari/ml4w-lightcrimson-dotfiles?color=ed8796&style=for-the-badge&logo=codecov"></a>
   <a href="https://github.com/yurihikari/ml4w-lightcrimson-dotfiles/network/members"><img src="https://img.shields.io/github/forks/yurihikari/ml4w-lightcrimson-dotfiles?color=8aadf4&style=for-the-badge&logo=jfrog-bintray"></a>
-  <a href="https://github.com/yurihikari/ml4w-lightcrimson-dotfiles/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-GPL3.0-orange.svg?color=a6da95&style=for-the-badge&logo=mitsubishi"></a>
+  <a href="https://github.com/yurihikari/ml4w-lightcrimson-dotfiles/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-GPL3.0-orange.svg?color=a6da95&style=for-the-badge&logo=mitsubishi"></a>
 </p>
 
 ## About ❓
-This repo basically uses the dotfiles made from ML4W and uses my own tweaks.
-Used on a CachyOS system. Should work with Arch based systems as well.
+These dotfiles install the default profile of [ML4W](https://github.com/mylinuxforwork/dotfiles) and add my own desktop on top of it: a custom [Quickshell](https://quickshell.outfoxxed.me/) shell that replaces Waybar and SwayNC, a Settings app, image and video wallpapers (also per workspace), a capture drawer, and a theme switcher with extra themes.
 
-This dotfiles only install the default profile of ML4W, and then apply some of my own tweaks on top of it. So you can expect the same experience as ML4W with some added features and optimizations.
+Used on CachyOS, and should work on any Arch-based system.
 
 ## Features 👍
 
-### 🐚 Custom Quickshell Bar (replaces Waybar)
-A fully custom [Quickshell](https://quickshell.outfoxxed.me/) desktop shell, built from scratch and used instead of ML4W's Waybar.
+### 🐚 Quickshell desktop shell (replaces Waybar and SwayNC)
+- **Screen frame and top bar**: workspaces with app icons, system tray, media pill, mic/brightness/volume rings (scroll to adjust), keyboard layout, notification bell, clock, and a network/Bluetooth/battery pill
+- **Popups** that open on the monitor under your mouse:
+  - **Media** (`META+M`): MPRIS player with album art, a Cava visualizer, player switching, audio output and volume
+  - **Calendar** (`META+C`): month view with week numbers, weather (Open-Meteo) and a world clock
+  - **System** (`META+N`): Wi-Fi, Bluetooth, and performance (CPU, every GPU with a dGPU/iGPU switch, memory, network, game mode, power profile)
+  - **Dashboard** (`META+I`): system info, storage, updates and quick folders
+  - **Dock** (`META+A`): app launcher with fuzzy search and keyboard navigation, notes and a to-do list
+  - **Clipboard** (`META+SHIFT+V`): clipboard history with image and text previews; Clear empties every clipboard history
+  - **Keyboard layout** (`META+SHIFT+K`), **Power** (`META+X`), **Radial menu** (`META+R`), **Display manager** (`META+ALT+M`)
+- **Corner drawers**: quick settings in the bottom left (`META+ALT+Q`: keep awake, night light, Do Not Disturb, game mode, hotspot, VPN, presentation mode, power profile, theme) and capture in the bottom right (`PRINT`)
+- **Notifications**: toasts with images, actions and inline replies, a notification center grouped by app, Do Not Disturb (critical notifications still show)
+- **On-screen display** for volume, mic and brightness
 
-   - **Top bar (MainBar):** workspaces with live app icons, system tray with full menu support, a center media pill, mic/brightness/volume ring controls (scroll to adjust), keyboard-layout indicator, notification bell (click: center, right-click: Do Not Disturb), clock, and a system pill (network / Wi-Fi / Bluetooth / battery)
-   - **Built-in notification daemon** (replaces SwayNC) — toasts with images, actions and inline replies, urgency-based timeouts, Do Not Disturb (critical notifications still show)
-   - **Instant OSD** overlay for volume, mic and brightness changes
-   - **Rounded screen frame** drawing soft corners around every monitor
-   - **Multi-monitor aware** — popups open on the monitor where your mouse currently is
+### ⚙️ Settings app (`META+SHIFT+I`)
+Wi-Fi, network and VPN, firewall, Bluetooth, displays, sound, power, appearance (light/dark mode, wallpapers), themes, keyboard, printers, system and Hyprland settings in one window.
 
-#### Quickshell popups (toggle by keybinding or click)
-   - **Media** (`META+M`) — MPRIS player with album art, a circular Cava audio visualizer, multi-player switching, audio output/sink switcher and volume control
-   - **Calendar** (`META+C`) — month calendar with week numbers, live weather (Open-Meteo) and a world-clock lookup
-   - **System / Network** (`META+N`) — Wi-Fi scanning & connection, Bluetooth and network controls
-   - **Dashboard** (`META+I`) — system info at a glance (kernel, resources, mounted disks & drives)
-   - **Dock** (`META+A`) — app launcher with fuzzy search + full keyboard navigation, plus quick notes, a to-do list and a screenshot tool with thumbnails
-   - **Clipboard** (`META+SHIFT+V`) — clipboard history (cliphist)
-   - **Notifications** (bell icon, `qs ipc call bar-notifications toggle`) — notification center grouped by app, Do Not Disturb, quick toggles (Wi-Fi, Bluetooth, sound, lock), SwayNC-style keyboard shortcuts
-   - **Keyboard Layout** (`META+SHIFT+K`) — switch keyboard layout / variant
-   - **Power** (`META+X`) — power menu (lock / suspend / log out / reboot / shutdown) with keyboard selection
-   - **Radial Menu** (`META+R`) and **Display Manager** (`META+ALT+M`)
+### 🖼️ Wallpapers
+- **Video wallpapers** (mp4, webm, mkv, mov, m4v), muted, looped and hardware-decoded. Colours, transitions and the blurred variants come from the video's first frame. Videos pause while windows cover them and stop in game mode.
+- **Per-workspace wallpapers** (`META+SHIFT+E`): give each workspace its own image or video
+- **Wallpaper selector** (`META+CTRL+W`), **carousel** (`META+W`) and Settings > Appearance list videos next to images, with a play badge
+- Colours follow the wallpaper (matugen), in light or dark mode (`META+SHIFT+M`)
 
-### 🎭 Theme switcher (`dotswitch`)
-Switch between complete themes (different bars, drawers, Hyprland config) while your data follows you: notes, wallpapers, monitor layout, default apps. Each theme can be snapshotted and restored.
-   - `dotswitch` picks a theme, `dotswitch use <theme>` switches, `dotswitch new <id> --from lightcrimson` starts a new one
-   - `dotswitch save` / `dotswitch restore <theme>` snapshot and roll back a theme
-   - See [dotswitch/README.md](dotswitch/README.md)
+### 📸 Capture drawer (`PRINT`)
+- Screenshots of a region, window, screen or every screen, with a delay and annotation; saved and copied to the clipboard (`SHIFT+PRINT`: region)
+- Screen recording with system sound and microphone (`CTRL+PRINT` to start and stop), and instant replay (gpu-screen-recorder)
+- Text from the screen (OCR) and a colour picker (`META+P`)
 
-### 🎨 ML4W Theme & Wallpaper Customizations
-   - ml4w-toggle-theme: Added 'Save' theme mode variable
-     - Theme stays consistent after waybar/matugen changes
-   - darkmode: Custom darkmode state file preserved
-   - ml4w-wallpaper: Added darkmode variable
-     - Matugen won't override darkmode unless desired
+### 🎮 Game mode (`META+ALT+G`)
+Turns off animations, blur and rounding, and stops video wallpapers until you turn it off.
 
-### 📸 Screenshot & Colorpicker Enhancements
-   - screenshot.sh: Screenshots now copied to clipboard
-     + saved to file (dual functionality)
-   - colorpicker.sh: Added hyprpicker integration
-     - Press META+P to pick colors
+### 🎭 Themes (`dotswitch`)
+Switch between complete themes (bar, drawers, Hyprland config) while your data follows you: notes, wallpapers, monitor layout and default apps. See [Themes](#themes-) below and [dotswitch/README.md](dotswitch/README.md).
 
-### ⌨️ Custom Keybindings
-   - META+D — Application launcher
-   - META+P — Colorpicker (hyprpicker)
-   - META+R — Radial menu
-   - META+ALT+M — Display manager
-   - Quickshell popups: META+M (media), META+C (calendar), META+N (network/system),
-     META+I (dashboard), META+A (dock), META+SHIFT+V (clipboard),
-     META+SHIFT+K (keyboard layout), META+X (power menu)
-   - Plus other custom overrides in default.conf
+### 🐚 Shell
+- zoxide for bash, fish and zsh (`cd` jumps to directories you've visited), plus aliases
+- zsh plugin path fix for AUR vs git clone installs
+- Fastfetch with a custom logo and GPU info
 
-### 🖥️ Fastfetch Customization
-   - Custom logo image added (you can replace it with your own)
-   - GPU information display enabled
+## Gallery 🖼️
+<table>
+  <tr>
+    <td><img src="screenshots/lightcrimson/media.webp" alt="Media popup"></td>
+    <td><img src="screenshots/lightcrimson/dock.webp" alt="Dock with the app launcher"></td>
+  </tr>
+  <tr>
+    <td align="center">Media popup</td>
+    <td align="center">Dock: apps, notes and to-dos</td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/lightcrimson/dashboard.webp" alt="Dashboard popup"></td>
+    <td><img src="screenshots/lightcrimson/capture.webp" alt="Capture drawer"></td>
+  </tr>
+  <tr>
+    <td align="center">Dashboard</td>
+    <td align="center">Capture drawer</td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/lightcrimson/wallpapers.webp" alt="Wallpaper selector with video wallpapers"></td>
+    <td><img src="screenshots/lightcrimson/settings.webp" alt="Settings app on the Appearance page"></td>
+  </tr>
+  <tr>
+    <td align="center">Wallpaper selector with video wallpapers</td>
+    <td align="center">Settings app</td>
+  </tr>
+</table>
 
-### 🐚 Shell Configuration Fixes
-   - zsh plugins: Fixed path issue for AUR vs git clone
-     - 00-init & 20-customization updated
-   - zoxide: Installed and initialized for bash/fish/zsh
-     - 'cd' alias with directory jumping available
-   - Aliases: Added for bash, fish, and zsh
+## Themes 🎭
+Switch with `dotswitch`, Settings > Themes or quick settings. `dotswitch save` and `dotswitch restore <theme>` snapshot a theme and roll it back.
 
-## Additional Dependencies ⚠️
-- Using pear-desktop as the music app for META+M keybind
+| Theme | Description |
+| --- | --- |
+| **LightCrimson** (default) | ML4W with the custom Quickshell shell shown above |
+| **BA Inspired** | A bright game-HUD look: white panels, sky-blue accents, slanted plates and counters, floating windows |
+| **HyperBA** | A game-lobby desktop on top of BA Inspired, with colours that follow the wallpaper |
+
+### HyperBA
+A game-lobby desktop. A level card, workspace counters and grouped buttons sit on top, with shortcuts, a now-playing banner, an Overview card and a menu bar on the desktop. When a workspace has tiled windows, the lobby goes away and the top turns into a compact bar.
+
+<table>
+  <tr>
+    <td><img src="screenshots/hyperba/lobby.webp" alt="HyperBA lobby"></td>
+    <td><img src="screenshots/hyperba/lobby-izuna.webp" alt="HyperBA lobby with another live wallpaper"></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/hyperba/media.webp" alt="HyperBA media player grown out of the now-playing banner"></td>
+    <td><img src="screenshots/hyperba/tiled.webp" alt="HyperBA compact bar with tiled windows"></td>
+  </tr>
+  <tr>
+    <td><img src="screenshots/hyperba/dark.webp" alt="HyperBA lobby in dark mode"></td>
+    <td></td>
+  </tr>
+</table>
+
+> [!NOTE]
+> HyperBA and BA Inspired are fan-made themes inspired by the look of *Blue Archive*. They don't include any Blue Archive assets: everything is drawn in QML with generic icons and labels, without game art, logos, fonts or music. The live (Live2D) wallpapers in these screenshots are not included either. Add your own to `~/.config/ml4w/wallpapers` and pick them with the wallpaper selector, or per workspace with `META+SHIFT+E`. *Blue Archive* belongs to NEXON Games and Yostar, and the fan-art wallpapers in this repository belong to their artists.
+
+## Keybindings ⌨️
+These are the bindings this setup adds or changes; ML4W's own bindings are listed with `META+CTRL+K`.
+
+| Keys | Action |
+| --- | --- |
+| `META+D` | Application launcher |
+| `META+M` / `META+C` / `META+N` / `META+I` | Media / calendar / system / dashboard popups |
+| `META+A` | Dock (apps, notes, to-dos) |
+| `META+SHIFT+V` | Clipboard history |
+| `META+SHIFT+K` | Keyboard layout |
+| `META+X` | Power menu |
+| `META+ALT+Q` | Quick settings |
+| `PRINT` / `SHIFT+PRINT` / `CTRL+PRINT` | Capture drawer / region screenshot / start or stop recording |
+| `META+P` | Colour picker |
+| `META+SHIFT+I` | Settings |
+| `META+SHIFT+E` | Per-workspace wallpapers |
+| `META+W` / `META+CTRL+W` | Wallpaper carousel / selector |
+| `META+SHIFT+M` | Light / dark mode |
+| `META+ALT+G` | Game mode |
+| `META+R` | Radial menu |
+| `META+ALT+M` | Display manager |
+| `META+Tab` | Window overview |
+| `META+CTRL+C` | Calculator |
 
 ## Installation 🔧
+Clone this repository and run the installer. Run it again later to update.
 
-Just launch with bash the install.sh after cloning this repo
+```bash
+git clone https://github.com/yurihikari/ml4w-lightcrimson-dotfiles.git
+cd ml4w-lightcrimson-dotfiles
+bash install.sh
+```
 
-I just want to make it as simple as possible, unlike my previous garuda-hyprdots, so this can be used to setup a fully working hyprland setup on any arch based distros. 
+The installer:
+1. installs the packages this setup needs on top of ML4W (see below)
+2. installs or updates ML4W's dotfiles with the official ML4W installer, which installs ML4W's own dependencies
+3. applies these dotfiles on top, installs the window overview, and hands notifications to Quickshell (SwayNC's service is masked)
+4. installs `dotswitch` and the extra themes; LightCrimson stays active
+
+## Dependencies 📦
+`install.sh` installs these on top of ML4W's own dependencies. It uses the official repositories where it can and the AUR through `paru` or `yay` otherwise (`mpvpaper` is AUR-only on plain Arch).
+
+| Package | Used for |
+| --- | --- |
+| `rsync`, `gum` | applying the dotfiles, `dotswitch` |
+| `cava` | the media popup's visualizer |
+| `zoxide` | directory jumping in the shell |
+| `socat` | per-workspace wallpapers |
+| `ffmpeg`, `mpvpaper` | video wallpapers |
+| `gpu-screen-recorder` | screen recording and instant replay |
+| `qt6-5compat` | Quickshell effects |
+| `wireplumber`, `libpulse` | volume, microphone and audio outputs |
+| `networkmanager` | Wi-Fi, VPN and network settings |
+| `bluez`, `bluez-utils` | Bluetooth |
+| `gnome-keyring` | secrets and SSH keys |
+| `pciutils` | the GPU name in Settings |
+| `xdg-utils` | opening files and folders |
+| `zenity` | the file picker for VPN imports |
+| `nemo` | the file manager |
+
+Optional, used when installed: `pear-desktop` (the media popup's music app button), `ufw` (Settings > Firewall), `cups` and `system-config-printer` (Settings > Printers), `nvidia-utils` (NVIDIA GPU stats).
 
 ## Special Thanks 🙏
-
-Big Thanks to ML4W for making this setup so easy to do.
+Big thanks to [ML4W](https://github.com/mylinuxforwork/dotfiles) for making this setup so easy to build on, and to [Quickshell](https://quickshell.outfoxxed.me/).
