@@ -12,10 +12,18 @@ import Quickshell
 QtObject {
     id: root
 
-    // Nunito (SIL Open Font License, fonts/OFL.txt), loaded from the theme
-    // itself so nothing has to be installed.
-    property var _font: FontLoader { source: Qt.resolvedUrl("fonts/Nunito.ttf") }
-    readonly property string fontFamily: _font.status === FontLoader.Ready ? _font.name : "Fira Sans"
+    // Nunito (SIL Open Font License, fonts/OFL.txt), loaded from the theme,
+    // one file per weight. (The variable font they are cut from only ever
+    // drew its default instance, ExtraLight, whatever weight was asked.)
+    property list<QtObject> _fonts: [
+        FontLoader { source: Qt.resolvedUrl("fonts/Nunito-Regular.ttf") },
+        FontLoader { source: Qt.resolvedUrl("fonts/Nunito-Medium.ttf") },
+        FontLoader { source: Qt.resolvedUrl("fonts/Nunito-SemiBold.ttf") },
+        FontLoader { source: Qt.resolvedUrl("fonts/Nunito-Bold.ttf") },
+        FontLoader { source: Qt.resolvedUrl("fonts/Nunito-ExtraBold.ttf") },
+        FontLoader { source: Qt.resolvedUrl("fonts/Nunito-Black.ttf") }
+    ]
+    readonly property string fontFamily: _fonts[0].status === FontLoader.Ready ? _fonts[0].name : "Fira Sans"
 
     readonly property bool isLight: true
 

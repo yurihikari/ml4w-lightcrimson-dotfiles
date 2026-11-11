@@ -10,9 +10,18 @@ QtObject {
     // the HUD colour names the BA components use, derived from it, so every
     // plate, counter and button recolours itself with each wallpaper.
 
-    // Nunito (SIL Open Font License, fonts/OFL.txt), loaded from the theme.
-    property var _font: FontLoader { source: Qt.resolvedUrl("fonts/Nunito.ttf") }
-    readonly property string fontFamily: _font.status === FontLoader.Ready ? _font.name : "Fira Sans"
+    // Nunito (SIL Open Font License, fonts/OFL.txt), loaded from the theme,
+    // one file per weight. (The variable font they are cut from only ever
+    // drew its default instance, ExtraLight, whatever weight was asked.)
+    property list<QtObject> _fonts: [
+        FontLoader { source: Qt.resolvedUrl("fonts/Nunito-Regular.ttf") },
+        FontLoader { source: Qt.resolvedUrl("fonts/Nunito-Medium.ttf") },
+        FontLoader { source: Qt.resolvedUrl("fonts/Nunito-SemiBold.ttf") },
+        FontLoader { source: Qt.resolvedUrl("fonts/Nunito-Bold.ttf") },
+        FontLoader { source: Qt.resolvedUrl("fonts/Nunito-ExtraBold.ttf") },
+        FontLoader { source: Qt.resolvedUrl("fonts/Nunito-Black.ttf") }
+    ]
+    readonly property string fontFamily: _fonts[0].status === FontLoader.Ready ? _fonts[0].name : "Fira Sans"
     
     // True while the loaded palette is a light one. Derived from the palette
     // itself rather than read from the GTK preference, so it updates atomically
