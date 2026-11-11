@@ -176,7 +176,8 @@ BarPopup {
     Process {
         id: gamemodeExec
         function apply(enable) {
-            command = ["bash", "-c", "$HOME/.mydotfiles/com.ml4w.dotfiles/.config/hypr/scripts/gamemode.sh"]
+            // The active theme's copy, like the keybind and quick panel use
+            command = ["bash", "-c", "$HOME/.config/hypr/scripts/gamemode.sh"]
             running = true
         }
     }
