@@ -377,6 +377,13 @@ cmd_install() {
     if [ -d "$STORE/$id" ]; then
         while IFS= read -r p; do [ -e "$STORE/$id/$p" ] && excl+=(--exclude="/$p"); done < <(keep_paths)
     fi
+    # An overlay only ships the files it changes; everything else comes from its
+    # base. Refresh those from the installed base first, or an update leaves the
+    # overlay on a stale copy of the base that no longer fits its own files.
+    if [ -n "$base" ] && [ -d "$STORE/$base" ] && [ "$base" != "$id" ]; then
+        step "refreshing from $(name_of "$base")"
+        run rsync -a --exclude=/.git --exclude=/.dotswitch/preview.png "${excl[@]}" "$STORE/$base/" "$STORE/$id/"
+    fi
     run rsync -a --exclude=/.git "${excl[@]}" "$src/" "$STORE/$id/"
     say "Installed. Switch with: dotswitch use $id"
 }
