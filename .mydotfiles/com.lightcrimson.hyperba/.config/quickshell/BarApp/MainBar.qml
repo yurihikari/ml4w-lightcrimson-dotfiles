@@ -161,6 +161,8 @@ Item {
                     readonly property real stripe: 3
                     readonly property int level: Math.max(1, Math.min(100, Math.round(Sys.cpuUsage * 100)))
                     readonly property real contentX: logoIcon.compact ? 84 : 100
+                    // Top of the foot line: content stays clear of it
+                    readonly property real lineY: height - stripe - 1
                     // In the band: a 32px plate, 4px from its top
                     x: -16; y: 5 * bar.compactness
                     width: 352
@@ -177,11 +179,10 @@ Item {
                         stroke: Theme.withAlpha(Theme.deepAccent, 0.3); strokeWidth: 1
                     }
                     // Highlight line along the foot (the game's line under the
-                    // name), ending short of the slanted edge
+                    // name), on the bottom edge, ending short of the slanted edge
                     Rectangle {
-                        readonly property real lineY: lvPlate.height - lvPlate.stripe - (logoIcon.compact ? 1 : 4)
-                        x: 0; y: lineY
-                        width: lvPlate.width - lvPlate.slant * PanelStyle.lean * (lineY + lvPlate.stripe) / lvPlate.height - 14
+                        x: 0; y: lvPlate.lineY
+                        width: lvPlate.width - lvPlate.slant * PanelStyle.lean * (lvPlate.lineY + lvPlate.stripe) / lvPlate.height - 14
                         height: lvPlate.stripe; radius: height / 2
                         gradient: Gradient {
                             orientation: Gradient.Horizontal
@@ -196,7 +197,7 @@ Item {
                         x: 18; width: lvPlate.contentX - 30; height: parent.height
                         Text {
                             id: lvTag
-                            x: 0; y: logoIcon.compact ? 11 : 12
+                            x: 0; y: logoIcon.compact ? 9 : 12
                             text: "Lv."
                             color: Theme.deepHighlight
                             font.family: Theme.fontFamily; font.pixelSize: logoIcon.compact ? 11 : 15
@@ -204,7 +205,7 @@ Item {
                         }
                         Text {
                             x: logoIcon.compact ? lvTag.width + 3 : 10
-                            y: logoIcon.compact ? (parent.height - height) / 2 - 1 : 22
+                            y: logoIcon.compact ? (lvPlate.lineY - height) / 2 : 20
                             text: lvPlate.level
                             color: Theme.deepInk
                             font.family: Theme.fontFamily; font.pixelSize: logoIcon.compact ? 22 : 40
@@ -233,7 +234,9 @@ Item {
                             id: wsTabs
                             readonly property var list: Hyprland.workspaces.values.filter(w => w.id > 0)
                             readonly property real tabW: Math.max(20, Math.min(30, (lvContent.width - (list.length - 1) * 3) / Math.max(1, list.length)))
-                            y: logoIcon.compact ? (lvPlate.height - 26) / 2 - 1 : 12
+                            // Shorter tabs in the compact card, centred above the foot line
+                            readonly property real tabH: logoIcon.compact ? 20 : 26
+                            y: logoIcon.compact ? (lvPlate.lineY - tabH) / 2 : 12
                             spacing: 3
                             Repeater {
                                 model: wsTabs.list
@@ -241,7 +244,7 @@ Item {
                                     id: wsTab
                                     required property var modelData
                                     readonly property bool occupied: Sys.hyprClients.some(c => c.workspace && c.workspace.id === modelData.id)
-                                    width: wsTabs.tabW; height: 26
+                                    width: wsTabs.tabW; height: wsTabs.tabH
                                     scale: wsTabMouse.pressed ? 0.88 : 1
                                     Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
                                     Slanted {
@@ -256,7 +259,7 @@ Item {
                                         text: wsTab.modelData.name
                                         color: wsTab.modelData.focused ? Theme.on_primary_fixed
                                             : wsTab.occupied || wsTab.modelData.active ? Theme.deepInk : Theme.withAlpha(Theme.deepInk, 0.5)
-                                        font.family: Theme.fontFamily; font.pixelSize: 15; font.weight: Font.Black
+                                        font.family: Theme.fontFamily; font.pixelSize: logoIcon.compact ? 13 : 15; font.weight: Font.Black
                                     }
                                     MouseArea {
                                         id: wsTabMouse; anchors.fill: parent; hoverEnabled: true
@@ -272,7 +275,7 @@ Item {
                             visible: opacity > 0
                             opacity: logoIcon.compact ? 0 : 1
                             Behavior on opacity { NumberAnimation { duration: 180 } }
-                            y: 46; width: parent.width; height: 26
+                            y: 43; width: parent.width; height: 26
                             Rectangle {
                                 width: parent.width; height: 7; radius: 3.5
                                 color: Theme.withAlpha(Theme.deepInk, 0.18)
@@ -288,7 +291,7 @@ Item {
                                 }
                             }
                             Text {
-                                y: 12
+                                y: 11
                                 text: Hud.memUsedGb.toFixed(1) + " / " + Math.round(Hud.memTotalGb) + " GB"
                                 color: Theme.withAlpha(Theme.deepInk, 0.75)
                                 font.family: Theme.fontFamily; font.pixelSize: 11; font.weight: Font.Bold
