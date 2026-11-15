@@ -68,13 +68,40 @@ plus one of several expressions:
 "tapBody": [["Look_01_A", "Look_01_M", "28"], ["Look_01_A", "Look_01_M", "29"]]
 ```
 
+`talkFlip` makes her talk by alternating still poses (say a closed and an
+open mouth) at an uneven, speech-like pace while a reply streams in, with now
+and then a short pause; `talkFlipMs` is the time per pose, `[min, max]` in
+milliseconds:
+
+```json
+"talkFlip": ["00", "02"], "talkFlipMs": [90, 170]
+```
+
+`patBone` makes her head follow your hand while you pat: that bone (rigs
+often have a `Touch_Point`; the `ready` line lists candidates under
+`controlBones`) moves up and down with each stroke, up to `patBoneRange`
+units (30), and eases back afterwards.
+
+`patStages` are timed steps during a long pat. Each one can `play`
+animations (on tracks of their own, `loop` optional), `stop` animations that
+are playing, and `shake` her a little:
+
+```json
+"patStages": [
+    { "after": 6, "play": ["Dev_Halo_love"], "loop": true },
+    { "after": 10, "play": ["14"], "stop": ["Pat_01_A"], "shake": true }
+]
+```
+
 `patPhases` changes her expression the longer you keep patting: one entry
 every `patPhaseSeconds` (3 by default), shown on top of the pat animation.
 Pat again within 3 seconds and it carries on from the current phase:
 
 ```json
-"patPhases": [["03"], ["12"], ["11"]], "patPhaseSeconds": 3
+"patPhases": [["03"], ["11"], ["12"]], "patPhaseSeconds": 3, "patPhaseShake": true
 ```
+
+`patPhaseShake` gives her a little jolt when she reaches the last phase.
 
 Click her too often too fast (`dizzyClicks`, 6, within `dizzyWindow`
 seconds, 3) and she gets dizzy: the `dizzy` animations loop for

@@ -22,6 +22,8 @@
         font: 600 14px/1.35 "Nunito", "Noto Sans", sans-serif;
         box-shadow: 0 4px 18px rgba(20, 40, 90, .25); pointer-events: none; text-align: center;
     }
+    @keyframes shake { 0%, 100% { transform: translateX(0) } 25% { transform: translateX(-5px) } 75% { transform: translateX(5px) } }
+    #player.shake { animation: shake .1s 3; }
     #bubble.show { opacity: 1; transform: translate(-50%, 0); }
     #bubble::after {
         content: ""; position: absolute; left: 50%; bottom: -7px; margin-left: -7px;
@@ -134,8 +136,17 @@ function react(kind) {
     if (!state) return;
     if (patting) return;                       // the pat owns the tracks until release
     if (dizzy) return;                         // so does being dizzy, until it wears off
-    if (kind === "idle") { if (!reaction) clearReactions(0.3); return; }
+    if (kind === "idle") { stopTalkFlip(); if (!reaction) clearReactions(0.3); return; }
     if (kind === "pat") { startPat(); return; }
+    if (kind === "talk" && flipFrames().length >= 2) {
+        // Mouth flap over the talk animations, if any
+        cancelReaction();
+        const body = pick("talk");
+        if (body.length) play(body, true); else clearReactions(0.15);
+        startTalkFlip();
+        return;
+    }
+    stopTalkFlip();
     const list = pick(kind);
     if (P.debug) post({ event: "played", kind, animations: list });
     if (!list.length) return;
@@ -149,6 +160,35 @@ function react(kind) {
         const a = skeleton.data.findAnimation(n); return a ? a.duration * 1000 : 0;
     }));
     scheduleEnd(Math.max(2000, longest));
+}
+
+// Talking by flipping between still poses, for rigs whose mouth shapes are
+// single-frame animations: "talkFlip": ["00", "02"] alternates them (on a
+// track above everything else) at an uneven, speech-like pace while a reply
+// streams in. "talkFlipMs": [min, max] per pose (default 90 to 170).
+const FLIP_TRACK = 6;
+let flipTimer = 0, flipIndex = 0;
+function flipFrames() { return [].concat(cfg.talkFlip || []).filter(n => names.includes(n)); }
+function startTalkFlip() {
+    const frames = flipFrames();
+    if (frames.length < 2) return;
+    if (P.debug) post({ event: "played", kind: "talkFlip", animations: frames });
+    clearTimeout(flipTimer);
+    const [lo, hi] = [].concat(cfg.talkFlipMs || [90, 170]);
+    const step = () => {
+        flipIndex = (flipIndex + 1) % frames.length;
+        state.setAnimation(FLIP_TRACK, frames[flipIndex], false).mixDuration = 0;
+        // Now and then a longer pause on the first pose (closed), like a breath
+        const pause = flipIndex === 0 && Math.random() < 0.18;
+        flipTimer = setTimeout(step, pause ? 260 + Math.random() * 220 : lo + Math.random() * ((hi || lo) - lo));
+    };
+    flipIndex = 0;
+    step();
+}
+function stopTalkFlip() {
+    if (!flipTimer) return;
+    clearTimeout(flipTimer); flipTimer = 0;
+    if (state) state.setEmptyAnimation(FLIP_TRACK, 0.1);
 }
 
 let reaction = null, reactionTimer = 0;
@@ -173,6 +213,41 @@ function endReaction() {
 // loops while the strokes go on, and eases back to idle on release (through a
 // "…end…" animation when the rig has one).
 let patting = false, patList = [];
+
+// Head following the hand: "patBone" (a control bone such as Touch_Point)
+// moves up and down with each stroke, up to "patBoneRange" units (30) from
+// its rest position, "patBoneSpeed" units per pixel of stroke (0.5). It eases
+// back once the pat ends. Applied after the animations each frame.
+let patBone = null, patOffset = 0;
+function rub(dx) {
+    if (!patBone || !patting || !dx) return;
+    const range = cfg.patBoneRange || 30, speed = cfg.patBoneSpeed || 0.5;
+    patOffset = Math.max(-range, Math.min(range, patOffset - Math.sign(dx) * Math.min(Math.abs(dx), 12) * speed));
+}
+
+// Timed steps while a pat goes on, e.g. a heart halo after 6 s and an
+// embarrassed face after 10 s:
+//   "patStages": [{ "after": 6, "play": ["Dev_Halo_love"], "loop": true },
+//                 { "after": 10, "play": ["14"], "stop": ["Pat_01_A"], "shake": true }]
+// "play" goes on tracks of its own, "stop" ends what's playing those names.
+const STAGE_TRACK = 8;
+let stageTimers = [], stageTrack = STAGE_TRACK;
+function runStage(st) {
+    if (!patting) return;
+    if (P.debug) post({ event: "played", kind: "patStage", after: st.after, animations: st.play || [] });
+    for (const n of [].concat(st.stop || []))
+        for (let t = 0; t < state.tracks.length; t++) {
+            const e = state.tracks[t];
+            if (e && e.animation && e.animation.name === n) state.setEmptyAnimation(t, 0.15);
+        }
+    for (const n of [].concat(st.play || []).filter(n => names.includes(n)))
+        state.setAnimation(stageTrack++, n, !!st.loop).mixDuration = 0.25;
+    if (st.shake) shake();
+}
+function shake() {
+    const el = document.getElementById("player");
+    el.classList.remove("shake"); void el.offsetWidth; el.classList.add("shake");
+}
 // Pat phases: the longer the pat goes on, the further her expression moves
 // along "patPhases" (one entry every "patPhaseSeconds", default 3). Played on
 // tracks above the pat itself, so they win on the face. A pat resumed within
@@ -184,9 +259,12 @@ function showPhase() {
     if (!list) return;
     if (P.debug) post({ event: "played", kind: "patPhase", phase: phase + 1, animations: list });
     list.forEach((n, i) => { state.setAnimation(patList.length + 1 + i, n, false).mixDuration = 0.25; });
+    // "patPhaseShake": a little jolt on reaching the last phase
+    if (cfg.patPhaseShake && phase === phases.length - 1 && phases.length > 1) shake();
 }
 function startPat() {
     if (patting || !state) return;
+    stopTalkFlip();
     if (dizzy) endDizzy();                     // a pat calms her down
     cancelReaction();
     patList = pick("pat");
@@ -196,6 +274,9 @@ function startPat() {
     // Held on its last frame (rigs like this one pose the head under the
     // hand and stay there); "patLoop": true in character.json loops it instead
     play(patList, !!cfg.patLoop, !cfg.patLoop);
+    stageTimers.forEach(clearTimeout);
+    stageTrack = STAGE_TRACK;
+    stageTimers = [].concat(cfg.patStages || []).map(st => setTimeout(() => runStage(st), (st.after || 0) * 1000));
     if (performance.now() - lastPatEnd > 3000) phase = 0;
     showPhase();
     clearInterval(phaseTimer);
@@ -207,6 +288,9 @@ function stopPat() {
     if (!patting) return;
     patting = false;
     clearInterval(phaseTimer);
+    stageTimers.forEach(clearTimeout); stageTimers = [];
+    for (let t = STAGE_TRACK; t < stageTrack; t++) state.setEmptyAnimation(t, 0.15);
+    stageTrack = STAGE_TRACK;
     lastPatEnd = performance.now();
     const ends = (configured("patEnd") || patList.map(endOf)).filter(Boolean);
     if (P.debug) post({ event: "played", kind: "patEnd", animations: ends });
@@ -233,6 +317,7 @@ function countClick() {
 }
 function startDizzy() {
     cancelReaction();
+    stopTalkFlip();
     dizzy = true; clicks = [];
     const list = pick("dizzy");
     if (P.debug) post({ event: "played", kind: "dizzy", animations: list });
@@ -266,7 +351,7 @@ window.stage = {
     command(c) {
         if (c.cmd === "say") say(c.text);
         else if (c.cmd === "react") react(c.kind);
-        else if (c.cmd === "selftest") selftest(c.kind);
+        else if (c.cmd === "selftest") selftest(c.kind, c.seconds);
         // Preview one animation (looped, over idle) with its name in the bubble
         else if (c.cmd === "preview" && state) {
             cancelReaction(); patting = false;
@@ -280,7 +365,7 @@ window.stage = {
                    canvas: cv ? [cv.width, cv.height, cv.clientWidth, cv.clientHeight] : null,
                    cam: cam ? [cam.viewportWidth, cam.viewportHeight, cam.zoom, cam.position.x, cam.position.y] : null,
                    bounds, headR, head: headBone ? [headBone.worldX, headBone.worldY] : null,
-                   dpr: window.devicePixelRatio, keys: player ? Object.keys(player).slice(0, 40) : null });
+                   dpr: window.devicePixelRatio, patOffset, patBoneY: patBone ? patBone.y : null, keys: player ? Object.keys(player).slice(0, 40) : null });
         }
     }
 };
@@ -297,7 +382,7 @@ function headOnScreen() {
     return { x: r.left + (wx - a.x) / (b.x - a.x) * r.width,
              y: r.top + (wy - a.y) / (b.y - a.y) * r.height };
 }
-function selftest(kind) {
+function selftest(kind, seconds) {
     if (!player || !headBone) return post({ event: "error", message: "selftest: not ready or no head bone" });
     const h = headOnScreen();
     const yHead = h.y;
@@ -313,7 +398,7 @@ function selftest(kind) {
         let i = 0;
         const t = setInterval(() => {
             ev("pointermove", h.x + (i++ % 2 ? -20 : 20), yHead);
-            if (i > 40) { clearInterval(t); ev("pointerup", h.x, yHead); }
+            if (i > (seconds || 8) * 5) { clearInterval(t); ev("pointerup", h.x, yHead); }
         }, 200);
     } else if (kind === "pat") {
         ev("pointerdown", h.x, yHead);
@@ -400,6 +485,7 @@ touch.addEventListener("pointermove", (ev) => {
     drag.lastY = ev.clientY;
     // Strokes count while on the head, wherever the press started
     if (Math.abs(dx) < 1 || !(drag.head || inHead(w))) return;
+    rub(dx);
     // Count the strokes: a change of direction after at least 8px one way
     const dir = Math.sign(dx);
     if (dir === drag.dir) drag.seg += Math.abs(dx);
@@ -456,6 +542,18 @@ const conf = {
         names = skeleton.data.animations.map(a => a.name);
         idleName = (configured("idle") || [])[0] || (guess("idle")[0]) || names[0] || null;
         phases = alternatives(cfg.patPhases) || [];
+        patBone = cfg.patBone ? skeleton.findBone(cfg.patBone) : null;
+        if (patBone) {
+            const restY = patBone.data.y, apply = state.apply.bind(state);
+            state.apply = (sk) => {
+                patBone.y = restY;                          // animations that key it overwrite this
+                const r = apply(sk);
+                if (!patting) patOffset *= 0.85;            // ease back after the pat
+                if (Math.abs(patOffset) < 0.05) patOffset = 0;
+                patBone.y += patOffset;
+                return r;
+            };
+        }
         // Through the player, so it frames the camera on that animation (3.8
         // also only advances time while config.animation is set)
         if (idleName) { p.config.animation = idleName; p.setAnimation(idleName, true); }
@@ -477,6 +575,9 @@ const conf = {
         const picks = {};
         for (const k of Object.keys(GUESS)) picks[k] = alternatives((cfg.animations || {})[k]) || guess(k);
         if (phases.length) picks.patPhases = phases;
+        // Bones that look like control points, to help set "patBone"
+        picks.controlBones = skeleton.bones.map(b => b.data.name).filter(n => /touch|point|target|look/i.test(n));
+        picks.patBone = patBone ? patBone.data.name : null;
         picks.idle = idleName ? [idleName] : [];
         post({ event: "ready", animations: names, picks, version: P.version, premultipliedAlpha: conf.premultipliedAlpha,
                headBone: headBone ? headBone.data.name : null });
@@ -525,11 +626,39 @@ async function texturesArePremultiplied() {
     }
 }
 
+// Frame cap: the players redraw on every screen refresh (up to 120 Hz), and
+// each frame also makes the compositor redraw that part of the screen. Idle
+// breathing and blinking look the same at 30 fps for half the cost or less.
+// The players time animations by the clock, so speed doesn't change.
+// "fps" in character.json overrides it.
+{
+    const raf = window.requestAnimationFrame.bind(window);
+    const frame = 1000 / (cfg.fps || 30);
+    let last = 0;
+    window.requestAnimationFrame = (cb) => {
+        const wait = Math.max(0, last + frame - performance.now());
+        return setTimeout(() => raf((t) => { last = performance.now(); cb(t); }), wait);
+    };
+}
+
 texturesArePremultiplied().then((pma) => {
     conf.premultipliedAlpha = pma;
     const instance = new spine.SpinePlayer("player", conf);
     // 3.8 ignores showLoading and always draws its logo while loading
     if (instance.loadingScreen) instance.loadingScreen.draw = () => {};
+    // 3.8 sizes its canvas in layout pixels, ignoring the screen's pixel
+    // density, so on a scaled screen she was drawn small and stretched up
+    // (pixelated). Render at device pixels instead, like the 4.x players.
+    const sr = instance.sceneRenderer;
+    if (IS_38 && sr) {
+        sr.resize = function () {
+            const c = this.canvas, d = window.devicePixelRatio || 1;
+            const w = Math.round(c.clientWidth * d), h = Math.round(c.clientHeight * d);
+            if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+            this.context.gl.viewport(0, 0, w, h);
+            this.camera.setViewport(w, h);
+        };
+    }
 });
 </script>
 </body>
