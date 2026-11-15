@@ -1,5 +1,6 @@
 import Quickshell
 import Quickshell.Hyprland
+import Quickshell.Io
 import Quickshell.Services.UPower
 import QtQuick
 import QtQuick.Effects
@@ -11,9 +12,18 @@ import qs.CustomTheme
 // performance. Reads and writes through Quickshell's PowerProfiles service,
 // which is backed by power-profiles-daemon; no shell-out is needed. The module
 // is always visible (unlike the battery module) so the profile can be changed
-// both on battery and while plugged in.
+// both on battery and while plugged in. On TUXEDO laptops, TUXEDO Control
+// Center manages power instead, so a click opens it rather than the menu.
 Rectangle {
     id: profileRoot
+
+    // TUXEDO Control Center installed: it takes precedence over the daemon.
+    property bool tuxedo: false
+    Process {
+        running: true
+        command: ["bash", "-c", "command -v tuxedo-control-center >/dev/null || [ -d /opt/tuxedo-control-center ] && echo yes"]
+        stdout: StdioCollector { onStreamFinished: profileRoot.tuxedo = text.trim() === "yes" }
+    }
 
     // Current profile as reported by power-profiles-daemon.
     readonly property int current: PowerProfiles.profile
@@ -39,6 +49,7 @@ Rectangle {
 
     // Icon for the currently active profile, shown in the bar.
     readonly property string iconSource: {
+        if (tuxedo) return "../shared/icons/profile-balanced.svg"
         switch (current) {
         case PowerProfile.PowerSaver:   return "../shared/icons/profile-power-saver.svg"
         case PowerProfile.Performance:  return "../shared/icons/profile-performance.svg"
@@ -54,6 +65,10 @@ Rectangle {
 
     // Mouse click / keyboard Return: toggle the switch popup.
     function activate(): void {
+        if (profileRoot.tuxedo) {
+            Quickshell.execDetached(["bash", "-c", "tuxedo-control-center || gtk-launch tuxedo-control-center"])
+            return
+        }
         profileRoot.menuOpen = !profileRoot.menuOpen
     }
 

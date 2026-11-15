@@ -241,11 +241,20 @@ ColumnLayout {
     // ── Power profile ───────────────────────────────────────────────────────
     ColumnLayout {
         Layout.fillWidth: true
-        visible: QuickSettings.powerProfile !== ""
+        visible: QuickSettings.powerProfile !== "" || QuickSettings.tuxedo
         spacing: 8
         SectionLabel { text: "Power profile" }
+        // TUXEDO Control Center takes precedence over power-profiles-daemon.
+        Chip {
+            Layout.fillWidth: true
+            implicitHeight: 32
+            visible: QuickSettings.tuxedo
+            icon: "󱐋"; text: "TUXEDO Control Center"
+            onClicked: QuickSettings.openTuxedo()
+        }
         RowLayout {
             Layout.fillWidth: true
+            visible: !QuickSettings.tuxedo
             spacing: 6
             Repeater {
                 model: [

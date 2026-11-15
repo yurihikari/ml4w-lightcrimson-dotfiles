@@ -175,6 +175,24 @@ systemctl --user mask swaync.service || echo "⚠️ Warning: Could not mask swa
 pkill -x swaync 2>/dev/null || true
 
 # ==========================================
+# 4d. POWER MANAGEMENT (TUXEDO first)
+# ==========================================
+# TUXEDO Control Center sets the CPU and power limits itself, and
+# power-profiles-daemon changes the same settings: with both running they
+# overwrite each other. When TUXEDO is installed it takes priority, and the
+# daemon is masked (masking also stops D-Bus from starting it again).
+# Undo with: sudo systemctl unmask --now power-profiles-daemon
+if command -v tuxedo-control-center >/dev/null || [ -d /opt/tuxedo-control-center ]; then
+    echo -e "\n========================================"
+    echo "🔋 TUXEDO Control Center found: masking power-profiles-daemon"
+    echo "========================================"
+    if systemctl list-unit-files power-profiles-daemon.service >/dev/null 2>&1; then
+        sudo systemctl mask --now power-profiles-daemon.service \
+            || echo "⚠️ Warning: Could not mask power-profiles-daemon."
+    fi
+fi
+
+# ==========================================
 # 5. SPECIFIC FILE FAILSAFES
 # ==========================================
 # The rsync command above technically copies all of this already if they are inside 

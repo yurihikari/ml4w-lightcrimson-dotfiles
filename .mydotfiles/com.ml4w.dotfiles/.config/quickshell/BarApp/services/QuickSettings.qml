@@ -27,6 +27,7 @@ Singleton {
     property bool nightLight: false
     property bool gameMode: false
     property string powerProfile: ""          // "" when power-profiles-daemon is missing
+    property bool tuxedo: false               // TUXEDO Control Center manages power instead
     property real watts: 0                    // battery draw (or charge rate)
     property bool charging: false
     property bool hasBattery: false
@@ -42,7 +43,11 @@ Singleton {
         command: ["bash", "-c", `
             pgrep -x hyprsunset >/dev/null && echo night=1 || echo night=0
             [ -f "$HOME/.config/ml4w/settings/gamemode-enabled" ] && echo game=1 || echo game=0
-            echo "profile=$(powerprofilesctl get 2>/dev/null)"
+            if command -v tuxedo-control-center >/dev/null || [ -d /opt/tuxedo-control-center ]; then
+                echo tux=1
+            else
+                echo "profile=$(powerprofilesctl get 2>/dev/null)"
+            fi
             b=/sys/class/power_supply/BAT0
             if [ -d "$b" ]; then
                 echo "status=$(cat $b/status 2>/dev/null)"
@@ -58,6 +63,7 @@ Singleton {
                 }
                 root.nightLight = v.night === "1"
                 root.gameMode = v.game === "1"
+                root.tuxedo = v.tux === "1"
                 root.powerProfile = v.profile || ""
                 root.hasBattery = v.status !== undefined
                 root.charging = v.status === "Charging" || v.status === "Full"
@@ -82,6 +88,10 @@ Singleton {
         powerProfile = p
         Quickshell.execDetached(["powerprofilesctl", "set", p])
         soon.restart()
+    }
+    // On TUXEDO laptops, profiles live in TUXEDO Control Center.
+    function openTuxedo() {
+        Quickshell.execDetached(["bash", "-c", "tuxedo-control-center || gtk-launch tuxedo-control-center"])
     }
 
     // ── Presentation ────────────────────────────────────────────────────────
