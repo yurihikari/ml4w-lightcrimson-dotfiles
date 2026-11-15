@@ -1,7 +1,5 @@
 {
-    "id": "arona",
     "name": "Arona",
-    "special": true,
     "icon": "󰫮",
     "tagline": "Cheerful assistant OS",
     "accent": "#7fc8ff",
@@ -48,12 +46,101 @@
     },
     "character": {
         "animations": {
-            "idle": [],
-            "talk": [],
-            "tapHead": [],
-            "tapBody": [],
-            "pat": [],
-            "dizzy": []
-        }
+            "idle": [
+                "Idle_01"
+            ],
+            "tapHead": [
+                [
+                    "Look_01_A",
+                    "Look_01_M",
+                    "16"
+                ],
+                [
+                    "Look_01_A",
+                    "Look_01_M",
+                    "32"
+                ],
+                [
+                    "Look_01_A",
+                    "Look_01_M",
+                    "28"
+                ]
+            ],
+            "tapBody": [
+                [
+                    "Look_01_A",
+                    "Look_01_M",
+                    "28"
+                ],
+                [
+                    "Look_01_A",
+                    "Look_01_M",
+                    "29"
+                ],
+                [
+                    "Look_01_A",
+                    "Look_01_M",
+                    "17"
+                ],
+                [
+                    "Look_01_A",
+                    "Look_01_M",
+                    "24"
+                ]
+            ],
+            "pat": [
+                "Pat_01_A",
+                "Pat_01_M"
+            ],
+            "patEnd": [
+                "PatEnd_01_A",
+                "PatEnd_01_M"
+            ],
+            "error": [
+                [
+                    "18"
+                ],
+                [
+                    "15"
+                ],
+                [
+                    "27"
+                ]
+            ],
+            "dizzy": [
+                [
+                    "30"
+                ],
+                [
+                    "29"
+                ]
+            ]
+        },
+        "talkFlip": [
+            "00",
+            "02"
+        ],
+        "talkFlipMs": [
+            90,
+            170
+        ],
+        "patBone": "Touch_Point",
+        "patBoneRange": 30,
+        "patPhases": [
+            [
+                "03"
+            ],
+            [
+                "11"
+            ],
+            [
+                "12"
+            ]
+        ],
+        "patPhaseShake": true,
+        "patPhaseSeconds": 3,
+        "dizzyClicks": 6,
+        "dizzyWindow": 3,
+        "dizzySeconds": 5
     }
 }

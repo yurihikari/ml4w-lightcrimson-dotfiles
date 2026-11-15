@@ -11,15 +11,66 @@ commands. Each conversation is resumed after a restart; **+** starts a new one.
 ## Modes
 
 - **Assistant**: a regular assistant.
-- **Special**: talks as one of the special personas (Arona, Plana). Each
-  persona has its own conversation. If you added that persona's character
-  files, the character stands next to the panel:
-  - **click** her: she says something (a different line for the head and the body)
-  - **pat her head** (hold the mouse button and move it left and right over her head): she reacts
-  - **click her too much**: she gets dizzy for a bit
+- **Personal**: your own assistants. None come with the app: the first time,
+  **Create an assistant** opens a short form:
+  - **name** and an **icon** (a letter, an emoji or a Nerd Font glyph)
+  - **what they call you** (optional)
+  - **personality**: how they behave and talk, in your own words
+  - a **tagline** shown under their name (optional)
 
-Personas live in `personas/*.json`: the system prompt, the lines for greetings,
-taps and pats, and optionally which animation to play for each reaction.
+  Save, and Claude writes their lines: greetings, and what they say when
+  clicked, patted or clicked too much. Each assistant has its own conversation.
+  **+ New** adds another; the pencil reopens the form for the current one, with
+  buttons to open its file, rewrite its lines, or delete it.
+
+  If you added a character for one, it stands next to the panel:
+  - **click** it: it says something (a different line for the head and the body)
+  - **pat its head** (hold the mouse button and move it left and right over the head): it reacts
+  - **click it too much**: it gets dizzy for a bit
+
+## Personal assistant files
+
+Each one is a JSON file in `~/.local/share/ml4w-assistant/personas/<id>.json`
+(the id comes from the name). The form edits the first fields; the rest you can
+change by hand, and the panel picks up the change when you save the file:
+
+```json
+{
+    "name": "Nova",
+    "icon": "N",
+    "tagline": "Station AI",
+    "addressAs": "Captain",
+    "personality": "Upbeat, loves stars, talks in nautical metaphors",
+    "lines": {
+        "greet":   ["Ahoy, Captain!"],
+        "tapHead": ["..."], "tapBody": ["..."], "pat": ["..."],
+        "dizzy":   ["..."], "thinking": ["..."], "error": ["..."]
+    },
+    "character": { "animations": {} }
+}
+```
+
+The system prompt is built from `name`, `personality` and `addressAs`. Add a
+`"systemPrompt"` to write your own instead.
+
+### Examples
+
+`examples/personas/` holds ready-made example assistants with their lines and
+a full character setup (animations, pat phases and stages, talking). An
+example stays hidden until it's fully set up: put its character files in
+`~/.local/share/ml4w-assistant/characters/<id>/` and it appears under
+Personal. No character art ships with them; use only files you have the right
+to use. Editing an example in the form saves your own copy in
+`~/.local/share/ml4w-assistant/personas/`, which then replaces the example.
+
+From a terminal or a script:
+
+```
+qs ipc call assistant make "Nova" "Captain" "Upbeat, loves stars, talks in nautical metaphors"
+qs ipc call assistant persona nova      # switch to it
+qs ipc call assistant create            # open the form
+qs ipc call assistant remove nova       # delete it (its character files stay)
+```
 
 ## Adding a character
 
@@ -33,7 +84,8 @@ character in:
     something.png    (the textures the atlas names)
 ```
 
-`<persona id>` is `arona` or `plana`. Spine 3.8, 4.0, 4.1 and 4.2 skeletons work.
+`<persona id>` is the personal assistant's id, the name of its file in
+`personas/` without `.json`. Spine 3.8, 4.0, 4.1 and 4.2 skeletons work.
 The version is read from the skeleton, and the matching Spine web player is
 downloaded once to `~/.cache/ml4w-assistant/spine/`.
 
@@ -120,7 +172,7 @@ To see the animation and bone names, run the overlay on its own:
 
 ```
 python3 ~/.config/quickshell/AssistantApp/character/character.py \
-    --assets ~/.local/share/ml4w-assistant/characters/arona
+    --assets ~/.local/share/ml4w-assistant/characters/<id>
 ```
 
 It prints `{"event": "ready", "animations": [...], "headBone": "..."}`. Type
@@ -130,7 +182,7 @@ To see what each animation does, step through them with their names in the
 speech bubble (here only the numbered ones, 4 seconds each):
 
 ```
-~/.config/quickshell/AssistantApp/character/preview.sh arona 4 '^[0-9]+$'
+~/.config/quickshell/AssistantApp/character/preview.sh <id> 4 '^[0-9]+$'
 ```
 
 `qs ipc call assistant poke head|body|pat` fakes a click or a pat on the
@@ -149,7 +201,7 @@ Only use character files you have the right to use.
 - Quickshell can't host a web view, so the character is a separate process,
   `character/character.py`: a transparent layer-shell window (GTK 3, WebKitGTK,
   gtk-layer-shell) running the Spine web player. It only runs while the panel
-  is open in Special mode and character files are present. It serves the page
+  is open in Personal mode and character files are present. It serves the page
   and the character folder on a 127.0.0.1-only port, because the Spine players
   reject files loaded from `file://`. It talks to the
   panel with JSON lines on stdin and stdout.

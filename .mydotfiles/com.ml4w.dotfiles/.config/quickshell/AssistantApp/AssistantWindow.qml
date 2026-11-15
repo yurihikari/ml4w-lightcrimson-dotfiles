@@ -8,12 +8,15 @@ import qs.CustomTheme
 import qs.BarApp.components
 import qs.BarApp.services
 import qs.AssistantApp.services
+import qs.AssistantApp.components
 
-// AI assistant (META+A): a chat drawer on the right, backed by the Claude CLI
-// (services/Assistant.qml). "Assistant" is a plain assistant; "Special" talks
-// as one of the special personas (personas/*.json) and, when that persona's
-// character files were added, shows the character next to the panel: tap it
-// to make it talk, pat its head to see it react (character/).
+// AI assistant (META+SHIFT+SPACE): a chat drawer on the right, backed by the
+// Claude CLI (services/Assistant.qml). "Assistant" is a plain assistant;
+// "Personal" talks as one of the user's own assistants, made with the form
+// here (name, what they call you, personality: Claude writes their lines) and
+// kept in ~/.local/share/ml4w-assistant/personas/. When one has character
+// files, the character stands next to the panel: click it to make it talk,
+// pat its head to see it react (character/).
 //
 // It is a FrameDrawer like the sidebar, so each theme draws it its own way
 // (out of the frame in LightCrimson, a floating plate in the BA themes). It
@@ -54,15 +57,40 @@ PanelWindow {
         function close(): void { root.isOpen = false }
         // Open and send a message right away
         function ask(text: string): void { root.isOpen = true; Assistant.send(text) }
-        function mode(m: string): void { if (m === "assistant" || m === "special") Assistant.mode = m }
+        function mode(m: string): void { if (m === "special") m = "personal"; if (m === "assistant" || m === "personal") Assistant.mode = m }
+        // Open the form for a new personal assistant
+        function create(): void { root.isOpen = true; root.edit("") }
+        // Make one without the form (Claude writes its lines): name, what it
+        // calls you (may be empty), personality
+        function make(name: string, addressAs: string, personality: string): string {
+            const id = Assistant.savePersona("", { name: name, addressAs: addressAs, personality: personality })
+            Assistant.personalPersona = id; Assistant.mode = "personal"
+            return id
+        }
         // Start a new chat with the current persona
         function clear(): void { Assistant.newChat() }
         // Debug: fake a tap ("head", "body") or a pat on the character
         function poke(kind: string): void { Assistant.pokeCharacter(kind) }
-        function persona(id: string): void { if (Assistant.specialPersonas.includes(id)) { Assistant.specialPersona = id; Assistant.mode = "special" } }
+        // Delete a personal assistant (its character files are kept)
+        function remove(id: string): void { Assistant.deletePersona(id) }
+        function persona(id: string): void { if (Assistant.personalPersonas.includes(id)) { Assistant.personalPersona = id; Assistant.mode = "personal" } }
     }
 
-    Timer { id: focusTimer; interval: 120; onTriggered: input.forceActiveFocus() }
+    Timer { id: focusTimer; interval: 120; onTriggered: if (root.editing === null) input.forceActiveFocus() }
+
+    // The form: null while chatting, else the fields being edited ("" id: new)
+    property var editing: null
+    property string editingId: ""
+    function edit(id) {
+        const p = id ? (Assistant.personas[id] || {}) : {}
+        editingId = id
+        editing = { name: p.name || "", icon: p.icon || "", tagline: p.tagline || "",
+                    addressAs: p.addressAs || "", personality: p.personality || "" }
+        confirmDelete = false
+        Qt.callLater(() => nameFieldBox.field.forceActiveFocus())
+    }
+    property bool confirmDelete: false
+    readonly property bool showOnboarding: editing === null && Assistant.mode === "personal" && Assistant.personalPersonas.length === 0
 
     FrameDrawer {
         open: root.isOpen
@@ -86,8 +114,15 @@ PanelWindow {
                 PanelHeader {
                     icon: Assistant.persona.icon || "󰚩"
                     title: Assistant.persona.name || "Assistant"
-                    subtitle: Assistant.busy ? (Assistant.status || "Thinking…") : (Assistant.persona.tagline || "")
+                    subtitle: Assistant.drafting === Assistant.personaId && Assistant.drafting !== "" ? "Writing their lines…"
+                        : Assistant.busy ? (Assistant.status || "Thinking…") : (Assistant.persona.tagline || "")
 
+                    IconButton {
+                        icon: "󰏫"; size: 30; iconSize: 15
+                        visible: Assistant.mode === "personal" && Assistant.canChat && root.editing === null
+                        onClicked: root.edit(Assistant.personaId)
+                        ToolTip.visible: hovered; ToolTip.delay: 500; ToolTip.text: "Edit this assistant"
+                    }
                     IconButton {
                         icon: "󰐕"; size: 30; iconSize: 15
                         enabled: Assistant.messages.count > 0
@@ -101,51 +136,232 @@ PanelWindow {
                     }
                 }
 
-                // ── Mode: plain assistant or a special persona ──
-                RowLayout {
+                // ── Mode: plain assistant or one of the user's own ──
+                Flow {
                     Layout.fillWidth: true
                     spacing: 6
                     Chip {
                         icon: "󰚩"; text: "Assistant"
                         selected: Assistant.mode === "assistant"
-                        onClicked: Assistant.mode = "assistant"
+                        onClicked: { Assistant.mode = "assistant"; root.editing = null }
                     }
                     Chip {
-                        icon: "󰫢"; text: "Special"
-                        selected: Assistant.mode === "special"
-                        visible: Assistant.specialPersonas.length > 0
-                        onClicked: Assistant.mode = "special"
+                        icon: "󰀄"; text: "Personal"
+                        selected: Assistant.mode === "personal"
+                        onClicked: Assistant.mode = "personal"
                     }
                     Rectangle {
-                        visible: Assistant.mode === "special"
-                        Layout.preferredWidth: 1; Layout.preferredHeight: 18
-                        Layout.leftMargin: 4; Layout.rightMargin: 4
+                        visible: Assistant.mode === "personal" && Assistant.personalPersonas.length > 0
+                        width: 1; height: 18; y: 5
                         color: PanelStyle.divider
                     }
                     Repeater {
-                        model: Assistant.mode === "special" ? Assistant.specialPersonas : []
+                        model: Assistant.mode === "personal" ? Assistant.personalPersonas : []
                         Chip {
                             required property string modelData
                             text: (Assistant.personas[modelData] || {}).name || modelData
-                            selected: Assistant.specialPersona === modelData
-                            onClicked: Assistant.specialPersona = modelData
+                            selected: Assistant.personalPersona === modelData && root.editing === null
+                            onClicked: { Assistant.personalPersona = modelData; root.editing = null }
                         }
                     }
-                    Item { Layout.fillWidth: true }
+                    Chip {
+                        visible: Assistant.mode === "personal" && Assistant.personalPersonas.length > 0
+                        icon: "󰐕"; text: "New"
+                        selected: root.editing !== null && root.editingId === ""
+                        onClicked: root.edit("")
+                    }
                 }
 
-                // No character files for this persona: say where they go
+                // No character files for this assistant: say where they go
                 Text {
                     Layout.fillWidth: true
-                    visible: Assistant.mode === "special" && !Assistant.characterAvailable
+                    visible: Assistant.mode === "personal" && Assistant.canChat && root.editing === null && !Assistant.characterAvailable
                     text: "No character files for " + (Assistant.persona.name || "") + ". Add a Spine export to ~/.local/share/ml4w-assistant/characters/" + Assistant.personaId + "/ to see them here."
                     wrapMode: Text.Wrap
                     color: Theme.primary; opacity: PanelStyle.faint
                     font.pixelSize: PanelStyle.labelSize + 1
                 }
 
+                // ── No personal assistant yet ──
+                ColumnLayout {
+                    visible: root.showOnboarding
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    spacing: 12
+                    Item { Layout.fillHeight: true }
+                    Text {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: "󰀄"; color: Theme.primary; opacity: 0.5; font.pixelSize: 44
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        horizontalAlignment: Text.AlignHCenter
+                        text: "Make your own assistant"
+                        color: Theme.primary; font.pixelSize: PanelStyle.titleSize; font.bold: true
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.Wrap
+                        text: "Give them a name and a personality, and Claude writes the rest. "
+                            + "You can change them any time here, or edit their file in ~/.local/share/ml4w-assistant/personas/."
+                        color: Theme.primary; opacity: PanelStyle.dim
+                        font.family: Theme.fontFamily; font.pixelSize: PanelStyle.bodySize
+                    }
+                    PanelButton {
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.topMargin: 6
+                        accent: true; icon: "󰐕"; text: "Create an assistant"
+                        onClicked: root.edit("")
+                    }
+                    Item { Layout.fillHeight: true }
+                }
+
+                // ── The form: create or edit a personal assistant ──
+                Flickable {
+                    id: formView
+                    visible: root.editing !== null
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+                    contentHeight: form.implicitHeight
+                    boundsBehavior: Flickable.StopAtBounds
+                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+                    ColumnLayout {
+                        id: form
+                        width: formView.width - 8
+                        spacing: 6
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: root.editingId === "" ? "New assistant" : "Edit " + ((Assistant.personas[root.editingId] || {}).name || "")
+                            color: Theme.primary; font.pixelSize: PanelStyle.titleSize - 1; font.bold: true
+                        }
+
+                        FieldLabel { text: "Name" }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            FormField {
+                                Layout.preferredWidth: 56
+                                Layout.fillWidth: false
+                                text: root.editing ? root.editing.icon : ""
+                                placeholder: (nameFieldBox.text.trim().charAt(0) || "A").toUpperCase()
+                                field.horizontalAlignment: TextInput.AlignHCenter
+                                field.maximumLength: 4
+                                onTextChanged: if (root.editing) root.editing.icon = text
+                                ToolTip.visible: field.activeFocus; ToolTip.text: "Icon: a letter, an emoji or a Nerd Font glyph"
+                            }
+                            FormField {
+                                id: nameFieldBox
+                                text: root.editing ? root.editing.name : ""
+                                placeholder: "Nova, Mika, Jarvis…"
+                                onTextChanged: if (root.editing) root.editing.name = text
+                            }
+                        }
+
+                        FieldLabel { text: "What do they call you?" }
+                        FormField {
+                            text: root.editing ? root.editing.addressAs : ""
+                            placeholder: "Your name, \"Boss\", \"Captain\"… (optional)"
+                            onTextChanged: if (root.editing) root.editing.addressAs = text
+                        }
+
+                        FieldLabel { text: "Personality" }
+                        PanelField {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: Math.max(110, personality.implicitHeight + 16)
+                            focused: personality.activeFocus
+                            TextArea {
+                                id: personality
+                                anchors.fill: parent; anchors.margins: 4
+                                text: root.editing ? root.editing.personality : ""
+                                placeholderText: "How they behave and talk. E.g. cheerful and a bit clumsy, loves sweets, lots of exclamation marks; or calm, precise and dry, with a hidden soft side."
+                                placeholderTextColor: Theme.withAlpha(Theme.primary, PanelStyle.faint)
+                                color: Theme.primary
+                                wrapMode: TextArea.Wrap
+                                background: null
+                                font.family: Theme.fontFamily; font.pixelSize: PanelStyle.bodySize + 1
+                                onTextChanged: if (root.editing) root.editing.personality = text
+                            }
+                        }
+
+                        FieldLabel { text: "Tagline" }
+                        FormField {
+                            text: root.editing ? root.editing.tagline : ""
+                            placeholder: "Shown under their name (optional)"
+                            onTextChanged: if (root.editing) root.editing.tagline = text
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            Layout.topMargin: 6
+                            wrapMode: Text.Wrap
+                            text: (root.editingId === ""
+                                    ? "After you save, Claude writes their lines: greetings, and what they say when clicked or patted. "
+                                    : Assistant.isExample(root.editingId)
+                                    ? "This one comes from the examples: saving makes it your own copy, which you can then change freely. "
+                                    : "")
+                                + "Everything is in ~/.local/share/ml4w-assistant/personas/"
+                                + (root.editingId || Assistant.slug(root.editing ? root.editing.name : "")) + ".json, "
+                                + "and a character can go in ~/.local/share/ml4w-assistant/characters/"
+                                + (root.editingId || Assistant.slug(root.editing ? root.editing.name : "")) + "/ (see the README)."
+                            color: Theme.primary; opacity: PanelStyle.faint
+                            font.pixelSize: PanelStyle.labelSize + 1
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Layout.topMargin: 8
+                            spacing: 8
+                            PanelButton {
+                                accent: true; icon: "󰆓"; text: "Save"
+                                enabled: root.editing !== null && root.editing.name.trim() !== ""
+                                onClicked: {
+                                    const id = Assistant.savePersona(root.editingId, root.editing)
+                                    Assistant.personalPersona = id
+                                    Assistant.mode = "personal"
+                                    root.editing = null
+                                    focusTimer.restart()
+                                }
+                            }
+                            PanelButton {
+                                text: "Cancel"
+                                onClicked: { root.editing = null; focusTimer.restart() }
+                            }
+                            Item { Layout.fillWidth: true }
+                            IconButton {
+                                visible: root.editingId !== "" && !Assistant.isExample(root.editingId)
+                                icon: "󰈔"; size: 30; iconSize: 14
+                                onClicked: Qt.openUrlExternally("file://" + Assistant.personaFile(root.editingId))
+                                ToolTip.visible: hovered; ToolTip.delay: 400; ToolTip.text: "Open the file"
+                            }
+                            IconButton {
+                                visible: root.editingId !== ""
+                                icon: "󰑓"; size: 30; iconSize: 14
+                                enabled: Assistant.drafting === ""
+                                opacity: enabled ? 1 : 0.4
+                                onClicked: Assistant.draftLines(root.editingId, Assistant.personas[root.editingId] || root.editing)
+                                ToolTip.visible: hovered; ToolTip.delay: 400; ToolTip.text: "Rewrite their lines with Claude"
+                            }
+                            PanelButton {
+                                visible: root.editingId !== "" && !Assistant.isExample(root.editingId)
+                                danger: true
+                                icon: "󰆴"; text: root.confirmDelete ? "Sure?" : "Delete"
+                                onClicked: {
+                                    if (!root.confirmDelete) { root.confirmDelete = true; return }
+                                    Assistant.deletePersona(root.editingId)
+                                    root.editing = null
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // ── Conversation ──
                 Item {
+                    visible: root.editing === null && !root.showOnboarding
                     Layout.fillWidth: true
                     Layout.fillHeight: true
 
@@ -257,6 +473,7 @@ PanelWindow {
 
                 // ── Input ──
                 PanelField {
+                    visible: root.editing === null && !root.showOnboarding
                     Layout.fillWidth: true
                     Layout.preferredHeight: Math.min(140, Math.max(PanelStyle.controlHeight + 6, input.implicitHeight + 14))
                     focused: input.activeFocus
@@ -272,7 +489,7 @@ PanelWindow {
                             Layout.topMargin: 4; Layout.bottomMargin: 4
                             TextArea {
                                 id: input
-                                placeholderText: Assistant.mode === "special"
+                                placeholderText: Assistant.mode === "personal"
                                     ? "Talk to " + (Assistant.persona.name || "") + "…" : "Ask anything…"
                                 color: Theme.primary
                                 placeholderTextColor: Theme.withAlpha(Theme.primary, PanelStyle.faint)
@@ -302,6 +519,7 @@ PanelWindow {
                 }
 
                 Text {
+                    visible: root.editing === null && !root.showOnboarding
                     Layout.fillWidth: true
                     text: "Claude · Enter to send · Shift+Enter for a new line"
                     color: Theme.primary; opacity: PanelStyle.faint

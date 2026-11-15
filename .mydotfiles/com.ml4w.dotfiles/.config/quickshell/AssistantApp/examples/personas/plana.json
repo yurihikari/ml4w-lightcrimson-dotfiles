@@ -1,7 +1,5 @@
 {
-    "id": "plana",
     "name": "Plana",
-    "special": true,
     "icon": "󰫽",
     "tagline": "Calm, precise assistant OS",
     "accent": "#c9a7ff",
@@ -47,12 +45,97 @@
     },
     "character": {
         "animations": {
-            "idle": [],
-            "talk": [],
-            "tapHead": [],
-            "tapBody": [],
-            "pat": [],
-            "dizzy": []
-        }
+            "idle": [
+                "Idle_01"
+            ],
+            "tapHead": [
+                [
+                    "Look_01_M",
+                    "11"
+                ],
+                [
+                    "Look_01_M",
+                    "14"
+                ],
+                [
+                    "Look_01_M",
+                    "03"
+                ]
+            ],
+            "tapBody": [
+                [
+                    "Look_01_M",
+                    "11"
+                ],
+                [
+                    "Look_01_M",
+                    "13"
+                ],
+                [
+                    "Look_01_M",
+                    "07"
+                ],
+                [
+                    "Look_01_M",
+                    "19"
+                ]
+            ],
+            "pat": [
+                "Pat_01_A",
+                "Pat_01_M"
+            ],
+            "patEnd": [
+                "PatEnd_01_A",
+                "PatEnd_01_M"
+            ],
+            "error": [
+                [
+                    "12"
+                ],
+                [
+                    "06"
+                ]
+            ],
+            "dizzy": [
+                [
+                    "13"
+                ],
+                [
+                    "07"
+                ]
+            ]
+        },
+        "talkFlip": [
+            "00",
+            "15"
+        ],
+        "talkFlipMs": [
+            90,
+            170
+        ],
+        "patBone": "Touch_Point",
+        "patBoneRange": 30,
+        "patStages": [
+            {
+                "after": 6,
+                "play": [
+                    "Dev_Halo_love"
+                ],
+                "loop": true
+            },
+            {
+                "after": 10,
+                "play": [
+                    "14"
+                ],
+                "stop": [
+                    "Pat_01_A"
+                ],
+                "shake": true
+            }
+        ],
+        "dizzyClicks": 6,
+        "dizzyWindow": 3,
+        "dizzySeconds": 5
     }
 }
