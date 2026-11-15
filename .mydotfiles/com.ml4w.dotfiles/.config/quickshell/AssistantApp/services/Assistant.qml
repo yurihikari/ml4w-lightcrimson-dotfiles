@@ -80,6 +80,7 @@ Singleton {
         if (text === "" || busy || !canChat) return
         messagesModel.append({ role: "user", text: text, streaming: false })
         busy = true
+        _turn++
         status = line("thinking") || "Thinking…"
         _turnStarted = false
         _pending.push(JSON.stringify({
@@ -91,6 +92,7 @@ Singleton {
         // else: the old CLI is exiting (persona switch); onExited starts the new one
         _save()
         character.react("talk")
+        character.say(line("thinking"))     // until the first words arrive
     }
 
     function stop() {
@@ -162,6 +164,31 @@ Singleton {
         let i = _assistantIndex()
         if (i < 0) { messagesModel.append({ role: "assistant", text: "", streaming: true }); i = messagesModel.count - 1 }
         messagesModel.setProperty(i, "text", messagesModel.get(i).text + t)
+        if (charProc.running && !speechTimer.running) speechTimer.start()
+    }
+
+    // ── The reply in the character's speech bubble ─────────────────────────
+    // The whole reply as plain text (Markdown stripped, code left to the
+    // panel), sent as it grows; the overlay types it out at its own pace.
+    property int _turn: 0
+    Timer { id: speechTimer; interval: 250; onTriggered: root._speak(false) }
+    function _speak(final) {
+        const n = messagesModel.count
+        if (!n || messagesModel.get(n - 1).role !== "assistant") return
+        const text = speechText(messagesModel.get(n - 1).text)
+        if (text) character.send({ cmd: "speak", text: text, final: final, turn: _turn })
+    }
+    function speechText(md) {
+        return md
+            .replace(/```[\s\S]*?(```|$)/g, " (code in the panel) ")      // code blocks, even unfinished
+            .replace(/`([^`]*)`/g, "$1")
+            .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")                  // links and images
+            .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+[.)])\s+/gm, "")         // headings, quotes, list marks
+            .replace(/^\s*\|?[-:| ]+\|[-:| ]*$/gm, "")                     // table rules
+            .replace(/\|/g, " ")
+            .replace(/(\*\*|__|\*|_|~~)(?=\S)([\s\S]*?\S)\1/g, "$2")       // bold, italics, strikethrough
+            .replace(/\s+/g, " ")
+            .trim()
     }
 
     function _finishTurn(errorText) {
@@ -171,7 +198,10 @@ Singleton {
         busy = false; status = ""
         _save()
         idleTimer.restart()
+        speechTimer.stop()
+        if (!errorText) _speak(true)
         character.react(errorText ? "error" : "idle")
+        if (errorText) character.say(line("error"))
     }
 
     function _handle(o) {

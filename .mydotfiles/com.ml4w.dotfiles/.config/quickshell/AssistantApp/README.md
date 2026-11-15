@@ -129,6 +129,12 @@ milliseconds:
 "talkFlip": ["00", "02"], "talkFlipMs": [90, 170]
 ```
 
+Replies also appear in the character's speech bubble, typed out at a
+speaking pace a page (a sentence or two) at a time, each left up long enough
+to read, with the mouth moving while it types. Long replies stop after a few
+pages ("…the rest is in the panel"). `speechCps` sets the pace (characters per
+second, 30) and `speechPages` how many pages (4).
+
 `patBone` makes her head follow your hand while you pat: that bone (rigs
 often have a `Touch_Point`; the `ready` line lists candidates under
 `controlBones`) moves up and down with each stroke, up to `patBoneRange`

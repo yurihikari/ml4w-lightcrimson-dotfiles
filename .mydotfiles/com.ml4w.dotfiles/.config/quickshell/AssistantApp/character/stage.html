@@ -136,14 +136,14 @@ function react(kind) {
     if (!state) return;
     if (patting) return;                       // the pat owns the tracks until release
     if (dizzy) return;                         // so does being dizzy, until it wears off
-    if (kind === "idle") { stopTalkFlip(); if (!reaction) clearReactions(0.3); return; }
+    if (kind === "idle") { if (!speech.typing) stopTalkFlip(); if (!reaction) clearReactions(0.3); return; }
     if (kind === "pat") { startPat(); return; }
     if (kind === "talk" && flipFrames().length >= 2) {
-        // Mouth flap over the talk animations, if any
+        // The talk animations, if any, for the body; the mouth flap follows
+        // the speech bubble's typing (see speech below)
         cancelReaction();
         const body = pick("talk");
         if (body.length) play(body, true); else clearReactions(0.15);
-        startTalkFlip();
         return;
     }
     stopTalkFlip();
@@ -339,6 +339,8 @@ const bubble = document.getElementById("bubble");
 let bubbleTimer = 0;
 function say(text) {
     if (!text) return;
+    sayUntil = performance.now() + 1800 + text.length * 40;
+    if (speech.typing) stopTalkFlip();
     // A reaction being shown lasts as long as what she says
     if (reaction) scheduleEnd(Math.max(2000, 2200 + text.length * 55));
     bubble.textContent = text;
@@ -347,9 +349,82 @@ function say(text) {
     bubbleTimer = setTimeout(() => bubble.classList.remove("show"), 2200 + text.length * 55);
 }
 
+// The reply, spoken at her own pace: the text is split into pages of a
+// sentence or two, each typed out at a speaking pace (pauses after commas and
+// sentences) and left up long enough to read before the next. It keeps going
+// after the reply is complete, and stops after a few pages ("…the rest is in
+// the panel"). The mouth flap runs while she types. character.json:
+// speechCps (characters per second, 30), speechPages (how many, 4).
+const speech = {
+    turn: -1, text: "", final: false,
+    pages: [], page: 0, shown: 0, typing: false, timer: 0,
+};
+const PAGE = 150;
+function paginate(text, final) {
+    // Complete sentences only while the reply streams; the rest once final
+    const parts = text.match(/[^.!?。！？]+[.!?。！？]+["'”’)\]]*\s*/g) || [];
+    const used = parts.join("").length;
+    if (final && used < text.length) parts.push(text.slice(used));
+    const pages = [];
+    let cur = "";
+    for (let p of parts.map(x => x.trim()).filter(Boolean)) {
+        while (p.length > PAGE) {                      // a very long sentence: cut at a word
+            const cut = p.lastIndexOf(" ", PAGE) > 40 ? p.lastIndexOf(" ", PAGE) : PAGE;
+            if (cur) { pages.push(cur); cur = ""; }
+            pages.push(p.slice(0, cut).trim() + "…");
+            p = p.slice(cut).trim();
+        }
+        if (cur && (cur + " " + p).length > PAGE) { pages.push(cur); cur = p; }
+        else cur = cur ? cur + " " + p : p;
+    }
+    if (cur) pages.push(cur);
+    const max = cfg.speechPages || 4;
+    if (pages.length > max && final) return pages.slice(0, max).concat(["…the rest is in the panel."]);
+    return pages.slice(0, max + 1);
+}
+function speak(text, final, turn) {
+    if (turn !== speech.turn) {                        // a new reply
+        clearTimeout(speech.timer);
+        Object.assign(speech, { turn, page: 0, shown: 0, typing: false });
+    }
+    speech.text = text; speech.final = final;
+    speech.pages = paginate(text, final);
+    if (!speech.typing && speech.page < speech.pages.length && !speech.timer) typeNext();
+}
+let sayUntil = 0;                                     // a reaction line is up
+function typeNext() {
+    speech.timer = 0;
+    if (performance.now() < sayUntil) { speech.timer = setTimeout(typeNext, sayUntil - performance.now()); return; }
+    const page = speech.pages[speech.page];
+    if (page === undefined) {
+        speech.typing = false; stopTalkFlip();
+        if (speech.final) bubble.classList.remove("show");
+        return;                                       // more text will call speak() again
+    }
+    if (!speech.typing) { speech.typing = true; if (!patting && !dizzy) startTalkFlip(); }
+    bubble.classList.add("show");
+    clearTimeout(bubbleTimer);
+    speech.shown++;
+    bubble.textContent = page.slice(0, speech.shown);
+    const cps = cfg.speechCps || 30;
+    if (speech.shown < page.length) {
+        const c = page[speech.shown - 1];
+        const pause = /[.!?。！？]/.test(c) ? 260 : /[,;:、，]/.test(c) ? 130 : 0;
+        speech.timer = setTimeout(typeNext, 1000 / cps + pause);
+        return;
+    }
+    // Page done: stop the mouth, leave it up to read, then the next one
+    stopTalkFlip(); speech.typing = false;
+    speech.page++; speech.shown = 0;
+    const last = speech.final && speech.page >= speech.pages.length;
+    speech.timer = setTimeout(last ? () => { speech.timer = 0; bubble.classList.remove("show"); } : typeNext,
+                              Math.min(6000, 900 + page.length * 30));
+}
+
 window.stage = {
     command(c) {
         if (c.cmd === "say") say(c.text);
+        else if (c.cmd === "speak") speak(c.text || "", !!c.final, c.turn);
         else if (c.cmd === "react") react(c.kind);
         else if (c.cmd === "selftest") selftest(c.kind, c.seconds);
         // Preview one animation (looped, over idle) with its name in the bubble
