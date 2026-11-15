@@ -39,6 +39,7 @@ DEPENDENCIES=(
     adw-gtk-theme        # GTK 3 apps in the wallpaper's colours (adw-gtk3)
     qt6ct breeze         # Qt apps in the wallpaper's colours (palette, style)
     inotify-tools        # light / dark set in a GTK settings tool follows
+    python-gobject webkit2gtk-4.1 gtk-layer-shell  # AI assistant's animated characters
 )
 
 echo -e "\n========================================"
