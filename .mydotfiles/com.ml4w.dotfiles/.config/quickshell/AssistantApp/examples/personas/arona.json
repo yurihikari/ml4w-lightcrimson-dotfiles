@@ -42,6 +42,10 @@
             "Uwaaah... Sensei, everything is spinning...",
             "S-stop poking... Arona's head is going round and round~",
             "Too many inputs... Arona is... not responding..."
+        ],
+        "ask": [
+            "Arona needs your OK for this one, Sensei! Press Allow?",
+            "Can I go ahead? Just say the word, Sensei!"
         ]
     },
     "character": {

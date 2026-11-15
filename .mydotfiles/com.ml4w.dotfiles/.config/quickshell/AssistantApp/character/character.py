@@ -15,6 +15,8 @@ overrides the persona's settings (see the README).
 Protocol, one JSON object per line:
   stdin   {"cmd": "say", "text": "..."}       speech bubble
           {"cmd": "react", "kind": "..."}     idle | talk | tapHead | tapBody | pat | error
+          {"cmd": "place", "right": 460, "bottom": 10}   move (margins from the
+                                                       screen's right and bottom)
           {"cmd": "quit"}
   stdout  {"event": "ready", "animations": [...], "version": "4.1"}
           {"event": "tap", "region": "head" | "body"}
@@ -245,6 +247,13 @@ def main():
             if cmd.get("cmd") == "quit":
                 Gtk.main_quit()
                 return False
+            if cmd.get("cmd") == "place":  # follow the panel (it can float)
+                try:
+                    GtkLayerShell.set_margin(win, GtkLayerShell.Edge.RIGHT, max(0, int(cmd.get("right", args.right))))
+                    GtkLayerShell.set_margin(win, GtkLayerShell.Edge.BOTTOM, max(0, int(cmd.get("bottom", args.bottom))))
+                except (TypeError, ValueError):
+                    pass
+                continue
             run_js(f"window.stage && window.stage.command({json.dumps(cmd)})")
         return True
 

@@ -4,9 +4,46 @@ A chat drawer on the right side of the screen, in every theme. Open it with
 **META+SHIFT+SPACE** (or `qs ipc call assistant toggle`).
 
 It runs the [Claude Code](https://claude.com/claude-code) CLI behind the scenes,
-so `claude` must be installed and logged in. It's a chat, not an agent: the only
-tools it gets are web search and web fetch. It can't read your files or run
-commands. Each conversation is resumed after a restart; **+** starts a new one.
+so `claude` must be installed and logged in. Each conversation is resumed after
+a restart; **+** starts a new one.
+
+## What it can do
+
+Every assistant (the plain one and your own) can search the web, and look into
+and act on your computer:
+
+- **Look around:** read files and configs, read logs (`journalctl`), check
+  services, processes, disks, network, sound, Bluetooth and packages, and query
+  Hyprland. These run right away, and each one shows up in the chat as a small
+  row with the command or the file.
+- **Drive the desktop:** open, close or toggle the shell's popups and panels
+  (`qs ipc call …`, also right away). Ask "show me the quick settings" or "open
+  the wallpapers".
+- **See the screen:** when you ask it to look at or identify something, it takes
+  a screenshot of the focused monitor or window (`tools/screenshot`, saved to
+  `~/.local/state/ml4w-assistant/screen.png`) and looks at it.
+- **Change things:** editing a file or running any command that isn't on the
+  read-only list stops and asks first. The panel shows what it wants to do
+  (the command, or the file and the change) with **Allow**, **Deny** and,
+  when Claude Code suggests a rule, **Always**, which allows that kind of
+  command for the rest of the chat. The panel opens itself if it was closed.
+  `qs ipc call assistant allow` / `deny` answer from a key binding.
+- **Never:** SSH and GPG keys, password stores, browser profiles and other
+  credentials are off limits, for file reads and commands alike. `sudo` is
+  blocked (there's no terminal for the password): it gives you the command to
+  run instead.
+
+The read-only list is `safeCommands` and the off-limits paths are `privatePaths`,
+both in `services/Assistant.qml`.
+
+## Floating
+
+The float button (next to **+**) pops the panel out of the screen's edge into a
+card you drag by its header; the character follows it. It stays open while
+other popups come and go. Opening another popup while the panel is docked
+(yourself, or the assistant doing it for you) floats it instead of closing it.
+The dock button puts it back; closing it docks it again for next time.
+`qs ipc call assistant detach` / `dock` do the same.
 
 ## Modes
 
@@ -44,7 +81,8 @@ change by hand, and the panel picks up the change when you save the file:
     "lines": {
         "greet":   ["Ahoy, Captain!"],
         "tapHead": ["..."], "tapBody": ["..."], "pat": ["..."],
-        "dizzy":   ["..."], "thinking": ["..."], "error": ["..."]
+        "dizzy":   ["..."], "thinking": ["..."], "error": ["..."],
+        "ask":     ["..."]
     },
     "character": { "animations": {} }
 }
@@ -202,6 +240,11 @@ Only use character files you have the right to use.
   output once you send the first message. The process stays up for the next
   messages, and is restarted when the persona changes. The user's hooks,
   plugins and MCP servers are not loaded.
+- Its tools are `WebSearch`, `WebFetch`, `Bash`, `Read`, `Grep`, `Glob`, `Edit`
+  and `Write`. The read-only commands are passed as `--allowedTools` rules and
+  the private paths as `--disallowedTools`. With `--permission-prompt-tool
+  stdio`, anything else makes the CLI send a `can_use_tool` request on stdout,
+  which the panel answers on stdin after you click.
 - State lives in `~/.local/state/ml4w-assistant/`: `state.json` holds the mode
   and session ids, and `history.json` holds the transcripts.
 - Quickshell can't host a web view, so the character is a separate process,

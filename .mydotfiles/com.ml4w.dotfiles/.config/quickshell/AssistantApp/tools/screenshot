@@ -1,0 +1,19 @@
+#!/bin/sh
+# Screenshot for the assistant, so it can look at the screen when asked to.
+#   screenshot          the focused monitor
+#   screenshot window   the focused window
+# Saved at 1x scale (enough to read, lighter to send) over the previous one,
+# in the assistant's state folder; prints the file's path.
+set -e
+out="${XDG_STATE_HOME:-$HOME/.local/state}/ml4w-assistant/screen.png"
+mkdir -p "$(dirname "$out")"
+case "${1:-screen}" in
+    window)
+        geo=$(hyprctl -j activewindow | jq -r 'if .at then "\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])" else "" end')
+        [ -n "$geo" ] || { echo "No focused window" >&2; exit 1; }
+        grim -s 1 -g "$geo" "$out" ;;
+    *)
+        mon=$(hyprctl -j monitors | jq -r '.[] | select(.focused) | .name')
+        grim -s 1 ${mon:+-o "$mon"} "$out" ;;
+esac
+echo "$out"

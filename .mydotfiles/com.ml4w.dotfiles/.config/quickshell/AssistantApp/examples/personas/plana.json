@@ -41,6 +41,10 @@
             "Input overload. ...The room is rotating.",
             "Sensei. Please stop. My balance sensors are confused.",
             "...Too many touches. Recalibrating."
+        ],
+        "ask": [
+            "Authorization required. Please confirm, Sensei.",
+            "Awaiting your approval before proceeding."
         ]
     },
     "character": {
