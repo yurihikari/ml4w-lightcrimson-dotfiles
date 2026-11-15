@@ -142,6 +142,7 @@ Singleton {
         if (errorText) messagesModel.append({ role: "note", text: errorText, streaming: false })
         busy = false; status = ""
         _save()
+        idleTimer.restart()
         character.react(errorText ? "error" : "idle")
     }
 
@@ -172,6 +173,14 @@ Singleton {
         }
     }
 
+    // An idle CLI holds a couple hundred MB: let it go after 10 minutes without
+    // use. The next message starts it again and resumes the conversation.
+    Timer {
+        id: idleTimer
+        interval: 10 * 60 * 1000
+        onTriggered: if (!root.busy) root._kill()
+    }
+
     Process {
         id: claude
         workingDirectory: root.stateDir
@@ -183,7 +192,7 @@ Singleton {
             }
         }
         stderr: SplitParser { onRead: (l) => root._stderr = (root._stderr + l + "\n").slice(-2000) }
-        onStarted: root._flush()
+        onStarted: { root._flush(); idleTimer.restart() }
         onExited: (code) => {
             root._killing = false
             // A message sent while the old CLI was exiting: start the new one
