@@ -14,6 +14,7 @@ import "BarApp"
 import "RadialMenuApp"
 import "DisplayManagerApp"
 import "SettingsApp"
+import "AssistantApp"
 
 ShellRoot {
     // Test IPC tools: qs ipc show
@@ -47,6 +48,7 @@ ShellRoot {
     RadialMenuPopup {}
     DisplayManagerWindow { id: displayManager }
     SettingsLauncher {}
+    AssistantWindow {}
     // Variants {
     //     model: Quickshell.screens
     //     delegate: Component {

@@ -1,0 +1,536 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="/*PLAYER_JS*/"></script>
+<style>
+    html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; user-select: none; }
+    #player { position: absolute; inset: 0; }
+    /* The players' own stylesheet isn't loaded (3.8 has none on the CDN):
+       size their elements here and hide their controls */
+    #player .spine-player { position: absolute; inset: 0; width: 100%; height: 100%; }
+    #player canvas { display: block; width: 100% !important; height: 100% !important; }
+    #player .spine-player-controls, #player .spine-player-error { display: none !important; }
+    /* Takes every pointer event, so the player never pauses on a click */
+    #touch { position: absolute; inset: 0; z-index: 2; touch-action: none; }
+    #bubble {
+        position: absolute; z-index: 3; left: 50%; top: 10px;
+        max-width: 82%; padding: 9px 14px; border-radius: 14px;
+        transform: translate(-50%, -6px); opacity: 0;
+        transition: opacity .22s ease, transform .3s cubic-bezier(.2, .9, .3, 1.3);
+        background: rgba(255, 255, 255, .94); color: #1d2a44;
+        font: 600 14px/1.35 "Nunito", "Noto Sans", sans-serif;
+        box-shadow: 0 4px 18px rgba(20, 40, 90, .25); pointer-events: none; text-align: center;
+    }
+    #bubble.show { opacity: 1; transform: translate(-50%, 0); }
+    #bubble::after {
+        content: ""; position: absolute; left: 50%; bottom: -7px; margin-left: -7px;
+        border: 7px solid transparent; border-bottom: 0; border-top-color: rgba(255, 255, 255, .94);
+    }
+</style>
+</head>
+<body>
+<div id="player"></div>
+<div id="touch"></div>
+<div id="bubble"></div>
+<script>
+"use strict";
+const P = /*PARAMS*/{};
+const cfg = P.config || {};
+const post = (o) => window.webkit.messageHandlers.bridge.postMessage(JSON.stringify(o));
+window.onerror = (m) => post({ event: "error", message: String(m) });
+
+const Vec3 = spine.Vector3 || (spine.webgl && spine.webgl.Vector3);
+const Vec2 = spine.Vector2;
+
+let player = null, state = null, skeleton = null;
+let names = [];
+let headBone = null, headR = 40;
+let idleName = null;
+
+// ── Animations ──────────────────────────────────────────────────────────
+// The persona (or character.json) can name them per kind; otherwise they are
+// guessed from the skeleton's animation names. Pairs like Talk_01_A/Talk_01_M
+// (body + mouth on separate tracks) are played together.
+const GUESS = {
+    idle:    [/^idle/i, /idle/i, /^loop/i, /breath/i],
+    talk:    [/talk/i, /speak/i, /mouth/i],
+    tapHead: [/touch/i, /look/i, /react/i, /talk/i],
+    tapBody: [/touch/i, /tap/i, /react/i, /look/i, /talk/i],
+    pat:     [/pat/i, /nade/i, /stroke/i, /head/i, /touch/i],
+    error:   [/sad/i, /sorry/i, /cry/i, /shock/i, /surprise/i, /talk/i],
+    dizzy:   [/dizz/i, /faint/i, /spin/i, /confus/i, /surprise/i],
+};
+// character.json: a list of names plays together; a list of lists is a set
+// of alternatives, one picked at random each time:
+//   "pat": ["Pat_01_A", "Pat_01_M"]
+//   "tapBody": [["Look_01_A", "Look_01_M", "28"], ["Look_01_A", "Look_01_M", "29"]]
+function alternatives(value) {
+    if (!value || !value.length) return null;
+    const alts = (Array.isArray(value[0]) ? value : [value])
+        .map(a => [].concat(a).filter(n => names.includes(n))).filter(a => a.length);
+    return alts.length ? alts : null;
+}
+function configured(kind) {
+    const alts = alternatives((cfg.animations || {})[kind]);
+    return alts ? alts[Math.floor(Math.random() * alts.length)] : null;
+}
+// Pat-style animations are held gestures: never guess them for a tap.
+// "Dev_…" animations are the rig's developer variants, and "…End…" ones are
+// the way back out of a reaction (played after it, see endOf): neither starts
+// a reaction.
+const PATLIKE = /pat|nade|stroke/i;
+const DEV = /^dev[_-]/i;
+const ENDING = /end/i;
+function guess(kind) {
+    for (const re of GUESS[kind] || []) {
+        const hits = names.filter(n => re.test(n) && n !== idleName && !DEV.test(n) && !ENDING.test(n)
+            && (kind === "pat" || !PATLIKE.test(n)));
+        if (hits.length) return hits;
+    }
+    return [];
+}
+// One pick for a reaction: a random candidate plus its _A/_M partner
+function pick(kind) {
+    const chosen = configured(kind);
+    if (chosen) return chosen;                  // configured: play all together
+    const list = guess(kind);
+    if (!list.length) return [];
+    const one = list[Math.floor(Math.random() * list.length)];
+    const m = one.match(/^(.*)_([AM])$/);
+    if (m) {
+        const partner = m[1] + "_" + (m[2] === "A" ? "M" : "A");
+        if (names.includes(partner)) return [one, partner];
+    }
+    return [one];
+}
+
+function clearReactions(mix) {
+    for (let t = 1; t < 6; t++) state.setEmptyAnimation(t, mix);
+}
+// The way out of a reaction, when the rig has one: Pat_01_A -> PatEnd_01_A,
+// Look_01_M -> LookEnd_01_M (also "Pat_End_01_A")
+function endOf(n) {
+    const m = n.match(/^([A-Za-z]+)(_.*)$/);
+    if (!m) return null;
+    for (const c of [m[1] + "End" + m[2], m[1] + "_End" + m[2]]) if (names.includes(c)) return c;
+    return null;
+}
+// loop: repeat (talking). hold: stay on the last frame until told otherwise
+// (patting). Otherwise play once, then its …End animation if any, then back
+// to idle.
+function play(list, loop, hold) {
+    clearReactions(0.15);
+    list.forEach((n, i) => {
+        const e = state.setAnimation(i + 1, n, loop);
+        e.mixDuration = 0.2;
+        if (loop || hold) return;
+        const end = endOf(n);
+        if (end) state.addAnimation(i + 1, end, false, 0);
+        state.addEmptyAnimation(i + 1, 0.3, 0);
+    });
+}
+function react(kind) {
+    if (!state) return;
+    if (patting) return;                       // the pat owns the tracks until release
+    if (dizzy) return;                         // so does being dizzy, until it wears off
+    if (kind === "idle") { if (!reaction) clearReactions(0.3); return; }
+    if (kind === "pat") { startPat(); return; }
+    const list = pick(kind);
+    if (P.debug) post({ event: "played", kind, animations: list });
+    if (!list.length) return;
+    if (kind === "talk") { cancelReaction(); play(list, true); return; }
+    // Hold the reaction's pose while she speaks (say() extends it to the
+    // bubble's time), then play its …End animation back to idle. Rigs whose
+    // reactions are full one-shots still play to their end.
+    play(list, false, true);
+    reaction = list;
+    const longest = Math.max(...list.map(n => {
+        const a = skeleton.data.findAnimation(n); return a ? a.duration * 1000 : 0;
+    }));
+    scheduleEnd(Math.max(2000, longest));
+}
+
+let reaction = null, reactionTimer = 0;
+function scheduleEnd(ms) {
+    clearTimeout(reactionTimer);
+    reactionTimer = setTimeout(endReaction, ms);
+}
+function cancelReaction() { clearTimeout(reactionTimer); reaction = null; }
+function endReaction() {
+    const list = reaction;
+    reaction = null;
+    if (!list || patting) return;
+    if (P.debug) post({ event: "played", kind: "end", animations: list.map(endOf).filter(Boolean) });
+    list.forEach((n, i) => {
+        const end = endOf(n);
+        if (end) { state.setAnimation(i + 1, end, false).mixDuration = 0.2; state.addEmptyAnimation(i + 1, 0.3, 0); }
+        else state.setEmptyAnimation(i + 1, 0.3);
+    });
+}
+
+// Patting is held: the pat animation starts as soon as a pat is recognised,
+// loops while the strokes go on, and eases back to idle on release (through a
+// "…end…" animation when the rig has one).
+let patting = false, patList = [];
+// Pat phases: the longer the pat goes on, the further her expression moves
+// along "patPhases" (one entry every "patPhaseSeconds", default 3). Played on
+// tracks above the pat itself, so they win on the face. A pat resumed within
+// 3 s of the last one carries on where it was.
+let phases = [];   // set once the skeleton is loaded (needs its animation names)
+let phase = 0, phaseTimer = 0, lastPatEnd = 0;
+function showPhase() {
+    const list = phases[phase];
+    if (!list) return;
+    if (P.debug) post({ event: "played", kind: "patPhase", phase: phase + 1, animations: list });
+    list.forEach((n, i) => { state.setAnimation(patList.length + 1 + i, n, false).mixDuration = 0.25; });
+}
+function startPat() {
+    if (patting || !state) return;
+    if (dizzy) endDizzy();                     // a pat calms her down
+    cancelReaction();
+    patList = pick("pat");
+    if (P.debug) post({ event: "played", kind: "pat", animations: patList });
+    if (!patList.length && !phases.length) return;
+    patting = true;
+    // Held on its last frame (rigs like this one pose the head under the
+    // hand and stay there); "patLoop": true in character.json loops it instead
+    play(patList, !!cfg.patLoop, !cfg.patLoop);
+    if (performance.now() - lastPatEnd > 3000) phase = 0;
+    showPhase();
+    clearInterval(phaseTimer);
+    phaseTimer = setInterval(() => {
+        if (phase < phases.length - 1) { phase++; showPhase(); }
+    }, (cfg.patPhaseSeconds || 3) * 1000);
+}
+function stopPat() {
+    if (!patting) return;
+    patting = false;
+    clearInterval(phaseTimer);
+    lastPatEnd = performance.now();
+    const ends = (configured("patEnd") || patList.map(endOf)).filter(Boolean);
+    if (P.debug) post({ event: "played", kind: "patEnd", animations: ends });
+    clearReactions(0.15);
+    ends.forEach((n, i) => {
+        state.setAnimation(i + 1, n, false).mixDuration = 0.2;
+        state.addEmptyAnimation(i + 1, 0.3, 0);
+    });
+    if (!ends.length) clearReactions(0.35);
+}
+
+// Clicked too often too fast: she gets dizzy (the "dizzy" animations, looped)
+// for a few seconds and ignores clicks meanwhile. character.json: dizzyClicks
+// (default 6) within dizzyWindow seconds (3), dizzySeconds (5).
+let dizzy = false, dizzyTimer = 0, clicks = [];
+function countClick() {
+    const now = performance.now();
+    if (dizzy) return true;                    // swallowed while dizzy
+    clicks = clicks.filter(t => now - t < (cfg.dizzyWindow || 3) * 1000);
+    clicks.push(now);
+    if (clicks.length < (cfg.dizzyClicks || 6)) return false;
+    startDizzy();
+    return true;
+}
+function startDizzy() {
+    cancelReaction();
+    dizzy = true; clicks = [];
+    const list = pick("dizzy");
+    if (P.debug) post({ event: "played", kind: "dizzy", animations: list });
+    if (list.length) play(list, true);
+    post({ event: "dizzy" });
+    clearTimeout(dizzyTimer);
+    dizzyTimer = setTimeout(endDizzy, (cfg.dizzySeconds || 5) * 1000);
+}
+function endDizzy() {
+    if (!dizzy) return;
+    dizzy = false; clicks = [];
+    clearTimeout(dizzyTimer);
+    if (P.debug) post({ event: "played", kind: "dizzyEnd", animations: [] });
+    clearReactions(0.5);
+}
+
+// ── Speech bubble ───────────────────────────────────────────────────────
+const bubble = document.getElementById("bubble");
+let bubbleTimer = 0;
+function say(text) {
+    if (!text) return;
+    // A reaction being shown lasts as long as what she says
+    if (reaction) scheduleEnd(Math.max(2000, 2200 + text.length * 55));
+    bubble.textContent = text;
+    bubble.classList.add("show");
+    clearTimeout(bubbleTimer);
+    bubbleTimer = setTimeout(() => bubble.classList.remove("show"), 2200 + text.length * 55);
+}
+
+window.stage = {
+    command(c) {
+        if (c.cmd === "say") say(c.text);
+        else if (c.cmd === "react") react(c.kind);
+        else if (c.cmd === "selftest") selftest(c.kind);
+        // Preview one animation (looped, over idle) with its name in the bubble
+        else if (c.cmd === "preview" && state) {
+            cancelReaction(); patting = false;
+            const list = [].concat(c.name).filter(n => names.includes(n));
+            if (list.length) { play(list, true); say(list.join(" + ")); }
+            else say("No animation " + c.name);
+        }
+        else if (c.cmd === "debug") {
+            const cv = player && player.canvas, cam = player && player.sceneRenderer.camera;
+            post({ event: "debug", paused: player && player.paused, visible: player && player.visible,
+                   canvas: cv ? [cv.width, cv.height, cv.clientWidth, cv.clientHeight] : null,
+                   cam: cam ? [cam.viewportWidth, cam.viewportHeight, cam.zoom, cam.position.x, cam.position.y] : null,
+                   bounds, headR, head: headBone ? [headBone.worldX, headBone.worldY] : null,
+                   dpr: window.devicePixelRatio, keys: player ? Object.keys(player).slice(0, 40) : null });
+        }
+    }
+};
+
+// Debug: fake a tap on the head/body or a pat, through the real touch code
+function headOnScreen() {
+    // World to page coordinates, from two screenToWorld points (the 3.8
+    // camera has no worldToScreen; the mapping is linear anyway)
+    const r = player.canvas.getBoundingClientRect();
+    const a = toWorld({ clientX: r.left, clientY: r.top });
+    const b = toWorld({ clientX: r.right, clientY: r.bottom });
+    const hb = headBox();
+    const wx = (hb.x0 + hb.x1) / 2, wy = (hb.y0 + hb.y1) / 2;
+    return { x: r.left + (wx - a.x) / (b.x - a.x) * r.width,
+             y: r.top + (wy - a.y) / (b.y - a.y) * r.height };
+}
+function selftest(kind) {
+    if (!player || !headBone) return post({ event: "error", message: "selftest: not ready or no head bone" });
+    const h = headOnScreen();
+    const yHead = h.y;
+    const ev = (type, x, y) => touch.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, pointerId: 1, button: 0, bubbles: true, cancelable: true }));
+    if (kind === "body") {
+        const r = player.canvas.getBoundingClientRect();
+        const x = r.left + r.width / 2, y = r.top + r.height * 0.8;
+        ev("pointerdown", x, y); ev("pointerup", x, y);
+    } else if (kind === "spam") {
+        for (let i = 0; i < 8; i++) { ev("pointerdown", h.x, yHead + 80); ev("pointerup", h.x, yHead + 80); }
+    } else if (kind === "longpat") {
+        ev("pointerdown", h.x, yHead);
+        let i = 0;
+        const t = setInterval(() => {
+            ev("pointermove", h.x + (i++ % 2 ? -20 : 20), yHead);
+            if (i > 40) { clearInterval(t); ev("pointerup", h.x, yHead); }
+        }, 200);
+    } else if (kind === "pat") {
+        ev("pointerdown", h.x, yHead);
+        for (let i = 0; i < 6; i++) { ev("pointermove", h.x + 20, yHead); ev("pointermove", h.x - 20, yHead); }
+        ev("pointerup", h.x, yHead);
+    } else {
+        ev("pointerdown", h.x, yHead); ev("pointerup", h.x, yHead);
+    }
+    post({ event: "selftest", kind, x: Math.round(h.x), y: Math.round(yHead) });
+}
+
+// ── Touch: tap the head or body, pat the head ───────────────────────────
+const touch = document.getElementById("touch");
+function toWorld(ev) {
+    const r = player.canvas.getBoundingClientRect();
+    const v = new Vec3(ev.clientX - r.left, ev.clientY - r.top, 0);
+    player.sceneRenderer.camera.screenToWorld(v, r.width, r.height);
+    return v;
+}
+// The head: the box around everything attached to the head bone and its
+// children (face, hair, accessories), from the current pose, so it follows
+// the animation. Falls back to a circle around the bone when nothing hangs
+// off it. headRadius (a fraction of the height) pads the box.
+const IS_38 = String(P.version).startsWith("3");
+function headSubtree(bone) {
+    for (let b = bone; b; b = b.parent) if (b === headBone) return true;
+    return false;
+}
+let verts = new Float32Array(2048);
+function headBox() {
+    if (!headBone) return null;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const slot of skeleton.slots) {
+        const att = slot.getAttachment && slot.getAttachment();
+        if (!att || !headSubtree(slot.bone) || slot.color.a === 0) continue;
+        let n = 0;
+        try {
+            if (att.worldVerticesLength !== undefined && att.worldVerticesLength > 0) {
+                n = att.worldVerticesLength;
+                if (verts.length < n) verts = new Float32Array(n * 2);
+                att.computeWorldVertices(slot, 0, n, verts, 0, 2);
+            } else if (att.offset !== undefined) {           // region attachment
+                n = 8;
+                att.computeWorldVertices(IS_38 ? slot.bone : slot, verts, 0, 2);
+            } else continue;
+        } catch (e) { continue; }
+        for (let i = 0; i < n; i += 2) {
+            x0 = Math.min(x0, verts[i]); x1 = Math.max(x1, verts[i]);
+            y0 = Math.min(y0, verts[i + 1]); y1 = Math.max(y1, verts[i + 1]);
+        }
+    }
+    const pad = headR * 0.25;
+    if (x0 === Infinity)                                     // nothing attached: circle
+        return { x0: headBone.worldX - headR * 1.5, x1: headBone.worldX + headR * 1.5,
+                 y0: headBone.worldY - headR * 0.9, y1: headBone.worldY + headR * 2.1 };
+    // Long hair hanging below the shoulders isn't the head: keep the top part
+    const h = Math.min(y1 - y0, headR * 4);
+    return { x0: x0 - pad, x1: x1 + pad, y0: y1 - h - pad, y1: y1 + pad };
+}
+function inHead(w) {
+    const b = headBox();
+    return !!b && w.x >= b.x0 && w.x <= b.x1 && w.y >= b.y0 && w.y <= b.y1;
+}
+let bounds = null;
+function inBody(w) {
+    return bounds && w.x >= bounds.x && w.x <= bounds.x + bounds.w && w.y >= bounds.y && w.y <= bounds.y + bounds.h;
+}
+const dbg = (o) => { if (P.debug) post(Object.assign({ event: "touch" }, o)); };
+
+// A real mouse drag would start a native drag or a text selection, and WebKit
+// then cancels the pointer stream mid-gesture: block those.
+for (const t of ["dragstart", "selectstart", "contextmenu"])
+    touch.addEventListener(t, (ev) => ev.preventDefault());
+
+let drag = null, lastPat = 0;
+touch.addEventListener("pointermove", (ev) => {
+    if (!player) return;
+    const w = toWorld(ev);
+    if (!drag) { touch.style.cursor = inHead(w) ? "grab" : inBody(w) ? "pointer" : "default"; return; }
+    ev.preventDefault();
+    const dx = ev.clientX - drag.lastX;
+    drag.lastX = ev.clientX;
+    drag.travel += Math.abs(dx) + Math.abs(ev.clientY - drag.lastY);
+    drag.lastY = ev.clientY;
+    // Strokes count while on the head, wherever the press started
+    if (Math.abs(dx) < 1 || !(drag.head || inHead(w))) return;
+    // Count the strokes: a change of direction after at least 8px one way
+    const dir = Math.sign(dx);
+    if (dir === drag.dir) drag.seg += Math.abs(dx);
+    else {
+        if (drag.seg > 8) { drag.turns++; dbg({ phase: "stroke", turns: drag.turns, travel: Math.round(drag.travel) }); }
+        drag.dir = dir; drag.seg = Math.abs(dx);
+    }
+    // Back and forth over the head a couple of times: a pat (at most every 2.5 s)
+    if (drag.turns >= 2 && drag.travel > 40 && performance.now() - lastPat > 2500) {
+        lastPat = performance.now();
+        drag.patted = true; drag.turns = 0;
+        startPat();
+        post({ event: "pat" });
+    }
+});
+touch.addEventListener("pointerdown", (ev) => {
+    if (!player || ev.button !== 0) return;
+    ev.preventDefault();
+    try { touch.setPointerCapture(ev.pointerId); } catch (e) {}
+    const w = toWorld(ev);
+    drag = { head: inHead(w), body: inBody(w), lastX: ev.clientX, lastY: ev.clientY,
+             travel: 0, dir: 0, seg: 0, turns: 0, patted: false };
+    const b = headBox();
+    dbg({ phase: "down", x: Math.round(w.x), y: Math.round(w.y), head: drag.head, body: drag.body,
+          headBox: b && [b.x0, b.y0, b.x1, b.y1].map(Math.round) });
+    if (drag.head) touch.style.cursor = "grabbing";
+});
+function endDrag(ev) {
+    if (!drag) return;
+    dbg({ phase: ev.type, travel: Math.round(drag.travel), turns: drag.turns, patted: drag.patted });
+    if (ev.type === "pointerup" && !drag.patted && drag.travel < 8 && (drag.head || drag.body)
+        && !countClick())
+        post({ event: "tap", region: drag.head ? "head" : "body" });
+    if (drag.patted) stopPat();
+    drag = null;
+    touch.style.cursor = "default";
+}
+touch.addEventListener("pointerup", endDrag);
+touch.addEventListener("pointercancel", endDrag);
+
+// ── Player ──────────────────────────────────────────────────────────────
+const conf = {
+    atlasUrl: P.atlas,
+    alpha: true,
+    backgroundColor: "#00000000",
+    showControls: false,
+    showLoading: false,
+    preserveDrawingBuffer: false,
+    viewport: { padLeft: "4%", padRight: "4%", padTop: "14%", padBottom: "0%" },
+    success: (p) => {
+        player = p;
+        state = p.animationState;
+        skeleton = p.skeleton;
+        names = skeleton.data.animations.map(a => a.name);
+        idleName = (configured("idle") || [])[0] || (guess("idle")[0]) || names[0] || null;
+        phases = alternatives(cfg.patPhases) || [];
+        // Through the player, so it frames the camera on that animation (3.8
+        // also only advances time while config.animation is set)
+        if (idleName) { p.config.animation = idleName; p.setAnimation(idleName, true); }
+        // Without controls the player waits paused for a click
+        if (p.play) p.play();
+
+        // Where the head is, and roughly how big (from the setup pose bounds)
+        const bones = skeleton.bones;
+        headBone = (cfg.headBone && skeleton.findBone(cfg.headBone))
+            || bones.find(b => /(^|[^a-z])head$/i.test(b.data.name))
+            || bones.find(b => /head/i.test(b.data.name) && !/band|phone|set|wear/i.test(b.data.name))
+            || null;
+        skeleton.updateWorldTransform && skeleton.updateWorldTransform(spine.Physics ? spine.Physics.update : undefined);
+        const off = new Vec2(), size = new Vec2();
+        skeleton.getBounds(off, size, []);
+        bounds = { x: off.x, y: off.y, w: size.x, h: size.y };
+        headR = (cfg.headRadius || 0.08) * size.y;
+
+        const picks = {};
+        for (const k of Object.keys(GUESS)) picks[k] = alternatives((cfg.animations || {})[k]) || guess(k);
+        if (phases.length) picks.patPhases = phases;
+        picks.idle = idleName ? [idleName] : [];
+        post({ event: "ready", animations: names, picks, version: P.version, premultipliedAlpha: conf.premultipliedAlpha,
+               headBone: headBone ? headBone.data.name : null });
+    },
+    error: (_p, msg) => post({ event: "error", message: String(msg) }),
+};
+if (P.binary) conf.skelUrl = P.skeleton; else conf.jsonUrl = P.skeleton;
+if (cfg.skin) conf.skin = cfg.skin;
+
+// The page is see-through, so the canvas's alpha channel must be right. The
+// 3.8 renderer blends colour and alpha with one blendFunc, which makes every
+// overlap *more* transparent (alpha = a² + dst·(1-a)): the desktop shows
+// through the character and edges glow. Blend alpha like the 4.x renderer
+// does (source ONE), keeping the colour blending each slot asks for.
+for (const C of [window.WebGLRenderingContext, window.WebGL2RenderingContext]) {
+    if (!C) continue;
+    const separate = C.prototype.blendFuncSeparate;
+    C.prototype.blendFunc = function (src, dst) { separate.call(this, src, dst, this.ONE, dst); };
+}
+
+// Whether the textures are premultiplied: character.json, else the atlas's
+// "pma:" line, else look at the first texture (in a premultiplied image no
+// colour channel exceeds the alpha; in a straight one, soft edges do).
+async function texturesArePremultiplied() {
+    if (cfg.premultipliedAlpha !== undefined) return !!cfg.premultipliedAlpha;
+    if (P.atlasPma !== null && P.atlasPma !== undefined) return P.atlasPma;
+    if (!P.texture) return false;
+    try {
+        const blob = await (await fetch(P.texture)).blob();
+        const bmp = await createImageBitmap(blob, { premultiplyAlpha: "none", colorSpaceConversion: "none" });
+        const c = document.createElement("canvas");
+        c.width = bmp.width; c.height = bmp.height;
+        const g = c.getContext("2d", { willReadFrequently: true });
+        g.drawImage(bmp, 0, 0);
+        const d = g.getImageData(0, 0, c.width, c.height).data;
+        let soft = 0, over = 0;
+        for (let i = 0; i < d.length; i += 4 * 7) {
+            const a = d[i + 3];
+            if (a < 16 || a > 240) continue;
+            soft++;
+            if (Math.max(d[i], d[i + 1], d[i + 2]) > a + 12) over++;
+        }
+        return soft > 0 && over / soft < 0.02;
+    } catch (e) {
+        return false;
+    }
+}
+
+texturesArePremultiplied().then((pma) => {
+    conf.premultipliedAlpha = pma;
+    const instance = new spine.SpinePlayer("player", conf);
+    // 3.8 ignores showLoading and always draws its logo while loading
+    if (instance.loadingScreen) instance.loadingScreen.draw = () => {};
+});
+</script>
+</body>
+</html>

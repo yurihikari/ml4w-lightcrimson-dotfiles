@@ -1,2 +1,4 @@
 .qodo/
 backups/
+# Python bytecode (AssistantApp/character)
+__pycache__/
