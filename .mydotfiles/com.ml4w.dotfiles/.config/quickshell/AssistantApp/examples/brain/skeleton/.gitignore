@@ -1,0 +1,4 @@
+.cache/
+*.tmp
+__pycache__/
+.obsidian/workspace*.json

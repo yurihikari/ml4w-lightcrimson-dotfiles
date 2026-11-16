@@ -1,0 +1,318 @@
+#!/usr/bin/env python3
+"""A second brain shared by assistants: the glue between ~/brain and the assistants.
+
+Commands:
+  context <assistant>        print the brain context for an assistant's prompt
+  log <assistant> <json>     append one exchange to conversations/<assistant>/<today>.md
+                             json: {"name": ..., "user": ..., "assistant": ..., "tools": [...]}
+                             (read from stdin when the json argument is missing)
+  brief                      overdue, today's and upcoming tasks, inbox count
+  index                      rebuild blueprints/_index.md from each BLUEPRINT.md
+  digest [YYYY-MM-DD]        summarize a day's conversations into memory/daily/ (runs claude).
+                             Without a date: every day of the last week whose logs
+                             changed since its digest was written.
+  import-history [file]      copy the panel's saved transcripts into conversations/
+  commit [message]           git add + commit everything in ~/brain
+"""
+from __future__ import annotations
+
+import datetime as dt
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+BRAIN = Path(os.environ.get("BRAIN_DIR") or Path.home() / "brain")
+CONV = BRAIN / "conversations"
+DAILY = BRAIN / "memory" / "daily"
+BLUEPRINTS = BRAIN / "blueprints"
+PROFILE = BRAIN / "memory" / "profile.md"
+
+TASK_RE = re.compile(r"^\s*[-*] \[( |x|X|/|-)\] (.+)$")
+DUE_RE = re.compile(r"📅\s*(\d{4}-\d{2}-\d{2})")
+PRIORITY = {"🔺": 0, "⏫": 1, "🔼": 2, "🔽": 4, "⏬": 5}   # no marker = 3
+
+
+def now() -> dt.datetime:
+    return dt.datetime.now()
+
+
+def slug(s: str) -> str:
+    return re.sub(r"[^a-z0-9-]+", "-", (s or "").lower()).strip("-") or "assistant"
+
+
+def read(path: Path, limit: int | None = None) -> str:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    return text if limit is None or len(text) <= limit else text[:limit] + "\n…(cut)"
+
+
+def user_name() -> str:
+    """How the logs and digests name the user: the "- Called: …" line of the profile."""
+    m = re.search(r"^- Called:[ \t]*(\S.*?)\s*$", read(PROFILE), re.M)
+    return m.group(1) if m else "User"
+
+
+def tail(text: str, limit: int) -> str:
+    return text if len(text) <= limit else "…(earlier part cut)\n" + text[-limit:]
+
+
+# ── Tasks ────────────────────────────────────────────────────────────────────
+def open_tasks() -> list[dict]:
+    out = []
+    for line in read(BRAIN / "tasks.md").splitlines():
+        m = TASK_RE.match(line)
+        if not m or m.group(1) not in " /":        # open or in progress
+            continue
+        text = m.group(2).strip()
+        due = None
+        if d := DUE_RE.search(text):
+            try:
+                due = dt.date.fromisoformat(d.group(1))
+            except ValueError:
+                pass
+        prio = min((v for k, v in PRIORITY.items() if k in text), default=3)
+        out.append({"text": text, "due": due, "prio": prio})
+    return out
+
+
+def brief() -> str:
+    today = dt.date.today()
+    tasks = open_tasks()
+
+    def key(t):
+        return (t["due"] or dt.date.max, t["prio"])
+
+    groups = (
+        ("Overdue", [t for t in tasks if t["due"] and t["due"] < today]),
+        ("Due today", [t for t in tasks if t["due"] == today]),
+        ("Due within 7 days", [t for t in tasks if t["due"] and today < t["due"] <= today + dt.timedelta(days=7)]),
+        ("High priority, no date", [t for t in tasks if not t["due"] and t["prio"] <= 1]),
+    )
+    inbox = sum(1 for line in read(BRAIN / "inbox.md").splitlines() if line.startswith("- "))
+    lines = [f"Now: {now():%A %Y-%m-%d %H:%M}. Open tasks: {len(tasks)}. Inbox items to sort: {inbox}."]
+    for title, group in groups:
+        if not group:
+            continue
+        group.sort(key=key)
+        lines.append(f"\n{title}:")
+        lines += [f"- {t['text']}" for t in group[:15]]
+        if len(group) > 15:
+            lines.append(f"- …and {len(group) - 15} more")
+    return "\n".join(lines)
+
+
+# ── Blueprints ───────────────────────────────────────────────────────────────
+def frontmatter(text: str) -> dict:
+    m = re.match(r"^---\n(.*?)\n---", text, re.S)
+    data: dict[str, str] = {}
+    key = None
+    if not m:
+        return data
+    for line in m.group(1).splitlines():
+        if re.match(r"^[\w-]+:", line):
+            key, _, val = line.partition(":")
+            key = key.strip()
+            data[key] = val.strip()
+        elif key and line.startswith((" ", "\t")):
+            data[key] += " " + line.strip()
+    return data
+
+
+def index() -> str:
+    rows = []
+    for f in sorted(BLUEPRINTS.glob("*/BLUEPRINT.md")):
+        meta = frontmatter(read(f))
+        name = meta.get("name") or f.parent.name
+        rows.append(f"- **{name}** (`blueprints/{f.parent.name}/BLUEPRINT.md`): {meta.get('description', '')}")
+    text = ("# Blueprints\n\nGenerated by `tools/brain.py index`; don't edit by hand. "
+            "Read a blueprint's BLUEPRINT.md before using it.\n\n" + "\n".join(rows) + "\n")
+    try:
+        if read(BLUEPRINTS / "_index.md") != text:
+            (BLUEPRINTS / "_index.md").write_text(text, encoding="utf-8")
+    except OSError:
+        pass
+    return "\n".join(rows)
+
+
+# ── Context for an assistant's prompt ───────────────────────────────────────
+def strip_title(text: str) -> str:
+    return re.sub(r"\A# .*\n+", "", text.strip())
+
+
+def context(assistant: str) -> str:
+    today = dt.date.today()
+    parts = [
+        f"# Brain context (generated {now():%Y-%m-%d %H:%M}, for {assistant})",
+        "## Protocol (~/brain/BRAIN.md)\n" + read(BRAIN / "BRAIN.md", 14000),
+        f"## Profile of {user_name()}, the user (memory/profile.md)\n" + (read(PROFILE, 6000) or "(empty)"),
+        "## Today's brief\n" + brief(),
+        "## Blueprints available\n" + (index() or "(none yet)"),
+    ]
+
+    digests, budget = [], 9000
+    for i in range(8):
+        if budget <= 0:
+            break
+        day = today - dt.timedelta(days=i)
+        text = strip_title(read(DAILY / f"{day}.md"))
+        if not text:
+            continue
+        text = text[:min(2000, budget)]
+        budget -= len(text)
+        digests.append(f"### {day:%A %Y-%m-%d}\n{text}")
+    parts.append("## Recent days (nightly digests, newest first)\n" + ("\n\n".join(digests) or "(no digests yet)"))
+
+    # Raw conversations not covered by a digest yet: today, and yesterday if needed
+    yesterday = today - dt.timedelta(days=1)
+    days = [today] if (DAILY / f"{yesterday}.md").exists() else [yesterday, today]
+    files = [f for day in days for f in sorted(CONV.glob(f"*/{day}.md"))]
+    recent = []
+    if files:
+        per_file = max(1500, 10000 // len(files))
+        for f in files:
+            recent.append(f"### {f.parent.name}, {f.stem}\n" + tail(strip_title(read(f)), per_file))
+    parts.append("## Recent conversations with all assistants (latest part of each)\n"
+                 + ("\n\n".join(recent) or "(none)"))
+    return "\n\n".join(parts) + "\n"
+
+
+# ── Conversation logs ────────────────────────────────────────────────────────
+def log(assistant: str, payload: str) -> None:
+    d = json.loads(payload)
+    user = (d.get("user") or "").strip()
+    if not user:
+        return
+    t = now()
+    f = CONV / slug(assistant) / f"{t:%Y-%m-%d}.md"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    name = d.get("name") or assistant.capitalize()
+    out = [] if f.exists() else [f"# {name}, {t:%A %Y-%m-%d}\n"]
+    out.append(f"## {t:%H:%M}\n")
+    out.append(f"**{user_name()}:** {user}\n")
+    tools = [str(x).replace("`", "'")[:200] for x in (d.get("tools") or [])[:40]]
+    if tools:
+        out.append("<details><summary>tools used</summary>\n\n" + "\n".join(f"- `{x}`" for x in tools) + "\n\n</details>\n")
+    out.append(f"**{name}:** {(d.get('assistant') or '').strip()}\n")
+    with f.open("a", encoding="utf-8") as fh:
+        fh.write("\n".join(out) + "\n")
+
+
+def import_history(path: str | None) -> None:
+    p = Path(path) if path else Path.home() / ".local/state/ml4w-assistant/history.json"
+    data = json.loads(read(p) or "{}")
+    today = dt.date.today()
+    who = user_name()
+    marker = "## Imported from the panel's saved history"
+    for assistant, msgs in data.items():
+        name = assistant.capitalize()
+        lines = []
+        for m in msgs or []:
+            role, text = m.get("role", ""), (m.get("text") or "").strip()
+            if role == "user":
+                lines.append(f"**{who}:** {text}\n")
+            elif role == "assistant":
+                lines.append(f"**{name}:** {text}\n")
+            elif role.startswith("tool:"):
+                lines.append(f"- tool {role[5:]}: `{text[:200].replace('`', chr(39))}`\n")
+        if not lines:
+            continue
+        f = CONV / slug(assistant) / f"{today}.md"
+        if marker in read(f):
+            continue
+        f.parent.mkdir(parents=True, exist_ok=True)
+        header = "" if f.exists() else f"# {name}, {today:%A %Y-%m-%d}\n\n"
+        with f.open("a", encoding="utf-8") as fh:
+            fh.write(header + marker + " (earlier sessions, exact dates unknown)\n\n" + "\n".join(lines) + "\n")
+        print(f"imported {len(msgs)} messages for {assistant}")
+
+
+# ── Nightly digest ───────────────────────────────────────────────────────────
+DIGEST_PROMPT = """You maintain the memory of {user}'s second brain. Below are the conversations \
+{user} had with the assistants on {day}. Write a digest in Markdown, in the language {user} mostly \
+used that day. Concise and factual, no greeting, no preamble. Use these sections and omit empty ones:
+
+## Summary
+3 to 6 bullets.
+## Decisions
+## Open threads
+Things promised, waiting on someone, unresolved problems.
+## Tasks mentioned
+As `- [ ] text 📅 YYYY-MM-DD` lines (date only when one was given). Skip tasks that were clearly done.
+## Clients and contacts
+`Name: what happened`.
+## About {user}
+Lasting preferences or facts worth adding to the profile.
+
+Do not invent anything. Stay under 400 words.
+
+"""
+
+
+def digest_day(day: dt.date) -> bool:
+    logs = sorted(CONV.glob(f"*/{day}.md"))
+    if not logs:
+        return False
+    target = DAILY / f"{day}.md"
+    if target.exists() and target.stat().st_mtime >= max(f.stat().st_mtime for f in logs):
+        return False
+    body = tail("\n\n".join(f"=== conversation with {f.parent.name} ===\n{read(f)}" for f in logs), 150_000)
+    try:
+        r = subprocess.run(
+            ["claude", "-p", "--output-format", "text", "--tools", "", "--setting-sources", "",
+             "--strict-mcp-config", "--no-session-persistence", "--model", "sonnet"],
+            input=DIGEST_PROMPT.format(day=day, user=user_name()) + body, capture_output=True, text=True,
+            timeout=900, cwd=BRAIN)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"digest {day}: {e}", file=sys.stderr)
+        return False
+    if r.returncode != 0 or not r.stdout.strip():
+        print(f"digest {day}: claude failed: {r.stderr.strip()[-500:]}", file=sys.stderr)
+        return False
+    DAILY.mkdir(parents=True, exist_ok=True)
+    target.write_text(f"# {day:%A %Y-%m-%d}\n\n{r.stdout.strip()}\n", encoding="utf-8")
+    return True
+
+
+# ── Git ──────────────────────────────────────────────────────────────────────
+def commit(message: str) -> None:
+    git = ["git", "-C", str(BRAIN)]
+    subprocess.run(git + ["add", "-A"], capture_output=True)
+    r = subprocess.run(git + ["commit", "-qm", message], capture_output=True, text=True)
+    out = (r.stdout + r.stderr).strip()
+    print("committed" if r.returncode == 0 else (out or "nothing to commit"))
+
+
+def main(argv: list[str]) -> int:
+    cmd, args = (argv[1] if len(argv) > 1 else "brief"), argv[2:]
+    if cmd == "context":
+        print(context(args[0] if args else "assistant"))
+    elif cmd == "log":
+        log(args[0] if args else "assistant", args[1] if len(args) > 1 else sys.stdin.read())
+    elif cmd == "brief":
+        print(brief())
+    elif cmd == "index":
+        print(index())
+    elif cmd == "digest":
+        today = dt.date.today()
+        days = [dt.date.fromisoformat(args[0])] if args else [today - dt.timedelta(days=i) for i in range(7, -1, -1)]
+        done = [d for d in days if digest_day(d)]
+        print("digested: " + (", ".join(map(str, done)) or "nothing new"))
+        if done:
+            commit("digest: " + ", ".join(map(str, done)))
+    elif cmd == "import-history":
+        import_history(args[0] if args else None)
+    elif cmd == "commit":
+        commit(" ".join(args) or "brain: update")
+    else:
+        print(__doc__)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

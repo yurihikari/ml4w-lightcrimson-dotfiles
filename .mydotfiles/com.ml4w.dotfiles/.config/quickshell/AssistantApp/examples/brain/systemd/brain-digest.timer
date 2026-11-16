@@ -1,0 +1,10 @@
+[Unit]
+Description=Brain: nightly digest of the assistants' conversations
+
+[Timer]
+OnCalendar=*-*-* 23:30
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

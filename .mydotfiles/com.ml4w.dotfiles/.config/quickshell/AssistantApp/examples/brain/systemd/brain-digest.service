@@ -1,0 +1,7 @@
+[Unit]
+Description=Brain: summarize the assistants' conversations into daily digests
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I %h/brain/tools/brain.py digest
+TimeoutStartSec=30min
