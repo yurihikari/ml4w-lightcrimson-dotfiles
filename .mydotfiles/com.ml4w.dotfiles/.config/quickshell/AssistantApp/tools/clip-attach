@@ -1,0 +1,25 @@
+#!/bin/sh
+# What Ctrl+V in the assistant's input attaches. Prints one "file <path>" line
+# per attachment: the files copied in a file manager, or a copied image (a
+# screenshot…) saved in the folder given as $1. Prints nothing when the
+# clipboard holds text: the input then pastes it as usual.
+dir="$1"
+types=$(wl-paste --list-types 2>/dev/null) || exit 0
+
+# Files copied in a file manager
+if printf '%s\n' "$types" | grep -qx 'text/uri-list'; then
+    wl-paste --no-newline --type text/uri-list | tr -d '\r' | grep '^file://' |
+        python3 -I -c 'import sys, urllib.parse
+for u in sys.stdin.read().split():
+    print("file " + urllib.parse.unquote(u[len("file://"):]))'
+    exit 0
+fi
+
+# An image, unless there's text too (apps that copy text often add a picture of it)
+printf '%s\n' "$types" | grep -qE '^(text/plain|UTF8_STRING|STRING)' && exit 0
+img=$(printf '%s\n' "$types" | grep -m1 -E '^image/(png|jpeg|webp|gif)$')
+[ -n "$img" ] || exit 0
+mkdir -p "$dir"
+ext=${img#image/}; [ "$ext" = jpeg ] && ext=jpg
+f="$dir/pasted-$(date +%Y%m%d-%H%M%S).$ext"
+wl-paste --type "$img" > "$f" && [ -s "$f" ] && echo "file $f"

@@ -15,8 +15,10 @@ overrides the persona's settings (see the README).
 Protocol, one JSON object per line:
   stdin   {"cmd": "say", "text": "..."}       speech bubble
           {"cmd": "react", "kind": "..."}     idle | talk | tapHead | tapBody | pat | error
-          {"cmd": "place", "right": 460, "bottom": 10}   move (margins from the
-                                                       screen's right and bottom)
+          {"cmd": "place", "right": 460, "bottom": 10,   move (margins from the
+           "screenX": 0, "screenY": 0}                 screen's right and bottom;
+                                                       the monitor whose top-left
+                                                       is at screenX, screenY)
           {"cmd": "quit"}
   stdout  {"event": "ready", "animations": [...], "version": "4.1"}
           {"event": "tap", "region": "head" | "body"}
@@ -152,6 +154,8 @@ def main():
     ap.add_argument("--config", default="{}", help="the persona's character settings (JSON)")
     ap.add_argument("--right", type=int, default=460, help="distance from the screen's right edge")
     ap.add_argument("--bottom", type=int, default=10)
+    ap.add_argument("--screen-x", type=int, default=None, help="the monitor's top-left, in the layout")
+    ap.add_argument("--screen-y", type=int, default=None)
     ap.add_argument("--width", type=int, default=0)
     ap.add_argument("--height", type=int, default=0)
     args = ap.parse_args()
@@ -180,7 +184,23 @@ def main():
 
     # Size: a portrait strip, scaled to the screen
     display = Gdk.Display.get_default()
-    mon = display.get_monitor_at_window(Gdk.get_default_root_window()) if display else None
+
+    def monitor_at(x, y):
+        """The monitor whose top-left is (x, y) in the layout, else the closest one."""
+        if not display or x is None or y is None:
+            return None
+        mons = [display.get_monitor(i) for i in range(display.get_n_monitors())]
+        mons = [m for m in mons if m]
+        if not mons:
+            return None
+
+        def dist(m):
+            g = m.get_geometry()
+            return abs(g.x - x) + abs(g.y - y)
+        return min(mons, key=dist)
+
+    mon = monitor_at(args.screen_x, args.screen_y) \
+        or (display.get_monitor_at_window(Gdk.get_default_root_window()) if display else None)
     geo = mon.get_geometry() if mon else None
     screen_h = geo.height if geo else 1080
     height = args.height or int(cfg.get("height") or min(720, screen_h * 0.62))
@@ -193,6 +213,8 @@ def main():
         win.set_visual(visual)
     GtkLayerShell.init_for_window(win)
     GtkLayerShell.set_namespace(win, "ml4w-assistant-character")
+    if mon and args.screen_x is not None:
+        GtkLayerShell.set_monitor(win, mon)
     GtkLayerShell.set_layer(win, GtkLayerShell.Layer.OVERLAY)
     GtkLayerShell.set_keyboard_mode(win, GtkLayerShell.KeyboardMode.NONE)
     GtkLayerShell.set_exclusive_zone(win, -1)
@@ -251,6 +273,10 @@ def main():
                 try:
                     GtkLayerShell.set_margin(win, GtkLayerShell.Edge.RIGHT, max(0, int(cmd.get("right", args.right))))
                     GtkLayerShell.set_margin(win, GtkLayerShell.Edge.BOTTOM, max(0, int(cmd.get("bottom", args.bottom))))
+                    if "screenX" in cmd and "screenY" in cmd:
+                        m = monitor_at(int(cmd["screenX"]), int(cmd["screenY"]))
+                        if m and m != GtkLayerShell.get_monitor(win):
+                            GtkLayerShell.set_monitor(win, m)
                 except (TypeError, ValueError):
                     pass
                 continue

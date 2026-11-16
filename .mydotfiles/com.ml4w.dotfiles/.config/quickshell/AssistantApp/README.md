@@ -57,6 +57,35 @@ When `~/brain/tools/brain.py` exists, the assistants share a notes folder,
 Without `~/brain/tools/brain.py`, none of this runs and the assistants work as
 before.
 
+### Starting your own
+
+`examples/brain/` is an empty starter brain, with no personal data:
+
+```sh
+~/.config/quickshell/AssistantApp/examples/brain/install.sh   # --no-timer to skip the nightly digest
+```
+
+It creates `~/brain` (never over an existing one) as a local git repo, and
+enables `brain-digest.timer`. Every night at 23:30, that timer runs
+`brain.py digest`, which asks Claude (Sonnet) to summarize the day's
+conversations into `memory/daily/`. The digests are what lets the assistants
+remember earlier days. Then write how the assistants should call you after
+`- Called:` in `~/brain/memory/profile.md`, and press **+**.
+
+What's inside:
+
+| Path | Content |
+|---|---|
+| `BRAIN.md` | the protocol every assistant follows: capture, tasks, recall, privacy |
+| `tasks.md`, `inbox.md` | tasks (Obsidian Tasks format) and quick captures |
+| `memory/profile.md` | lasting facts about you, filled in as the assistants learn |
+| `blueprints/` | ready-made procedures: `plan-day`, `weekly-review`, `forge` (makes new blueprints), and three for IT support work: `support-ticket`, `troubleshoot`, `client-mail` (FR/EN). Delete the ones you don't need, or ask an assistant to forge your own. |
+| `templates/` | client and project files |
+| `tools/brain.py` | `context`, `log`, `brief`, `index`, `digest`, `commit` |
+| `CLAUDE.md`, `.claude/` | the same memory for `claude` run in a terminal inside `~/brain` |
+
+`~/brain` is plain Markdown, so you can also open it as an Obsidian vault.
+
 ## Floating
 
 The float button (next to **+**) pops the panel out of the screen's edge into a
@@ -65,6 +94,29 @@ other popups come and go. Opening another popup while the panel is docked
 (yourself, or the assistant doing it for you) floats it instead of closing it.
 The dock button puts it back; closing it docks it again for next time.
 `qs ipc call assistant detach` / `dock` do the same.
+
+It opens on the focused monitor. Drag the floating card onto another monitor
+and it jumps there as the pointer crosses over (or when you drop it), at the
+same size, character included. Resize it from its sides and bottom corners, or
+the docked drawer from its inner edge. The sizes are kept in
+`~/.local/state/ml4w-assistant/state.json`.
+
+## Replies and attachments
+
+- Long words, paths and URLs wrap, so nothing is cut off at any size. Only a
+  table wider than the message scrolls sideways.
+- Each code block in a reply is a box with its language and a **Copy** button.
+  The assistants are told to put every command in its own block.
+- A long command waiting for approval scrolls, and a click on a tool line shows
+  all of it.
+- **Attach** files and images with the paperclip (a file chooser), **Ctrl+V**
+  (a copied image or screenshot, or files copied in a file manager; text pastes
+  as usual), or by dropping them on the panel. `qs ipc call assistant attach
+  <path>` does it from a script. Images are sent as images (big ones scaled
+  down by `tools/encode-images`); other files are passed as paths, which the
+  assistant reads. Pasted images are saved in
+  `~/.local/state/ml4w-assistant/attachments/`. Attachments show in the
+  message, and a click opens them.
 
 ## Modes
 

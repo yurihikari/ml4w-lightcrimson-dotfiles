@@ -213,13 +213,18 @@ Singleton {
             + "Never call the `assistant` target (that's you). Targets:\n" + ipcTargets + "\n"
             + "To see the screen (only when the user asks you to look at or identify something on it), run `"
             + toolsDir + "/screenshot` (the focused monitor) or `" + toolsDir + "/screenshot window` (the focused window): "
-            + "it prints the path of a PNG, which you then Read.\n"
+            + "it prints the path of a PNG, which you then Read.\n\n"
+            + "## Formatting\n"
+            + "The panel shows each fenced code block in a box with a Copy button, and long lines wrap. Put every "
+            + "command, path or snippet the user may run or paste in its own fenced block with its language "
+            + "(```bash), one command per block unless they must run together, never in plain prose. "
+            + "The user can attach images (you see them) and files (you get their paths: Read them).\n"
             + _brainSection()
     }
 
     function _brainSection() {
         if (brainContext.trim() === "") return ""
-        return "\n## Sensei's second brain (~/brain)\n"
+        return "\n## The user's second brain (~/brain)\n"
             + "The user's second brain, shared with every other assistant. This conversation is logged automatically "
             + "to ~/brain/conversations/" + personaId + "/. Follow the protocol below, and use the context to remember "
             + "what the user said before (to you or to another assistant). Writing in ~/brain never needs approval.\n\n"
@@ -234,8 +239,25 @@ Singleton {
     // ── Conversation ───────────────────────────────────────────────────────
     // role: "user" | "assistant" | "note" (errors, "stopped") | "tool:<name>"
     // (a tool it used; "tool:<name>:err" when it failed or was denied), with
-    // the command or file as the text
+    // the command or file as the text. `files`: the paths attached to a user
+    // message (a JSON list; "" for none)
     ListModel { id: messagesModel }
+
+    // ── Attachments for the next message ───────────────────────────────────
+    // Images go to Claude as images (tools/encode-images scales big ones
+    // down); other files as their paths, which it reads with Read. Pasted
+    // images are saved in attachDir.
+    readonly property string attachDir: stateDir + "/attachments"
+    ListModel { id: attachModel }           // path
+    readonly property alias attachments: attachModel
+    function isImage(path) { return /\.(png|jpe?g|gif|webp|bmp)$/i.test(path) }
+    function attach(path) {
+        path = (path || "").replace(/^file:\/\//, "")
+        if (path === "") return
+        for (let i = 0; i < attachModel.count; i++) if (attachModel.get(i).path === path) return
+        attachModel.append({ path: path })
+    }
+    function detachFile(index) { if (index >= 0 && index < attachModel.count) attachModel.remove(index) }
 
     // ── Approvals: what it wants to do that isn't read-only ────────────────
     // One entry per can_use_tool request from the CLI, answered from the panel.
@@ -294,35 +316,81 @@ Singleton {
     property string status: ""       // "Searching the web…" and such
     property var sessions: ({})      // persona id -> Claude session id
     property string model: ""        // empty: the CLI's default
+    // The panel's sizes (dockWidth, floatWidth, floatHeight), kept in state.json
+    property var ui: ({})
+    function setUi(values) { ui = Object.assign({}, ui, values); _save() }
 
     function send(text) {
         text = text.trim()
-        if (text === "" || busy || !canChat) return
-        messagesModel.append({ role: "user", text: text, streaming: false })
+        const files = []
+        for (let i = 0; i < attachModel.count; i++) files.push(attachModel.get(i).path)
+        if ((text === "" && !files.length) || busy || !canChat) return
+        messagesModel.append({ role: "user", text: text, streaming: false, files: files.length ? JSON.stringify(files) : "" })
+        attachModel.clear()
         busy = true
         _turn++
         status = line("thinking") || "Thinking…"
         _turnStarted = false
-        _pending.push(JSON.stringify({
-            type: "user",
-            message: { role: "user", content: [{ type: "text", text: text }] }
-        }) + "\n")
-        if (!claude.running) _start()
-        else if (!_killing) _flush()
-        // else: the old CLI is exiting (persona switch); onExited starts the new one
+        // Attachments: images as images, other files as paths to Read
+        const images = files.filter(f => isImage(f)), others = files.filter(f => !isImage(f))
+        let body = text || "(See the attachments.)"
+        if (others.length) body += "\n\n[Attached files, read them with the Read tool: " + others.join(", ") + "]"
+        if (images.length) body += "\n\n[Attached image" + (images.length > 1 ? "s" : "") + " (shown above): " + images.join(", ") + "]"
+        if (images.length) {
+            _encoded = []
+            encoder.text = body
+            encoder.command = [toolsDir + "/encode-images"].concat(images)
+            encoder.running = true
+        } else {
+            _queueUser([{ type: "text", text: body }])
+        }
         _save()
         character.react("talk")
         character.say(line("thinking"))     // until the first words arrive
     }
 
+    // A user message for the CLI (started if needed)
+    function _queueUser(content) {
+        _pending.push(JSON.stringify({ type: "user", message: { role: "user", content: content } }) + "\n")
+        if (!claude.running) _start()
+        else if (!_killing) _flush()
+        // else: the old CLI is exiting (persona switch); onExited starts the new one
+    }
+    property var _encoded: []
+    property bool _encodeCancelled: false
+    Process {
+        id: encoder
+        property string text: ""
+        stdout: SplitParser {
+            onRead: (l) => {
+                let d; try { d = JSON.parse(l) } catch (e) { return }
+                if (d.data) root._encoded = root._encoded.concat([{ type: "image",
+                    source: { type: "base64", media_type: d.media_type, data: d.data } }])
+                else console.warn("assistant: could not attach", d.path, d.error)
+            }
+        }
+        onExited: {
+            if (root._encodeCancelled) { root._encodeCancelled = false; return }
+            root._queueUser(root._encoded.concat([{ type: "text", text: encoder.text }]))
+            root._encoded = []
+        }
+    }
+
     function stop() {
         if (!busy) return
+        if (encoder.running) {              // still preparing the images: nothing sent yet
+            _encodeCancelled = true
+            encoder.running = false
+            _finishTurn("Stopped.")
+            return
+        }
         _stopped = true
         _kill()
     }
 
     function newChat() {
         _pending = []
+        attachModel.clear()
         _kill()
         busy = false; status = ""
         messagesModel.clear()
@@ -410,9 +478,47 @@ Singleton {
 
     function _appendText(t) {
         let i = _assistantIndex()
-        if (i < 0) { messagesModel.append({ role: "assistant", text: "", streaming: true }); i = messagesModel.count - 1 }
+        if (i < 0) { messagesModel.append({ role: "assistant", text: "", streaming: true, files: "" }); i = messagesModel.count - 1 }
         messagesModel.setProperty(i, "text", messagesModel.get(i).text + t)
         if (charProc.running && !speechTimer.running) speechTimer.start()
+    }
+
+    // ── Code blocks ────────────────────────────────────────────────────────
+    // A reply split into Markdown text and fenced code blocks, so the panel
+    // can show each block in a box with a Copy button. A block still being
+    // streamed (no closing fence yet) counts as code too. Fences indented in
+    // a list are recognised, and their indentation taken off the code.
+    function segments(md) {
+        const out = []
+        let buf = [], code = null
+        const flush = () => {
+            const t = buf.join("\n")
+            if (t.trim() !== "") out.push({ kind: "text", text: t, lang: "" })
+            buf = []
+        }
+        for (const l of (md || "").split("\n")) {
+            if (code) {
+                const end = l.match(/^\s*(`{3,}|~{3,})\s*$/)
+                if (end && end[1][0] === code.fence[0] && end[1].length >= code.fence.length) {
+                    out.push({ kind: "code", text: code.lines.join("\n"), lang: code.lang })
+                    code = null
+                } else {
+                    code.lines.push(l.replace(code.indent, ""))
+                }
+                continue
+            }
+            const start = l.match(/^(\s*)(`{3,}|~{3,})\s*([\w+#.-]*)/)
+            if (start) {
+                flush()
+                code = { fence: start[2], lang: start[3] || "", lines: [],
+                         indent: new RegExp("^ {0," + start[1].length + "}") }
+                continue
+            }
+            buf.push(l)
+        }
+        if (code) out.push({ kind: "code", text: code.lines.join("\n"), lang: code.lang })
+        flush()
+        return out
     }
 
     // ── The reply in the character's speech bubble ─────────────────────────
@@ -455,7 +561,11 @@ Singleton {
         const parts = [], tools = []
         for (let i = messagesModel.count - 1; i >= 0; i--) {
             const m = messagesModel.get(i)
-            if (m.role === "user") { user = m.text; break }
+            if (m.role === "user") {
+                user = m.text
+                if (m.files) user += "\n[attached: " + JSON.parse(m.files).join(", ") + "]"
+                break
+            }
             if (m.role === "assistant") parts.unshift(m.text)
             else if (m.role.startsWith("tool:")) tools.unshift(m.role.slice(5).replace(/:err$/, " (failed)") + ": " + m.text)
         }
@@ -486,7 +596,7 @@ Singleton {
         if (i >= 0) messagesModel.setProperty(i, "streaming", false)
         approvalsModel.clear()
         _toolRows = {}
-        if (errorText) messagesModel.append({ role: "note", text: errorText, streaming: false })
+        if (errorText) messagesModel.append({ role: "note", text: errorText, streaming: false, files: "" })
         busy = false; status = ""
         _save()
         idleTimer.restart()
@@ -527,7 +637,7 @@ Singleton {
                 if (c.type !== "tool_use") continue
                 const i = _assistantIndex()
                 if (i >= 0) messagesModel.setProperty(i, "streaming", false)
-                messagesModel.append({ role: "tool:" + c.name, text: toolSummary(c.name, c.input), streaming: false })
+                messagesModel.append({ role: "tool:" + c.name, text: toolSummary(c.name, c.input), streaming: false, files: "" })
                 const r = Object.assign({}, _toolRows); r[c.id] = messagesModel.count - 1; _toolRows = r
             }
             break
@@ -635,20 +745,20 @@ Singleton {
         const list = []
         for (let i = Math.max(0, messagesModel.count - 200); i < messagesModel.count; i++) {
             const m = messagesModel.get(i)
-            if (!m.streaming) list.push({ role: m.role, text: m.text })
+            if (!m.streaming) list.push(m.files ? { role: m.role, text: m.text, files: m.files } : { role: m.role, text: m.text })
         }
         const h = Object.assign({}, _histories); h[_shownPersona] = list; _histories = h
     }
     function _loadHistory() {
         _stash()
         messagesModel.clear()
-        for (const m of (_histories[personaId] || [])) messagesModel.append({ role: m.role, text: m.text, streaming: false })
+        for (const m of (_histories[personaId] || [])) messagesModel.append({ role: m.role, text: m.text, streaming: false, files: m.files || "" })
         _shownPersona = personaId
     }
     function _save() {
         if (!_loaded) return
         _stash()
-        stateFile.setText(JSON.stringify({ mode: mode, personalPersona: personalPersona, sessions: sessions, model: model }, null, 2))
+        stateFile.setText(JSON.stringify({ mode: mode, personalPersona: personalPersona, sessions: sessions, model: model, ui: ui }, null, 2))
         historyFile.setText(JSON.stringify(_histories))
     }
     onModeChanged: _save()
@@ -820,6 +930,7 @@ Singleton {
             if (s.personalPersona || s.specialPersona) personalPersona = s.personalPersona || s.specialPersona
             if (s.sessions) sessions = s.sessions
             if (s.model) model = s.model
+            if (s.ui) ui = s.ui
         } catch (e) {}
         _loadHistory()
         _loaded = true
@@ -833,6 +944,7 @@ Singleton {
         property bool wanted: false
         property real panelRight: 460      // distance from the screen's right edge
         property real bottom: 10           // and from its bottom
+        property point screenPos: Qt.point(0, 0)   // the panel's monitor (its top-left)
         property bool available: false      // assets present for this persona
         property string shownFor: ""
         property var animations: []
@@ -851,7 +963,8 @@ Singleton {
             charProc.command = ["python3", "-I", root.appDir + "/character/character.py",
                 "--assets", root.charactersDir + "/" + id,
                 "--config", JSON.stringify((root.personas[id] || {}).character || {}),
-                "--right", String(Math.round(panelRight)), "--bottom", String(Math.round(bottom))]
+                "--right", String(Math.round(panelRight)), "--bottom", String(Math.round(bottom)),
+                "--screen-x", String(Math.round(screenPos.x)), "--screen-y", String(Math.round(screenPos.y))]
             charProc.running = true
         }
         function send(o) { if (charProc.running) charProc.write(JSON.stringify(o) + "\n") }
@@ -870,12 +983,15 @@ Singleton {
     }
     // Where the character stands: its right edge `right` px from the screen's
     // right edge, its feet `bottom` px above the bottom (it follows the panel
-    // when that floats)
-    function placeCharacter(right, bottom) {
+    // when that floats), on the monitor whose top-left is `screen` (the
+    // panel's, so it follows it across monitors)
+    function placeCharacter(right, bottom, screen) {
         right = Math.max(0, Math.round(right)); bottom = Math.max(0, Math.round(bottom))
-        if (right === character.panelRight && bottom === character.bottom) return
-        character.panelRight = right; character.bottom = bottom
-        character.send({ cmd: "place", right: right, bottom: bottom })
+        const sp = screen ? Qt.point(Math.round(screen.x), Math.round(screen.y)) : character.screenPos
+        if (right === character.panelRight && bottom === character.bottom
+            && sp.x === character.screenPos.x && sp.y === character.screenPos.y) return
+        character.panelRight = right; character.bottom = bottom; character.screenPos = sp
+        character.send({ cmd: "place", right: right, bottom: bottom, screenX: sp.x, screenY: sp.y })
     }
 
     Process {

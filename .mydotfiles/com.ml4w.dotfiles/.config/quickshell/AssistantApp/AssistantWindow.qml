@@ -1,6 +1,7 @@
 import Quickshell
 import Quickshell.Wayland
 import Quickshell.Io
+import Quickshell.Hyprland
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
@@ -36,7 +37,14 @@ PanelWindow {
     color: "transparent"
     anchors { left: true; right: true; top: true; bottom: true }
 
-    readonly property real panelWidth: PanelStyle.narrowWidth
+    // Sizes: resizable (the left edge docked, the sides and bottom corners
+    // floating), kept in state.json
+    readonly property real minWidth: 340
+    readonly property real minHeight: 360
+    property real dockWidth: Assistant.ui.dockWidth || PanelStyle.narrowWidth
+    property real floatW: Assistant.ui.floatWidth || PanelStyle.narrowWidth
+    property real floatH: Assistant.ui.floatHeight || 780
+    readonly property real panelWidth: floating ? floatW : dockWidth
     property bool isOpen: false
     property bool animating: false
     visible: isOpen || animating
@@ -45,25 +53,108 @@ PanelWindow {
     // the card was, so after a drag its header was out of it.
     mask: floating ? floatRegion : dockRegion
     property Region dockRegion: Region { item: body }
-    property Region floatRegion: Region { x: root.floatX; y: root.floatY; width: root.panelWidth; height: root.floatH }
+    property Region floatRegion: Region { x: root.floatX; y: root.floatY; width: root.floatW; height: root.floatH }
+
+    // ── Monitor ──
+    // It opens on the focused monitor, and a floating card dropped on another
+    // monitor moves there (see dropFloat). Only while no drawer is out: the
+    // frame's corners and shadow are per monitor.
+    function screenNamed(name) {
+        for (const s of Quickshell.screens) if (s.name === name) return s
+        return null
+    }
+    function moveToScreen(s) {
+        if (!s || s === root.screen) return false
+        root.screen = s
+        return true
+    }
+    // Asks Hyprland where the cursor is: the pointer leaves this monitor's
+    // surface on the way to another one. Run while the drag crosses the edge
+    // and when it ends.
+    Process {
+        id: cursorPos
+        command: ["hyprctl", "cursorpos", "-j"]
+        property real grabX: 0               // where the card is held
+        property real grabY: 0
+        stdout: StdioCollector {
+            onStreamFinished: {
+                let c; try { c = JSON.parse(this.text) } catch (e) { return }
+                root.dropFloat(c.x, c.y, cursorPos.grabX, cursorPos.grabY)
+            }
+        }
+    }
+    function checkMonitor() { if (!cursorPos.running) cursorPos.running = true }
+    // The cursor is at (gx, gy), in the layout: if that's on another
+    // monitor, the card goes there, under the cursor where it was held
+    function dropFloat(gx, gy, grabX, grabY) {
+        let target = null
+        for (const s of Quickshell.screens)
+            if (gx >= s.x && gx < s.x + s.width && gy >= s.y && gy < s.y + s.height) target = s
+        if (!target || target === root.screen || !floating) return
+        // The window is recreated on the other monitor: the drag can't go on
+        dragger.enabled = false
+        Qt.callLater(() => dragger.enabled = true)
+        _pendingPos = Qt.point(gx - target.x - grabX, gy - target.y - grabY)
+        moveToScreen(target)
+        Qt.callLater(_settle)
+    }
 
     // ── Floating ──
     property bool floating: false
     property real floatX: -1                 // remembered while the shell runs
     property real floatY: -1
-    readonly property real floatH: Math.min(height - 140, 780)
     function detach() {
         if (floatX < 0) {                    // first time: left of where the right-side drawers open
-            floatX = width - panelWidth * 2 - 60
-            floatY = Math.round((height - floatH) / 2) + 10
+            floatX = areaW - dockWidth - floatW - 60
+            floatY = Math.round((areaH - floatH) / 2) + 10
         }
+        fitFloat()
         moveFloat(floatX, floatY)
         floating = true
     }
     function dock() { floating = false }
+    // The monitor's size. Not the window's: while the window moves to
+    // another monitor it has a temporary size (500x500 or so), and fitting
+    // the card into that shrank it and pushed it into the corner.
+    readonly property real areaW: screen && screen.width > 0 ? screen.width : width
+    readonly property real areaH: screen && screen.height > 0 ? screen.height : height
     function moveFloat(x, y) {
-        floatX = Math.round(Math.max(8, Math.min(width - panelWidth - 8, x)))
-        floatY = Math.round(Math.max(8, Math.min(height - floatH - 8, y)))
+        if (areaW <= 0 || areaH <= 0) { _pendingPos = Qt.point(x, y); return }
+        floatX = Math.round(Math.max(8, Math.min(areaW - floatW - 8, x)))
+        floatY = Math.round(Math.max(8, Math.min(areaH - floatH - 8, y)))
+    }
+    property var _pendingPos: null
+    // Once the window has its size (after opening or changing monitor): fit
+    // the card in and put it where it should be
+    function _settle() {
+        if (!floating || areaW <= 0 || areaH <= 0) return
+        fitFloat()
+        const p = _pendingPos || Qt.point(floatX, floatY)
+        _pendingPos = null
+        moveFloat(p.x, p.y)
+        placeCharacter()
+    }
+    // Keep the card's size within the monitor (a smaller one, after a move)
+    function fitFloat() {
+        if (areaW <= 0 || areaH <= 0) return
+        floatW = Math.round(Math.max(minWidth, Math.min(areaW - 16, floatW)))
+        floatH = Math.round(Math.max(minHeight, Math.min(areaH - 16, floatH)))
+    }
+    onAreaWChanged: _settle()
+    onAreaHChanged: _settle()
+    // Resizing the card from one of its grips. edges: 1 left, 2 right, 4 bottom
+    function resizeFloat(edges, start, dx, dy) {
+        let x = start.x, w = start.width, h = start.height
+        if (edges & 2) w = start.width + dx
+        if (edges & 1) w = start.width - dx
+        if (edges & 4) h = start.height + dy
+        w = Math.max(minWidth, Math.min(edges & 1 ? start.x + start.width - 8 : areaW - start.x - 8, w))
+        h = Math.max(minHeight, Math.min(areaH - start.y - 8, h))
+        if (edges & 1) x = start.x + start.width - w
+        floatW = Math.round(w); floatH = Math.round(h); floatX = Math.round(x)
+    }
+    function saveSizes() {
+        Assistant.setUi({ dockWidth: Math.round(dockWidth), floatWidth: Math.round(floatW), floatHeight: Math.round(floatH) })
     }
     onFloatingChanged: {
         if (!floating && isOpen) {
@@ -76,15 +167,19 @@ PanelWindow {
 
     // The character stands left of the panel, docked or floating
     function placeCharacter() {
-        if (floating) Assistant.placeCharacter(width - floatX + 6, height - floatY - floatH)
-        else Assistant.placeCharacter(panelWidth + 16, 10)
+        if (floating) Assistant.placeCharacter(areaW - floatX + 6, areaH - floatY - floatH, root.screen)
+        else Assistant.placeCharacter(dockWidth + 16, 10, root.screen)
     }
     Timer { id: placeThrottle; interval: 33; onTriggered: root.placeCharacter() }
     onFloatXChanged: if (floating && !placeThrottle.running) placeThrottle.start()
     onFloatYChanged: if (floating && !placeThrottle.running) placeThrottle.start()
+    onFloatHChanged: if (floating && !placeThrottle.running) placeThrottle.start()
+    onDockWidthChanged: if (!floating && !placeThrottle.running) placeThrottle.start()
 
     onIsOpenChanged: {
         if (isOpen) {
+            // Open on the focused monitor (it stays where it is while floating)
+            if (!animating && Hyprland.focusedMonitor) moveToScreen(screenNamed(Hyprland.focusedMonitor.name))
             animating = true
             if (!floating) FrameState.claim("assistant")
             focusTimer.restart()
@@ -129,6 +224,8 @@ PanelWindow {
         // Delete a personal assistant (its character files are kept)
         function remove(id: string): void { Assistant.deletePersona(id) }
         function persona(id: string): void { if (Assistant.personalPersonas.includes(id)) { Assistant.personalPersona = id; Assistant.mode = "personal" } }
+        // Attach a file or an image to the next message (opens the panel)
+        function attach(path: string): void { root.isOpen = true; Assistant.attach(path) }
         // Float it (it stays open with other popups), or put it back
         function detach(): void { root.isOpen = true; root.detach() }
         function dock(): void { root.dock() }
@@ -157,7 +254,7 @@ PanelWindow {
         open: root.isOpen && !root.floating
         onClosed: root.animating = false
         edge: "right"
-        panelWidth: root.panelWidth
+        panelWidth: root.dockWidth
         duration: 350
 
         Item { id: drawerSlot; anchors.fill: parent }
@@ -168,7 +265,7 @@ PanelWindow {
         id: floatCard
         visible: root.floating && root.isOpen
         x: root.floatX; y: root.floatY
-        width: root.panelWidth; height: root.floatH
+        width: root.floatW; height: root.floatH
 
         readonly property real radius: PanelStyle.radiusWindow !== undefined ? PanelStyle.radiusWindow : 20
         Shadow { radius: floatCard.radius }
@@ -190,15 +287,34 @@ PanelWindow {
                 target: null
                 property real startX: 0
                 property real startY: 0
-                onActiveChanged: if (active) { startX = root.floatX; startY = root.floatY }
-                onCentroidChanged: if (active) root.moveFloat(
-                    startX + centroid.scenePosition.x - centroid.scenePressPosition.x,
-                    startY + centroid.scenePosition.y - centroid.scenePressPosition.y)
+                onActiveChanged: {
+                    if (active) {
+                        startX = root.floatX; startY = root.floatY
+                        cursorPos.grabX = centroid.scenePressPosition.x - startX
+                        cursorPos.grabY = centroid.scenePressPosition.y - startY
+                    } else {
+                        root.checkMonitor()      // dropped on another monitor?
+                    }
+                }
+                onCentroidChanged: {
+                    if (!active) return
+                    const p = centroid.scenePosition
+                    root.moveFloat(startX + p.x - centroid.scenePressPosition.x,
+                                   startY + p.y - centroid.scenePressPosition.y)
+                    // The pointer left this monitor: follow it right away
+                    if (p.x < 0 || p.y < 0 || p.x >= root.areaW || p.y >= root.areaH) root.checkMonitor()
+                }
             }
             HoverHandler { cursorShape: dragger.active ? Qt.ClosedHandCursor : Qt.OpenHandCursor }
         }
         Item { id: floatSlot; anchors.fill: parent }
 
+        // Resize: the sides and the bottom corners (the header moves it)
+        ResizeGrip { win: root; edges: 1; x: 0; y: 24; width: 6; height: parent.height - 24 - 16 }
+        ResizeGrip { win: root; edges: 2; x: parent.width - 6; y: 24; width: 6; height: parent.height - 24 - 16 }
+        ResizeGrip { win: root; edges: 4; x: 16; y: parent.height - 6; width: parent.width - 32; height: 6 }
+        ResizeGrip { win: root; edges: 5; x: 0; y: parent.height - 16; width: 16; height: 16 }
+        ResizeGrip { win: root; edges: 6; x: parent.width - 16; y: parent.height - 16; width: 16; height: 16 }
     }
 
     // The panel's content: in the drawer, or in the floating card
@@ -208,6 +324,35 @@ PanelWindow {
         anchors.fill: parent
 
         Keys.onEscapePressed: root.isOpen = false
+
+        // Files dropped on the panel are attached
+        DropArea {
+            id: drop
+            anchors.fill: parent
+            keys: ["text/uri-list"]
+            onDropped: (d) => {
+                for (const u of d.urls) Assistant.attach(decodeURIComponent(u.toString()))
+                d.acceptProposedAction()
+            }
+        }
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: 6
+            z: 20
+            visible: drop.containsDrag
+            radius: PanelStyle.radiusCard
+            color: Theme.withAlpha(Theme.primary, 0.12)
+            border.color: Theme.primary; border.width: 2
+            Text {
+                anchors.centerIn: parent
+                text: "Drop to attach"
+                color: Theme.primary
+                font.family: Theme.fontFamily; font.pixelSize: PanelStyle.titleSize; font.bold: true
+            }
+        }
+
+        // Docked: drag the inner (left) edge to make it wider or narrower
+        ResizeGrip { win: root; visible: !root.floating; edges: 1; x: 0; y: 0; width: 6; height: parent.height }
 
         ColumnLayout {
             anchors.fill: parent
@@ -517,6 +662,8 @@ PanelWindow {
                         required property string role
                         required property string text
                         required property bool streaming
+                        required property string files
+                        readonly property var fileList: { try { return files ? JSON.parse(files) : [] } catch (e) { return [] } }
                         readonly property bool mine: role === "user"
                         readonly property real maxW: list.width - (mine ? 48 : 0)
                         // A tool it used: "tool:<name>", ":err" when it failed or was denied
@@ -551,9 +698,13 @@ PanelWindow {
                                 font.family: "monospace"; font.pixelSize: PanelStyle.labelSize + 1
                                 font.strikeout: msg.toolFailed
                                 wrapMode: Text.WrapAnywhere
-                                maximumLineCount: 3
+                                // 3 lines; click to see all of it
+                                maximumLineCount: toolRow.expanded ? 10000 : 3
                                 elide: Text.ElideRight
                             }
+                            property bool expanded: false
+                            TapHandler { onTapped: toolRow.expanded = !toolRow.expanded }
+                            HoverHandler { cursorShape: Qt.PointingHandCursor }
                         }
 
                         Text {
@@ -575,29 +726,96 @@ PanelWindow {
                             font.family: Theme.fontFamily; font.pixelSize: PanelStyle.bodySize + 1
                         }
 
+                        // A reply in pieces: Markdown text, and code blocks
+                        // in boxes with a Copy button (Assistant.segments).
+                        // Kept in a model updated in place, so a streaming
+                        // reply only changes its last piece.
+                        ListModel { id: segModel }
+                        function syncSegments() {
+                            const segs = msg.mine || msg.isTool || msg.role === "note" ? [] : Assistant.segments(msg.text)
+                            for (let i = 0; i < segs.length; i++) {
+                                if (i >= segModel.count) { segModel.append(segs[i]); continue }
+                                const cur = segModel.get(i)
+                                if (cur.kind !== segs[i].kind) { segModel.set(i, segs[i]); continue }
+                                if (cur.text !== segs[i].text) segModel.setProperty(i, "text", segs[i].text)
+                                if (cur.lang !== segs[i].lang) segModel.setProperty(i, "lang", segs[i].lang)
+                            }
+                            while (segModel.count > segs.length) segModel.remove(segModel.count - 1)
+                        }
+                        onTextChanged: syncSegments()
+                        Component.onCompleted: syncSegments()
+
                         Rectangle {
                             id: bubble
                             visible: msg.role === "user" || msg.role === "assistant"
                             anchors.right: msg.mine ? parent.right : undefined
-                            width: msg.mine ? Math.min(msg.maxW, measure.implicitWidth + 26) : msg.maxW
-                            height: textEdit.implicitHeight + 18
+                            width: msg.mine ? Math.min(msg.maxW, Math.max(measure.implicitWidth, attachRow.implicitWidth) + 26) : msg.maxW
+                            height: content.implicitHeight + 18
                             radius: PanelStyle.radiusCard
                             color: msg.mine ? Theme.withAlpha(Theme.primary, 0.16) : PanelStyle.cardFill
 
-                            TextEdit {
-                                id: textEdit
+                            Column {
+                                id: content
                                 x: 13; y: 9
                                 width: parent.width - 26
-                                readOnly: true
-                                selectByMouse: true
-                                textFormat: msg.mine ? TextEdit.PlainText : TextEdit.MarkdownText
-                                text: msg.text + (msg.streaming ? " ▍" : "")
-                                wrapMode: TextEdit.Wrap
-                                color: Theme.primary
-                                selectionColor: Theme.withAlpha(Theme.primary, 0.3)
-                                selectedTextColor: Theme.primary
-                                font.family: Theme.fontFamily; font.pixelSize: PanelStyle.bodySize + 1
-                                onLinkActivated: (link) => Qt.openUrlExternally(link)
+                                spacing: 8
+
+                                // What was attached (user messages)
+                                Flow {
+                                    id: attachRow
+                                    width: parent.width
+                                    visible: msg.fileList.length > 0
+                                    spacing: 6
+                                    Repeater {
+                                        model: msg.fileList
+                                        AttachmentChip { required property string modelData; path: modelData }
+                                    }
+                                }
+                                TextEdit {
+                                    visible: msg.mine && msg.text !== ""
+                                    width: parent.width
+                                    readOnly: true
+                                    selectByMouse: true
+                                    textFormat: TextEdit.PlainText
+                                    text: msg.mine ? msg.text : ""
+                                    wrapMode: TextEdit.WrapAtWordBoundaryOrAnywhere
+                                    color: Theme.primary
+                                    selectionColor: Theme.withAlpha(Theme.primary, 0.3)
+                                    selectedTextColor: Theme.primary
+                                    font.family: Theme.fontFamily; font.pixelSize: PanelStyle.bodySize + 1
+                                }
+                                Repeater {
+                                    model: segModel
+                                    delegate: Item {
+                                        id: seg
+                                        required property int index
+                                        required property string kind
+                                        required property string text
+                                        required property string lang
+                                        width: content.width
+                                        height: kind === "code" ? codeBox.implicitHeight : prose.implicitHeight
+                                        CodeBlock {
+                                            id: codeBox
+                                            visible: seg.kind === "code"
+                                            width: parent.width
+                                            code: seg.kind === "code" ? seg.text : ""
+                                            lang: seg.lang
+                                        }
+                                        MessageText {
+                                            id: prose
+                                            visible: seg.kind === "text"
+                                            width: parent.width
+                                            text: seg.kind !== "text" ? ""
+                                                : seg.text + (msg.streaming && seg.index === segModel.count - 1 ? " ▍" : "")
+                                        }
+                                    }
+                                }
+                                // Nothing yet
+                                Text {
+                                    visible: !msg.mine && segModel.count === 0
+                                    text: msg.streaming ? "▍" : ""
+                                    color: Theme.primary
+                                }
                             }
 
                             // Copy the message
@@ -663,16 +881,25 @@ PanelWindow {
                             color: Theme.primary; opacity: PanelStyle.dim
                             font.family: Theme.fontFamily; font.pixelSize: PanelStyle.bodySize
                         }
+                        // What it wants to run: scrolls when it's long, so the
+                        // whole command can be read before allowing it
                         Rectangle {
                             Layout.fillWidth: true
-                            implicitHeight: Math.min(160, code.implicitHeight + 16)
+                            implicitHeight: Math.min(Math.max(160, root.height * 0.3), code.implicitHeight + 16)
                             radius: PanelStyle.radiusControl
                             color: Theme.withAlpha(Theme.primary, 0.08)
                             clip: true
+                            Flickable {
+                                id: codeView
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                contentHeight: code.implicitHeight
+                                boundsBehavior: Flickable.StopAtBounds
+                                interactive: contentHeight > height
+                                ScrollBar.vertical: ScrollBar { policy: codeView.interactive ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff }
                             TextEdit {
                                 id: code
-                                x: 8; y: 8
-                                width: parent.width - 16
+                                width: codeView.width - (codeView.interactive ? 10 : 0)
                                 readOnly: true
                                 selectByMouse: true
                                 wrapMode: TextEdit.WrapAnywhere
@@ -680,6 +907,7 @@ PanelWindow {
                                 color: Theme.primary
                                 selectionColor: Theme.withAlpha(Theme.primary, 0.3)
                                 font.family: "monospace"; font.pixelSize: PanelStyle.labelSize + 2
+                            }
                             }
                         }
                         Flow {
@@ -707,6 +935,23 @@ PanelWindow {
                             color: Theme.primary; opacity: PanelStyle.faint
                             font.pixelSize: PanelStyle.labelSize + 1
                         }
+                    }
+                }
+            }
+
+            // ── Attachments for the next message ──
+            Flow {
+                visible: root.editing === null && !root.showOnboarding && Assistant.attachments.count > 0
+                Layout.fillWidth: true
+                spacing: 6
+                Repeater {
+                    model: Assistant.attachments
+                    AttachmentChip {
+                        required property int index
+                        required property var model      // (a `path` role here would hide the chip's own)
+                        path: model.path
+                        removable: true
+                        onRemoved: Assistant.detachFile(index)
                     }
                 }
             }
@@ -740,6 +985,9 @@ PanelWindow {
                             Keys.onPressed: (e) => {
                                 if ((e.key === Qt.Key_Return || e.key === Qt.Key_Enter) && !(e.modifiers & Qt.ShiftModifier)) {
                                     root.submit(); e.accepted = true
+                                } else if (e.key === Qt.Key_V && (e.modifiers & Qt.ControlModifier) && !(e.modifiers & Qt.ShiftModifier)) {
+                                    // An image or copied files attach; text pastes as usual
+                                    root.pasteClipboard(); e.accepted = true
                                 } else if (e.key === Qt.Key_Escape) {
                                     root.isOpen = false; e.accepted = true
                                 }
@@ -750,8 +998,15 @@ PanelWindow {
                     IconButton {
                         Layout.alignment: Qt.AlignVCenter
                         size: 30; iconSize: 15
+                        icon: "󰏢"
+                        onClicked: root.pickFiles()
+                        ToolTip.visible: hovered; ToolTip.delay: 500; ToolTip.text: "Attach files or images"
+                    }
+                    IconButton {
+                        Layout.alignment: Qt.AlignVCenter
+                        size: 30; iconSize: 15
                         icon: Assistant.busy ? "󰓛" : "󰒊"
-                        enabled: Assistant.busy || input.text.trim() !== ""
+                        enabled: Assistant.busy || input.text.trim() !== "" || Assistant.attachments.count > 0
                         opacity: enabled ? 1 : 0.4
                         onClicked: Assistant.busy ? Assistant.stop() : root.submit()
                     }
@@ -761,7 +1016,7 @@ PanelWindow {
             Text {
                 visible: root.editing === null && !root.showOnboarding
                 Layout.fillWidth: true
-                text: "Claude · Enter to send · Shift+Enter for a new line"
+                text: "Enter to send · Shift+Enter for a new line · Ctrl+V or drop files to attach"
                 color: Theme.primary; opacity: PanelStyle.faint
                 font.pixelSize: PanelStyle.labelSize
                 horizontalAlignment: Text.AlignHCenter
@@ -770,8 +1025,35 @@ PanelWindow {
     }
 
     function submit() {
-        if (Assistant.busy || input.text.trim() === "") return
+        if (Assistant.busy || (input.text.trim() === "" && Assistant.attachments.count === 0)) return
         Assistant.send(input.text)
         input.text = ""
     }
+
+    // ── Attaching ──
+    // Ctrl+V: tools/clip-attach saves a copied image (or lists copied files);
+    // when the clipboard holds text, the input pastes it instead
+    Process {
+        id: clipAttach
+        command: [Assistant.toolsDir + "/clip-attach", Assistant.attachDir]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const files = this.text.split("\n").filter(l => l.startsWith("file ")).map(l => l.slice(5))
+                if (!files.length) { input.paste(); return }
+                for (const f of files) Assistant.attach(f)
+            }
+        }
+    }
+    function pasteClipboard() { if (!clipAttach.running) clipAttach.running = true }
+    // The paperclip: a file chooser (zenity)
+    Process {
+        id: picker
+        command: ["zenity", "--file-selection", "--multiple", "--separator=\n", "--title=Attach to the assistant"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                for (const f of this.text.split("\n")) if (f.trim() !== "") Assistant.attach(f.trim())
+            }
+        }
+    }
+    function pickFiles() { if (!picker.running) picker.running = true }
 }
