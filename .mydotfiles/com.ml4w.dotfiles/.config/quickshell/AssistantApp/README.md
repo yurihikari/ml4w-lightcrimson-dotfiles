@@ -101,6 +101,28 @@ same size, character included. Resize it from its sides and bottom corners, or
 the docked drawer from its inner edge. The sizes are kept in
 `~/.local/state/ml4w-assistant/state.json`.
 
+## Commands and Remote Control
+
+Type `/` in the input for the commands (Tab completes the first one):
+
+- **/rc** (or /remote-control): **Remote Control**. Continue the current
+  conversation on [claude.ai/code](https://claude.ai/code) or in the Claude
+  app, named after the assistant. Claude Code only offers Remote Control in its
+  interactive interface, so the conversation moves to one running in a hidden
+  tmux session (`tools/remote-control`), with the same prompt, tools and
+  permission rules, while the panel's own CLI stops. You can keep working on
+  both sides: what's said remotely shows up in the panel as it happens
+  (`tools/session-turns --follow`), what you type in the panel goes into the
+  session, its approval prompts can be answered in the panel (or with
+  `qs ipc call assistant allow` / `deny`) as well as remotely, and the stop
+  button interrupts it. The panel shows the link and a **Bring it back**
+  button; **/rc** again does the same, and the conversation carries on in the
+  panel only. The first time, Claude Code's "trust this folder?" is answered
+  for the assistant's state folder. One assistant at a time.
+- **/new**: a new chat. **/help**: the list.
+- Claude Code's own commands go through as they are: `/compact`, `/context`,
+  `/model <name>`, `/usage`… Their output shows as a reply.
+
 ## Replies and attachments
 
 - Long words, paths and URLs wrap, so nothing is cut off at any size. Only a

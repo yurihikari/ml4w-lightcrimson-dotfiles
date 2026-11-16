@@ -120,7 +120,9 @@ Singleton {
         "~/.mozilla/**", "~/.config/chromium/**", "~/.config/google-chrome/**", "~/.config/vesktop/**",
         "~/.config/discord/**", "~/.claude/**", "~/.claude.json", "~/.config/gh/**", "~/.git-credentials",
         "~/.netrc", "~/.aws/**", "~/.kube/**", "~/.docker/**", "~/.config/rclone/**",
-        "/etc/shadow", "/etc/NetworkManager/system-connections/**"]
+        // (absolute paths take a double slash in permission rules; a single
+        // one is relative to the project)
+        "//etc/shadow", "//etc/NetworkManager/system-connections/**"]
     // Trusted: commands and file edits run without asking, except the
     // sensitive ones in askCommands (and anything outside home). false: only
     // read-only commands and writes in ~/brain run without asking.
@@ -156,7 +158,8 @@ Singleton {
     }
     function _denyRules() {
         return privatePaths.map(p => "Read(" + p + ")")
-            .concat(privatePaths.map(p => "Edit(" + p + ")"), privatePaths.map(p => "Write(" + p + ")"))
+            // Edit rules cover the Write tool too (Write(...) rules never match)
+            .concat(privatePaths.map(p => "Edit(" + p + ")"))
             .concat(["Bash(sudo:*)", "Bash(qs ipc call assistant:*)"])   // no terminal for a password; not itself
     }
     // "ask" rules beat "allow" ones: passed as flag settings (there is no CLI flag for them)
@@ -322,9 +325,11 @@ Singleton {
 
     function send(text) {
         text = text.trim()
+        if (/^\/\S/.test(text) && attachModel.count === 0 && _panelCommand(text)) return
         const files = []
         for (let i = 0; i < attachModel.count; i++) files.push(attachModel.get(i).path)
         if ((text === "" && !files.length) || busy || !canChat) return
+        if (remoteHere) { _sendRemote(text, files); return }
         messagesModel.append({ role: "user", text: text, streaming: false, files: files.length ? JSON.stringify(files) : "" })
         attachModel.clear()
         busy = true
@@ -377,6 +382,7 @@ Singleton {
     }
 
     function stop() {
+        if (remoteHere) { _remoteKeys(["Escape"]); return }   // interrupt it there
         if (!busy) return
         if (encoder.running) {              // still preparing the images: nothing sent yet
             _encodeCancelled = true
@@ -389,6 +395,7 @@ Singleton {
     }
 
     function newChat() {
+        if (remoteHere) { _info("This conversation is on Remote Control: /rc brings it back here first."); return }
         _pending = []
         attachModel.clear()
         _kill()
@@ -429,22 +436,21 @@ Singleton {
         stdout: StdioCollector {
             onStreamFinished: {
                 root.brainContext = this.text
-                if (!claude.running) root._launch()
+                if (!claude.running || root._launchRemote) root._launch()
             }
         }
     }
 
-    function _launch() {
-        const args = ["claude", "-p",
-            "--input-format", "stream-json", "--output-format", "stream-json",
-            "--verbose", "--include-partial-messages",
+    // What both the panel's CLI and the Remote Control session get: the
+    // persona's prompt, the tools and their permission rules, the settings
+    function _sharedArgs() {
+        const args = [
             "--system-prompt", promptFor(persona),
             "--append-system-prompt", capabilities(),
             // The web, files and commands: read-only things run right away,
             // anything else is asked in the panel (the CLI sends a
             // can_use_tool request, see _handle)
             "--tools", "WebSearch,WebFetch,Bash,Read,Grep,Glob,Edit,Write",
-            "--permission-prompt-tool", "stdio",
             "--add-dir", home]
             .concat(["--allowedTools"], _allowRules(), ["--disallowedTools"], _denyRules(), [
             // Skip the user's hooks, plugins and MCP servers (faster, isolated)
@@ -454,6 +460,15 @@ Singleton {
             // don't let a resumed conversation reuse the old one
             "--system-prompt-snapshot", "off"])
         if (model !== "") args.push("--model", model)
+        return args
+    }
+
+    function _launch() {
+        if (_launchRemote) { _launchRemote = false; _remoteLaunch(); return }
+        const args = ["claude", "-p",
+            "--input-format", "stream-json", "--output-format", "stream-json",
+            "--verbose", "--include-partial-messages",
+            "--permission-prompt-tool", "stdio"].concat(_sharedArgs())
         if (sessions[personaId]) args.push("--resume", sessions[personaId])
         _runningPersona = personaId
         _stderr = ""
@@ -481,6 +496,309 @@ Singleton {
         if (i < 0) { messagesModel.append({ role: "assistant", text: "", streaming: true, files: "" }); i = messagesModel.count - 1 }
         messagesModel.setProperty(i, "text", messagesModel.get(i).text + t)
         if (charProc.running && !speechTimer.running) speechTimer.start()
+    }
+
+    // ── Slash commands ─────────────────────────────────────────────────────
+    // The panel's own (/rc, /new, /help) run here; the others (/compact,
+    // /context, /model <name>, /usage…) go to Claude Code like a message, and
+    // their output shows as a reply. cliCommands is what the CLI reported.
+    property var cliCommands: ["compact", "context", "model", "usage", "cost", "init", "review"]
+    readonly property var panelCommands: [
+        { name: "rc", hint: "Remote Control: continue on claude.ai or the Claude app (again: bring it back)" },
+        { name: "remote-control", hint: "Same as /rc" },
+        { name: "new", hint: "New chat" },
+        { name: "help", hint: "What you can type here" }]
+    property var _streamed: ({})            // message id -> its text streamed
+    property string _streamingMsg: ""
+    function commandSuggestions(prefix) {
+        prefix = (prefix || "").toLowerCase()
+        const out = panelCommands.filter(c => c.name.startsWith(prefix))
+        for (const c of cliCommands)
+            if (c.startsWith(prefix) && !out.some(o => o.name === c)) out.push({ name: c, hint: "Claude Code" })
+        return out.slice(0, 8)
+    }
+    function _info(text) {
+        messagesModel.append({ role: "info", text: text, streaming: false, files: "" })
+        _save()
+    }
+    // true when the panel handled it
+    function _panelCommand(text) {
+        const m = text.match(/^\/(\S+)\s*(.*)$/)
+        const cmd = m[1].toLowerCase(), arg = m[2].trim()
+        if (cmd === "rc" || cmd === "remote-control") {
+            if (remote && remotePersona === personaId) stopRemote()
+            else startRemote(arg)
+            return true
+        }
+        if (cmd === "new" || cmd === "clear") { newChat(); return true }
+        if (cmd === "help") {
+            _info("**/rc** Remote Control: continue this conversation on claude.ai/code or in the Claude app; "
+                + "/rc again (or the button) brings it back here, with what was said there.  \n"
+                + "**/new** a new chat.  \n"
+                + "Claude Code's own: " + cliCommands.map(c => "/" + c).join(", ") + ".")
+            return true
+        }
+        // Claude Code's own commands go to the Remote Control session then
+        if (remoteHere) { _sendRemote(text, []); return true }
+        return false
+    }
+
+    // ── Remote Control (/rc) ───────────────────────────────────────────────
+    // Claude Code only offers Remote Control in its interactive interface, so
+    // /rc hands the conversation over to one, run in a tmux session nobody
+    // sees (tools/remote-control) with the same prompt, tools and permission
+    // rules as here, resuming the same session. The panel's own CLI stops
+    // meanwhile (one process per conversation). Coming back (/rc or the
+    // button, or ending it remotely) brings it back here.
+    // Meanwhile the panel stays a window onto it: what's said on either side
+    // shows up here as it happens (tools/session-turns --follow reads the
+    // conversation's file), messages typed here are typed into the session,
+    // and its approval prompts can be answered here (Enter / Esc) as well as
+    // remotely; its screen is read every second for that and for "working".
+    property bool remote: false             // a Remote Control session runs
+    property bool remoteStarting: false
+    property string remoteUrl: ""
+    property string remotePersona: ""
+    property real remoteSince: 0            // when it started (ms), for the import
+    readonly property bool remoteHere: (remote || remoteStarting) && remotePersona === personaId
+    property bool _launchRemote: false
+    property bool remoteWorking: false
+    property string remoteAsk: ""           // an approval prompt waiting there ("" none)
+    readonly property string remoteStatus: !remoteHere ? "" : remoteAsk !== "" ? "Waiting for your OK"
+        : remoteWorking ? "Working (Remote Control)…" : ""
+    property real remoteSeen: 0             // the newest message shown (ms), to catch up from
+    property var _echoes: []                // messages sent from here, shown already
+
+    // A message typed here: into the session (pasted, so line breaks stay)
+    function _sendRemote(text, files) {
+        let body = text
+        if (files.length) body += "\n\n[Attached files, read them with the Read tool: " + files.join(", ") + "]"
+        if (body.trim() === "") return
+        messagesModel.append({ role: "user", text: text, streaming: false, files: files.length ? JSON.stringify(files) : "" })
+        attachModel.clear()
+        _echoes = _echoes.concat([body.trim()])
+        _turn++
+        _save()
+        remoteSend.command = [toolsDir + "/remote-control", "send", body]
+        remoteSend.running = true
+    }
+    Process {
+        id: remoteSend
+        onExited: (code) => { if (code !== 0) root._info("Couldn't send that to the Remote Control session.") }
+    }
+    function _remoteKeys(keys) {
+        remoteKeyProc.command = [toolsDir + "/remote-control", "keys"].concat(keys)
+        remoteKeyProc.running = true
+    }
+    Process { id: remoteKeyProc }
+    // Answer its approval prompt from here: Enter picks "Yes", Esc cancels
+    function remoteAnswer(allow) {
+        if (remoteAsk === "") return
+        remoteAsk = ""
+        _remoteKeys([allow ? "Enter" : "Escape"])
+    }
+
+    // Live: each message as it's written to the conversation's file
+    function _follow() {
+        const sid = sessions[remotePersona]
+        if (!sid) return
+        remoteFollow.command = [toolsDir + "/session-turns", "--follow", sid, String(Math.floor(remoteSeen > 0 ? remoteSeen + 1 : remoteSince))]
+        remoteFollow.running = true
+    }
+    Process {
+        id: remoteFollow
+        stdout: SplitParser { onRead: (l) => { let d; try { d = JSON.parse(l) } catch (e) { return }; root._mirror(d) } }
+    }
+    function _mirror(d) {
+        if (d.ts) remoteSeen = Math.max(remoteSeen, d.ts)
+        let row
+        if (d.role === "user") {
+            const i = _echoes.indexOf(d.text.trim())
+            if (i >= 0) { const e = _echoes.slice(); e.splice(i, 1); _echoes = e; return }   // sent from here
+            row = { role: "user", text: d.text, streaming: false, files: "" }
+            if (remotePersona === personaId) _turn++
+        } else if (d.role === "assistant") {
+            row = { role: "assistant", text: d.text, streaming: false, files: "" }
+        } else {
+            row = { role: d.role, text: toolSummary(d.role.slice(5), d.input), streaming: false, files: "" }
+        }
+        if (remotePersona === personaId) {
+            messagesModel.append(row)
+            if (row.role === "assistant") _speak(true)
+        } else {
+            const h = Object.assign({}, _histories)
+            h[remotePersona] = (h[remotePersona] || []).concat([{ role: row.role, text: row.text }])
+            _histories = h
+        }
+        _save()
+    }
+
+    // Its screen: working, or waiting for an approval
+    Timer {
+        interval: 1000; repeat: true
+        running: root.remote
+        onTriggered: if (!remoteScreen.running) remoteScreen.running = true
+    }
+    Process {
+        id: remoteScreen
+        command: [root.toolsDir + "/remote-control", "screen"]
+        stdout: StdioCollector { onStreamFinished: root._readScreen(this.text) }
+    }
+    function _readScreen(t) {
+        const lines = t.split("\n")
+        remoteWorking = /esc to interrupt/i.test(t)
+        const q = lines.findIndex(l => /Do you want to /.test(l))
+        if (q < 0) { remoteAsk = ""; return }
+        // What it asks about: from the last full-width rule down to the question
+        let a = q - 1
+        while (a > 0 && !/^\s*─{8,}/.test(lines[a])) a--
+        const body = lines.slice(a + 1, q)
+            .filter(l => !/^\s*Tip:/.test(l) && !/^\s*╌/.test(l))
+            .map(l => l.replace(/^\s*│\s?/, "").trim()).filter(l => l !== "")
+        remoteAsk = body.concat([lines[q].trim()]).join("\n")
+    }
+
+    function startRemote(name) {
+        if (remote || remoteStarting) {
+            _info("Remote Control already runs for " + ((personas[remotePersona] || {}).name || remotePersona) + ": /rc there ends it.")
+            return
+        }
+        if (busy) { _info("Wait for the reply to finish, then /rc again."); return }
+        if (!canChat) return
+        remoteStarting = true
+        remotePersona = personaId
+        remoteName = name || persona.name || "Assistant"
+        status = "Starting Remote Control…"
+        _pending = []
+        if (claude.running) { _kill(); return }  // onExited carries on
+        _launchRemote = true
+        _start()                                // fresh brain context, then _remoteLaunch
+    }
+    property string remoteName: ""
+    function _uuid() {
+        return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+            const r = Math.random() * 16 | 0
+            return (c === "x" ? r : (r & 3 | 8)).toString(16)
+        })
+    }
+    function _remoteLaunch() {
+        const args = ["claude"].concat(_sharedArgs(), ["--permission-mode", "default", "--remote-control", remoteName])
+        let sid = sessions[personaId]
+        if (sid) args.push("--resume", sid)
+        else {
+            sid = _uuid()
+            args.push("--session-id", sid)
+            const s = Object.assign({}, sessions); s[personaId] = sid; sessions = s
+        }
+        remoteSince = Date.now()
+        remoteArgsFile.setText(JSON.stringify(args))
+    }
+    FileView {
+        id: remoteArgsFile
+        path: root.stateDir + "/remote-args.json"
+        printErrors: false
+        onSaved: {
+            remoteProc.output = []
+            remoteProc.command = [root.toolsDir + "/remote-control", "start", root.stateDir, path]
+            remoteProc.running = true
+        }
+    }
+    Process {
+        id: remoteProc
+        property var output: []
+        stdout: SplitParser { onRead: (l) => remoteProc.output = remoteProc.output.concat([l]) }
+        onExited: (code) => {
+            const url = remoteProc.output.find(l => l.startsWith("url "))
+            root.remoteStarting = false
+            root.status = ""
+            if (code === 0 && url) {
+                root.remote = true
+                root.remoteUrl = url.slice(4).trim()
+                root.remoteSeen = 0
+                root._echoes = []
+                root._info("Remote Control is on: continue at [" + root.remoteUrl + "](" + root.remoteUrl
+                    + ") or in the Claude app (\"" + root.remoteName + "\"), or here: everything shows on both sides. "
+                    + "/rc brings it back to the panel only.")
+                root._follow()
+            } else {
+                root.remotePersona = ""
+                root._info("Remote Control didn't start. " + remoteProc.output.map(l => l.replace(/^(error|url) /, "")).join(" "))
+            }
+            root._save()
+        }
+    }
+    function stopRemote() {
+        if (!remote) return
+        remoteStop.running = true
+    }
+    Process { id: remoteStop; command: [root.toolsDir + "/remote-control", "stop"]; onExited: root._remoteEnded() }
+    // Ended remotely (/exit there, or the session was closed): notice it
+    Timer {
+        interval: 5000; repeat: true
+        running: root.remote
+        onTriggered: if (!remoteCheck.running) remoteCheck.running = true
+    }
+    Process {
+        id: remoteCheck
+        command: [root.toolsDir + "/remote-control", "status"]
+        onExited: (code) => { if (code !== 0 && root.remote) root._remoteEnded() }
+    }
+    function _remoteEnded() {
+        if (!remote) return
+        const pid = remotePersona, sid = sessions[pid]
+        remote = false
+        remoteUrl = ""
+        remoteWorking = false
+        remoteAsk = ""
+        remoteFollow.running = false
+        if (sid) {
+            // Anything the live view hadn't shown yet
+            remoteImport.persona = pid
+            remoteImport.rows = []
+            remoteImport.command = [toolsDir + "/session-turns", sid, String(Math.floor(remoteSeen > 0 ? remoteSeen + 1 : remoteSince))]
+            remoteImport.running = true
+        } else {
+            remotePersona = ""
+            _save()
+        }
+    }
+    // What was said remotely, into the transcript of the persona it was with
+    Process {
+        id: remoteImport
+        property string persona: ""
+        property var rows: []
+        stdout: SplitParser {
+            onRead: (l) => {
+                let d; try { d = JSON.parse(l) } catch (e) { return }
+                if (d.role === "user" && root._echoes.includes(d.text.trim())) return
+                const text = d.role.startsWith("tool:") ? root.toolSummary(d.role.slice(5), d.input) : d.text
+                remoteImport.rows = remoteImport.rows.concat([{ role: d.role, text: text, streaming: false, files: "" }])
+            }
+        }
+        onExited: {
+            const rows = remoteImport.rows.concat([{ role: "info", streaming: false, files: "",
+                text: "Remote Control ended: the conversation is back in the panel only." }])
+            if (root.personaId === remoteImport.persona) {
+                for (const r of rows) messagesModel.append(r)
+            } else {
+                const h = Object.assign({}, root._histories)
+                h[remoteImport.persona] = (h[remoteImport.persona] || []).concat(rows.map(r => ({ role: r.role, text: r.text })))
+                root._histories = h
+            }
+            root.remotePersona = ""
+            root._echoes = []
+            root.remoteSeen = 0
+            root._save()
+        }
+    }
+    // After a restart of the shell: is the Remote Control session still there?
+    Process {
+        id: remoteResume
+        command: [root.toolsDir + "/remote-control", "status"]
+        onExited: (code) => {
+            if (code === 0) { root.remote = true; root._follow() }
+            else if (root.remotePersona !== "") { root.remote = true; root._remoteEnded() }
+        }
     }
 
     // ── Code blocks ────────────────────────────────────────────────────────
@@ -612,11 +930,14 @@ Singleton {
             if (o.subtype === "init" && o.session_id) {
                 const s = Object.assign({}, sessions); s[_runningPersona] = o.session_id; sessions = s
             }
+            if (o.subtype === "init" && o.slash_commands)
+                cliCommands = o.slash_commands.filter(c => !c.startsWith("_") && !(o.terminal_slash_commands || []).includes(c))
             break
         case "stream_event": {
             const e = o.event || {}
             // Another message in the same turn, in the same bubble (after a
             // server-side search; tool uses start a new bubble below their row)
+            if (e.type === "message_start") _streamingMsg = (e.message || {}).id || ""
             if (e.type === "message_start" && _turnStarted && _assistantIndex() >= 0) _appendText("\n\n")
             else if (e.type === "content_block_start") {
                 const b = e.content_block || {}
@@ -627,13 +948,21 @@ Singleton {
                 else if (b.type === "text") status = ""
             } else if (e.type === "content_block_delta" && e.delta && e.delta.type === "text_delta") {
                 _turnStarted = true
+                if (_streamingMsg) { const st = Object.assign({}, _streamed); st[_streamingMsg] = true; _streamed = st }
                 _appendText(e.delta.text)
             }
             break
         }
         // The whole message once it's done: a row for each tool it used
         case "assistant": {
+            const mid = (o.message || {}).id || ""
             for (const c of ((o.message || {}).content || [])) {
+                // Text that didn't stream (a slash command's output): show it whole
+                if (c.type === "text" && !_streamed[mid] && (c.text || "").trim() !== "") {
+                    _turnStarted = true
+                    _appendText((_assistantIndex() >= 0 ? "\n\n" : "") + c.text)
+                    continue
+                }
                 if (c.type !== "tool_use") continue
                 const i = _assistantIndex()
                 if (i >= 0) messagesModel.setProperty(i, "streaming", false)
@@ -680,6 +1009,10 @@ Singleton {
             break
         }
         case "result":
+            // A command that answered nothing but its result (/compact…)
+            if (!o.is_error && _turnText() === "" && typeof o.result === "string" && o.result.trim() !== "")
+                _appendText(o.result)
+            _streamed = ({})
             _finishTurn(o.is_error ? (o.result || "The assistant returned an error.") : "")
             break
         }
@@ -707,6 +1040,8 @@ Singleton {
         onStarted: { root._flush(); idleTimer.restart() }
         onExited: (code) => {
             root._killing = false
+            // /rc: the panel's CLI is gone, the conversation goes remote
+            if (root.remoteStarting && !root.remote) { root._launchRemote = true; root._start(); return }
             // A message sent while the old CLI was exiting: start the new one
             if (root._pending.length && !root._stopped) { root._start(); return }
             root._pending = []
@@ -758,7 +1093,8 @@ Singleton {
     function _save() {
         if (!_loaded) return
         _stash()
-        stateFile.setText(JSON.stringify({ mode: mode, personalPersona: personalPersona, sessions: sessions, model: model, ui: ui }, null, 2))
+        stateFile.setText(JSON.stringify({ mode: mode, personalPersona: personalPersona, sessions: sessions, model: model, ui: ui,
+            remote: remote ? { persona: remotePersona, url: remoteUrl, name: remoteName, since: remoteSince, seen: remoteSeen } : null }, null, 2))
         historyFile.setText(JSON.stringify(_histories))
     }
     onModeChanged: _save()
@@ -931,6 +1267,12 @@ Singleton {
             if (s.sessions) sessions = s.sessions
             if (s.model) model = s.model
             if (s.ui) ui = s.ui
+            if (s.remote && s.remote.persona) {
+                remotePersona = s.remote.persona; remoteUrl = s.remote.url || ""
+                remoteName = s.remote.name || ""; remoteSince = s.remote.since || Date.now()
+                remoteSeen = s.remote.seen || 0
+                remoteResume.running = true
+            }
         } catch (e) {}
         _loadHistory()
         _loaded = true

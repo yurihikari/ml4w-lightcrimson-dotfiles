@@ -1,0 +1,68 @@
+#!/bin/sh
+# Remote Control for the assistant (/rc in the panel). Claude Code only
+# offers Remote Control in its interactive interface, so the conversation runs
+# there, in a tmux session nobody sees, and you continue it from claude.ai/code
+# or the Claude app.
+#
+#   remote-control start <dir> <args.json>   run the command in args.json (a
+#                                            JSON list) in <dir>; prints
+#                                            "url <link>" once Remote Control
+#                                            is on, or "error <message>" lines
+#   remote-control stop                      end it
+#   remote-control status                    exit 0 while it runs
+#   remote-control send <text>               type a message into it (pasted,
+#                                            so line breaks stay) and send it
+#   remote-control keys <key>...             press keys (Enter, Escape…)
+#   remote-control screen                    what it shows (the last lines)
+#
+# The first start in <dir> answers Claude Code's "trust this folder?" with yes:
+# <dir> is the assistant's own state folder.
+SOCK=ml4w-assistant
+S=rc
+here=$(dirname "$0")
+
+case "$1" in
+start)
+    dir="$2"; args="$3"
+    tmux -L $SOCK kill-session -t $S 2>/dev/null
+    # The arguments (the system prompt is long) go through a file: tmux
+    # commands are limited in size
+    tmux -L $SOCK new-session -d -s $S -x 200 -y 50 -c "$dir" \
+        "exec python3 -I -c 'import json, os, sys; a = json.load(open(sys.argv[1])); os.execvp(a[0], a)' '$args'" \
+        || { echo "error tmux could not start"; exit 1; }
+    i=0
+    while [ $i -lt 60 ]; do
+        sleep 0.5; i=$((i + 1))
+        tmux -L $SOCK has-session -t $S 2>/dev/null || { echo "error Claude Code exited right away"; exit 1; }
+        screen=$(tmux -L $SOCK capture-pane -p -J -t $S)
+        case "$screen" in
+            *"trust this folder"*)
+                tmux -L $SOCK send-keys -t $S Down; sleep 0.2; tmux -L $SOCK send-keys -t $S Enter ;;
+        esac
+        url=$(printf '%s\n' "$screen" | grep -o 'https://claude\.ai/code/session_[A-Za-z0-9_-]*' | head -1)
+        [ -n "$url" ] && { rm -f "$args"; echo "url $url"; exit 0; }
+    done
+    echo "error No Remote Control link after 30 s. Claude Code shows:"
+    tmux -L $SOCK capture-pane -p -t $S | grep -v '^[[:space:]]*$' | tail -6 | sed 's/^/error /'
+    tmux -L $SOCK kill-session -t $S 2>/dev/null
+    rm -f "$args"
+    exit 1 ;;
+stop)
+    tmux -L $SOCK kill-session -t $S 2>/dev/null
+    exit 0 ;;
+status)
+    tmux -L $SOCK has-session -t $S 2>/dev/null ;;
+send)
+    printf '%s' "$2" | tmux -L $SOCK load-buffer -b ml4w-assistant - || exit 1
+    tmux -L $SOCK paste-buffer -p -d -b ml4w-assistant -t $S || exit 1
+    sleep 0.3
+    tmux -L $SOCK send-keys -t $S Enter ;;
+keys)
+    shift
+    tmux -L $SOCK send-keys -t $S "$@" ;;
+screen)
+    tmux -L $SOCK capture-pane -p -J -t $S | grep -v '^[[:space:]]*$' | tail -30 ;;
+*)
+    echo "usage: remote-control start <dir> <args.json> | stop | status | send <text> | keys <key>... | screen" >&2
+    exit 2 ;;
+esac

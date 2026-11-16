@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""What is said in a Claude Code conversation from a moment on: one JSON line
+per message, {"role": "user" | "assistant" | "tool:<name>", "text" | "input",
+"ts"} (ts: unix time in ms). The panel uses it to show a conversation that's on
+Remote Control (/rc) while it goes on, and to catch up after a restart.
+
+    session-turns <session id> <since: unix time in ms>            what's there
+    session-turns --follow <session id> <since: unix time in ms>   and keep going
+"""
+import glob
+import json
+import os
+import sys
+import time
+from datetime import datetime
+
+
+def text_of(content):
+    if isinstance(content, str):
+        return content
+    return "\n\n".join(c.get("text", "") for c in content
+                       if isinstance(c, dict) and c.get("type") == "text").strip()
+
+
+def rows(line, since):
+    try:
+        e = json.loads(line)
+        t = datetime.fromisoformat(e["timestamp"].replace("Z", "+00:00")).timestamp()
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return
+    if t * 1000 < since or e.get("isMeta") or e.get("type") not in ("user", "assistant"):
+        return
+    ts = int(t * 1000)
+    content = (e.get("message") or {}).get("content")
+    if e["type"] == "user":
+        text = text_of(content)
+        # Tool results and Claude Code's own command notes aren't the user's words
+        if text and not text.startswith("<") and not e.get("toolUseResult"):
+            yield {"role": "user", "text": text, "ts": ts}
+    else:
+        for c in content if isinstance(content, list) else []:
+            if c.get("type") == "text" and c.get("text", "").strip():
+                yield {"role": "assistant", "text": c["text"], "ts": ts}
+            elif c.get("type") == "tool_use":
+                yield {"role": "tool:" + c.get("name", "?"), "input": c.get("input") or {}, "ts": ts}
+
+
+def find(sid):
+    files = glob.glob(os.path.expanduser(f"~/.claude/projects/*/{sid}.jsonl"))
+    return files[0] if files else None
+
+
+def main():
+    follow = sys.argv[1] == "--follow"
+    args = sys.argv[2:] if follow else sys.argv[1:]
+    sid, since = args[0], int(args[1])
+    path = find(sid)
+    while follow and not path:          # a new conversation: its file comes with the first message
+        time.sleep(0.5)
+        path = find(sid)
+    if not path:
+        return
+    with open(path, encoding="utf-8") as f:
+        buf = ""
+        while True:
+            chunk = f.read()
+            if chunk:
+                buf += chunk
+                *lines, buf = buf.split("\n")       # only whole lines
+                for line in lines:
+                    for r in rows(line, since):
+                        print(json.dumps(r), flush=True)
+            elif not follow:
+                break
+            else:
+                time.sleep(0.4)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (KeyboardInterrupt, BrokenPipeError):
+        pass

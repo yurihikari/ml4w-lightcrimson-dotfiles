@@ -230,8 +230,15 @@ PanelWindow {
         function detach(): void { root.isOpen = true; root.detach() }
         function dock(): void { root.dock() }
         // Answer the first pending request (what the Allow / Deny buttons do)
-        function allow(): void { if (Assistant.approvals.count) Assistant.answer(Assistant.approvals.get(0).requestId, true, false) }
-        function deny(): void { if (Assistant.approvals.count) Assistant.answer(Assistant.approvals.get(0).requestId, false, false) }
+        // (or the one waiting in the Remote Control session)
+        function allow(): void {
+            if (Assistant.approvals.count) Assistant.answer(Assistant.approvals.get(0).requestId, true, false)
+            else Assistant.remoteAnswer(true)
+        }
+        function deny(): void {
+            if (Assistant.approvals.count) Assistant.answer(Assistant.approvals.get(0).requestId, false, false)
+            else Assistant.remoteAnswer(false)
+        }
     }
 
     Timer { id: focusTimer; interval: 120; onTriggered: if (root.editing === null) input.forceActiveFocus() }
@@ -364,6 +371,7 @@ PanelWindow {
                 icon: Assistant.persona.icon || "󰚩"
                 title: Assistant.persona.name || "Assistant"
                 subtitle: Assistant.drafting === Assistant.personaId && Assistant.drafting !== "" ? "Writing their lines…"
+                    : Assistant.remoteStatus !== "" ? Assistant.remoteStatus
                     : Assistant.busy ? (Assistant.status || "Thinking…") : (Assistant.persona.tagline || "")
 
                 IconButton {
@@ -671,7 +679,7 @@ PanelWindow {
                         readonly property string toolName: isTool ? role.split(":")[1] : ""
                         readonly property bool toolFailed: role.endsWith(":err")
                         width: list.width
-                        height: role === "note" ? noteText.implicitHeight + 4
+                        height: role === "note" || role === "info" ? noteText.implicitHeight + 4
                               : isTool ? toolRow.implicitHeight + 2 : bubble.height
 
                         RowLayout {
@@ -707,15 +715,21 @@ PanelWindow {
                             HoverHandler { cursorShape: Qt.PointingHandCursor }
                         }
 
+                        // A note (an error) or an info line (/rc, /help…)
                         Text {
                             id: noteText
-                            visible: msg.role === "note"
+                            visible: msg.role === "note" || msg.role === "info"
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
                             text: msg.text
-                            wrapMode: Text.Wrap
-                            color: Theme.error
-                            font.pixelSize: PanelStyle.labelSize + 1
+                            textFormat: msg.role === "info" ? Text.MarkdownText : Text.PlainText
+                            wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                            color: msg.role === "info" ? Theme.primary : Theme.error
+                            opacity: msg.role === "info" ? PanelStyle.dim : 1
+                            linkColor: Theme.primary
+                            font.pixelSize: PanelStyle.labelSize + 2
+                            onLinkActivated: (link) => Qt.openUrlExternally(link)
+                            HoverHandler { cursorShape: noteText.hoveredLink ? Qt.PointingHandCursor : Qt.ArrowCursor }
                         }
 
                         // Measures a user message, so its bubble fits it
@@ -939,6 +953,126 @@ PanelWindow {
                 }
             }
 
+            // ── Remote Control (/rc) ──
+            Rectangle {
+                visible: root.editing === null && Assistant.remoteHere
+                Layout.fillWidth: true
+                implicitHeight: rcCol.implicitHeight + 20
+                radius: PanelStyle.radiusCard
+                color: Theme.withAlpha(Theme.primary, 0.1)
+                border.color: Theme.withAlpha(Theme.primary, 0.35); border.width: 1
+                ColumnLayout {
+                    id: rcCol
+                    anchors.fill: parent; anchors.margins: 10
+                    spacing: 6
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        Text { text: "󰄜"; color: Theme.primary; font.pixelSize: 16 }
+                        Text {
+                            Layout.fillWidth: true
+                            text: Assistant.remote ? "On Remote Control" : "Starting Remote Control…"
+                            color: Theme.primary; font.bold: true
+                            font.family: Theme.fontFamily; font.pixelSize: PanelStyle.bodySize + 1
+                        }
+                        PanelButton {
+                            visible: Assistant.remote
+                            text: "Bring it back"
+                            onClicked: Assistant.stopRemote()
+                        }
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        visible: Assistant.remote
+                        text: "Also at <a href=\"" + Assistant.remoteUrl + "\">" + Assistant.remoteUrl.replace("https://", "")
+                            + "</a> and in the Claude app (\"" + Assistant.remoteName + "\"). Messages from either side show up on both."
+                        textFormat: Text.StyledText
+                        wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                        color: Theme.primary; opacity: PanelStyle.dim; linkColor: Theme.primary
+                        font.family: Theme.fontFamily; font.pixelSize: PanelStyle.labelSize + 2
+                        onLinkActivated: (link) => Qt.openUrlExternally(link)
+                        HoverHandler { cursorShape: parent.hoveredLink ? Qt.PointingHandCursor : Qt.ArrowCursor }
+                    }
+                    // It waits for an OK: answer here or remotely
+                    ColumnLayout {
+                        visible: Assistant.remoteAsk !== ""
+                        Layout.fillWidth: true
+                        Layout.topMargin: 4
+                        spacing: 6
+                        Text {
+                            text: "󰕥  Wants your OK"
+                            color: Theme.primary; font.bold: true
+                            font.family: Theme.fontFamily; font.pixelSize: PanelStyle.bodySize
+                        }
+                        Rectangle {
+                            Layout.fillWidth: true
+                            implicitHeight: Math.min(150, askText.implicitHeight + 14)
+                            radius: PanelStyle.radiusControl
+                            color: Theme.withAlpha(Theme.primary, 0.08)
+                            clip: true
+                            Text {
+                                id: askText
+                                x: 8; y: 7
+                                width: parent.width - 16
+                                text: Assistant.remoteAsk
+                                wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                                color: Theme.primary
+                                font.family: "monospace"; font.pixelSize: PanelStyle.labelSize + 2
+                            }
+                        }
+                        Flow {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            PanelButton { accent: true; icon: "󰄬"; text: "Allow"; onClicked: Assistant.remoteAnswer(true) }
+                            PanelButton { danger: true; icon: "󰅖"; text: "Deny"; onClicked: Assistant.remoteAnswer(false) }
+                        }
+                    }
+                }
+            }
+
+            // ── Slash commands: suggestions while typing one ──
+            Column {
+                id: slash
+                // Only while the input is "/" plus the start of a command name
+                readonly property bool typing: root.editing === null && /^\/[\w-]*$/.test(input.text)
+                readonly property var items: typing ? Assistant.commandSuggestions(input.text.slice(1)) : []
+                visible: items.length > 0
+                Layout.fillWidth: true
+                spacing: 2
+                Repeater {
+                    model: slash.items
+                    Rectangle {
+                        required property var modelData
+                        required property int index
+                        width: slash.width; height: 28
+                        radius: PanelStyle.radiusControl
+                        color: rowMouse.containsMouse || index === 0 ? Theme.withAlpha(Theme.primary, 0.1) : "transparent"
+                        Row {
+                            anchors.verticalCenter: parent.verticalCenter
+                            x: 10; spacing: 10
+                            Text {
+                                text: "/" + modelData.name
+                                color: Theme.primary; font.bold: true
+                                font.family: "monospace"; font.pixelSize: PanelStyle.bodySize
+                            }
+                            Text {
+                                text: modelData.hint
+                                color: Theme.primary; opacity: PanelStyle.faint
+                                font.family: Theme.fontFamily; font.pixelSize: PanelStyle.labelSize + 1
+                                elide: Text.ElideRight
+                                width: slash.width - x - 20
+                            }
+                        }
+                        MouseArea {
+                            id: rowMouse
+                            anchors.fill: parent
+                            hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                            onClicked: root.completeCommand(modelData.name)
+                        }
+                    }
+                }
+            }
+
             // ── Attachments for the next message ──
             Flow {
                 visible: root.editing === null && !root.showOnboarding && Assistant.attachments.count > 0
@@ -974,8 +1108,8 @@ PanelWindow {
                         Layout.topMargin: 4; Layout.bottomMargin: 4
                         TextArea {
                             id: input
-                            placeholderText: Assistant.mode === "personal"
-                                ? "Talk to " + (Assistant.persona.name || "") + "…" : "Ask anything…"
+                            placeholderText: Assistant.remoteHere ? "Message " + (Assistant.remoteName || "them") + " (on Remote Control too)…"
+                                : Assistant.mode === "personal" ? "Talk to " + (Assistant.persona.name || "") + "…" : "Ask anything…"
                             color: Theme.primary
                             placeholderTextColor: Theme.withAlpha(Theme.primary, PanelStyle.faint)
                             font.family: Theme.fontFamily; font.pixelSize: PanelStyle.bodySize + 1
@@ -985,6 +1119,8 @@ PanelWindow {
                             Keys.onPressed: (e) => {
                                 if ((e.key === Qt.Key_Return || e.key === Qt.Key_Enter) && !(e.modifiers & Qt.ShiftModifier)) {
                                     root.submit(); e.accepted = true
+                                } else if (e.key === Qt.Key_Tab && slash.items.length > 0) {
+                                    root.completeCommand(slash.items[0].name); e.accepted = true
                                 } else if (e.key === Qt.Key_V && (e.modifiers & Qt.ControlModifier) && !(e.modifiers & Qt.ShiftModifier)) {
                                     // An image or copied files attach; text pastes as usual
                                     root.pasteClipboard(); e.accepted = true
@@ -1005,10 +1141,11 @@ PanelWindow {
                     IconButton {
                         Layout.alignment: Qt.AlignVCenter
                         size: 30; iconSize: 15
-                        icon: Assistant.busy ? "󰓛" : "󰒊"
-                        enabled: Assistant.busy || input.text.trim() !== "" || Assistant.attachments.count > 0
+                        readonly property bool stops: Assistant.busy || (Assistant.remoteHere && Assistant.remoteWorking && input.text.trim() === "")
+                        icon: stops ? "󰓛" : "󰒊"
+                        enabled: stops || input.text.trim() !== "" || Assistant.attachments.count > 0
                         opacity: enabled ? 1 : 0.4
-                        onClicked: Assistant.busy ? Assistant.stop() : root.submit()
+                        onClicked: stops ? Assistant.stop() : root.submit()
                     }
                 }
             }
@@ -1016,12 +1153,18 @@ PanelWindow {
             Text {
                 visible: root.editing === null && !root.showOnboarding
                 Layout.fillWidth: true
-                text: "Enter to send · Shift+Enter for a new line · Ctrl+V or drop files to attach"
+                text: "Enter to send · Shift+Enter for a new line · Ctrl+V or drop files to attach · / for commands"
                 color: Theme.primary; opacity: PanelStyle.faint
                 font.pixelSize: PanelStyle.labelSize
                 horizontalAlignment: Text.AlignHCenter
             }
         }
+    }
+
+    function completeCommand(name) {
+        input.text = "/" + name + " "
+        input.cursorPosition = input.text.length
+        input.forceActiveFocus()
     }
 
     function submit() {
