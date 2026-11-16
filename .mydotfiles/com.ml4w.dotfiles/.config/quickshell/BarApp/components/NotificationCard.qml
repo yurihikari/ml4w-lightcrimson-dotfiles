@@ -10,8 +10,9 @@ import qs.BarApp.services
 // icon, app name and age, summary, body (with links), action buttons and an
 // inline reply field when the app asks for one.
 //
-// Clicking it runs the app's default action (then it closes, like SwayNC);
-// without one, a click expands a long body. The close button shows on hover.
+// Clicking it runs the app's default action and brings the app forward (then
+// it closes, like SwayNC); without one, a click expands a long body. A middle
+// click dismisses it. The close button shows on hover.
 Rectangle {
     id: card
     property var notif: null
@@ -40,8 +41,10 @@ Rectangle {
     // Whole-card click (buttons, links and the reply field sit on top of it)
     MouseArea {
         anchors.fill: parent
+        acceptedButtons: Qt.LeftButton | Qt.MiddleButton
         cursorShape: card.hasDefault ? Qt.PointingHandCursor : Qt.ArrowCursor
-        onClicked: {
+        onClicked: (mouse) => {
+            if (mouse.button === Qt.MiddleButton) { Notifs.dismiss(card.notif); return }
             if (Notifs.activate(card.notif)) card.actionInvoked()
             else card.expanded = !card.expanded
         }
@@ -169,6 +172,22 @@ Rectangle {
                 elide: Text.ElideRight
                 maximumLineCount: card.expanded ? 40 : (card.toast ? 3 : 2)
                 onLinkActivated: link => Qt.openUrlExternally(link)
+            }
+
+            // Progress (the app's "value" hint)
+            Rectangle {
+                readonly property real value: Notifs.progress(card.notif)
+                Layout.fillWidth: true
+                Layout.topMargin: 6
+                visible: value >= 0
+                height: 6; radius: 3
+                color: Theme.withAlpha(Theme.primary, 0.12)
+                Rectangle {
+                    width: parent.width * Math.max(0, parent.value) / 100
+                    height: parent.height; radius: 3
+                    color: card.critical ? Theme.error : Theme.primary
+                    Behavior on width { NumberAnimation { duration: 200 } }
+                }
             }
 
             // Action buttons

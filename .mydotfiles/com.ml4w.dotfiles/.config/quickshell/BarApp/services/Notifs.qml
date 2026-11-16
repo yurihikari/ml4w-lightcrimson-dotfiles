@@ -134,13 +134,43 @@ Singleton {
         if (n.tracked && !n.resident) n.dismiss()
     }
 
-    // Click on a notification: run its default action (if any). Returns
-    // whether something was invoked.
+    // Click on a notification: run its default action (if any) and bring the
+    // app forward. Returns whether something was invoked.
     function activate(n) {
         const a = defaultAction(n)
         if (!a) return false
+        const win = appWindow(n)
         invoke(n, a)
+        // The app asks to be focused, but Hyprland ignores such requests
+        // (misc:focus_on_activate is off), so a click looked like it only
+        // closed the notification: focus its window ourselves
+        if (win) Sys.run(["hyprctl", "dispatch", "hl.dsp.focus({ window = \"address:" + win + "\" })"])
         return true
+    }
+
+    // The app's window (its Hyprland address), found by desktop entry or app
+    // name: "vesktop", "brave-browser" for "Brave"… "" when there's none.
+    function appWindow(n) {
+        if (!n) return ""
+        const names = [n.desktopEntry, n.appName].filter(x => x)
+            .map(x => x.toLowerCase().replace(/\.desktop$/, ""))
+        if (!names.length) return ""
+        const loose = names.map(x => x.replace(/[^a-z0-9]+/g, ""))
+        let best = ""
+        for (const c of Sys.hyprClients) {
+            const cls = (c.class || "").toLowerCase(), init = (c.initialClass || "").toLowerCase()
+            if (names.includes(cls) || names.includes(init)) return c.address
+            const flat = cls.replace(/[^a-z0-9]+/g, "")
+            if (!best && loose.some(x => x.length >= 4 && flat.startsWith(x))) best = c.address
+        }
+        return best
+    }
+
+    // Progress (0-100) when the app sends one (the "value" hint: copies,
+    // downloads, volume…), else -1
+    function progress(n) {
+        const v = n && n.hints ? n.hints["value"] : undefined
+        return v === undefined || v === null || isNaN(v) ? -1 : Math.max(0, Math.min(100, Number(v)))
     }
 
     function dismiss(n) { if (n && n.tracked) n.dismiss() }
