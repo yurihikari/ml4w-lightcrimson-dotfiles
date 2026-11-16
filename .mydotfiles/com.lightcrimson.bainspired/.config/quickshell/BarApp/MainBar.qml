@@ -28,10 +28,11 @@ Item {
     function triggerOSD(type, delta) {
         Sys.activeOSD = type
         // The hover drawer under the rings already shows the value
-        if (!hoverDrawer.open) {
-            osdPopup.active = true
-            osdTimer.restart()
-        }
+        if (!hoverDrawer.open) osdPopup.active = true
+        // activeOSD keeps the poll off the value being changed; the timer
+        // hands it back (it used to stay set, so a mute from the keyboard
+        // never showed after the bar had been used once)
+        osdTimer.restart()
 
         if (delta !== 0) {
             if (type === "vol") {
@@ -1029,6 +1030,6 @@ Item {
                 }
             }
         }
-        Timer { id: osdTimer; interval: 2000; onTriggered: osdPopup.active = false }
+        Timer { id: osdTimer; interval: 2000; onTriggered: { osdPopup.active = false; Sys.activeOSD = "" } }
     }
 }

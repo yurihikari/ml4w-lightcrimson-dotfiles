@@ -116,6 +116,20 @@ Singleton {
         }
     }
 
+    // Sound changes made elsewhere (the keyboard's mute and volume keys, other
+    // apps): refresh right away instead of at the next 3 s poll
+    Process {
+        id: soundEvents; running: true
+        command: ["pactl", "subscribe"]
+        stdout: SplitParser {
+            onRead: data => { if (/'change' on (sink|source) #/.test(data)) soundRefresh.restart() }
+        }
+        // The sound server restarted: listen again
+        onRunningChanged: if (!running) soundResubscribe.start()
+    }
+    Timer { id: soundRefresh; interval: 50; onTriggered: { volGetter.running = true; micGetter.running = true } }
+    Timer { id: soundResubscribe; interval: 3000; onTriggered: soundEvents.running = true }
+
     Process {
         id: micGetter; running: true
         command: ["bash", "-c", "wpctl get-volume @DEFAULT_AUDIO_SOURCE@"]
