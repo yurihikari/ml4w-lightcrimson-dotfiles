@@ -29,6 +29,16 @@ Singleton {
     readonly property string userPersonasDir: home + "/.local/share/ml4w-assistant/personas"
     readonly property string appDir: Quickshell.shellDir + "/AssistantApp"
 
+    // ── Second brain (~/brain) ─────────────────────────────────────────────
+    // A notes folder shared by every assistant: its context (protocol, profile,
+    // tasks, recent digests and conversations) is added to the prompt when the
+    // CLI starts, and every exchange is logged to
+    // ~/brain/conversations/<persona>/<date>.md. All of it lives in
+    // ~/brain/tools/brain.py; without that file nothing changes.
+    readonly property string brainDir: home + "/brain"
+    readonly property string brainTool: brainDir + "/tools/brain.py"
+    property string brainContext: ""
+
     // ── Personas ───────────────────────────────────────────────────────────
     readonly property string examplesDir: appDir + "/examples/personas"
     readonly property var builtinIds: ["assistant"]
@@ -111,12 +121,47 @@ Singleton {
         "~/.config/discord/**", "~/.claude/**", "~/.claude.json", "~/.config/gh/**", "~/.git-credentials",
         "~/.netrc", "~/.aws/**", "~/.kube/**", "~/.docker/**", "~/.config/rclone/**",
         "/etc/shadow", "/etc/NetworkManager/system-connections/**"]
+    // Trusted: commands and file edits run without asking, except the
+    // sensitive ones in askCommands (and anything outside home). false: only
+    // read-only commands and writes in ~/brain run without asking.
+    readonly property bool trusted: true
+    readonly property var askCommands: [
+        // deleting, wiping, permissions
+        "rm:*", "rmdir:*", "shred:*", "dd:*", "mkfs:*", "wipefs:*", "fdisk:*", "parted:*", "truncate:*",
+        "chmod:*", "chown:*", "find * -delete*", "find * -exec rm*",
+        // privileges, packages
+        "su:*", "pkexec:*", "doas:*", "run0:*",
+        "pacman -S:*", "pacman -R:*", "pacman -U:*", "pacman -D:*", "yay:*", "paru:*",
+        "flatpak install:*", "flatpak uninstall:*", "flatpak remove:*", "pip install:*", "pipx install:*",
+        "npm install -g:*", "npm i -g:*",
+        // services, power, processes
+        "reboot:*", "poweroff:*", "shutdown:*", "halt:*", "loginctl terminate-session:*", "hyprctl dispatch exit:*",
+        "kill:*", "pkill:*", "killall:*", "crontab:*",
+        // git history, network out, mail
+        "git push:*", "git reset --hard:*", "git clean:*", "git checkout --:*", "git restore:*", "git rebase:*",
+        "git branch -D:*", "git stash drop:*", "git filter-branch:*",
+        "ssh:*", "scp:*", "sftp:*", "rsync:*", "curl:*", "wget:*", "nc:*",
+        "mail:*", "sendmail:*", "msmtp:*", "neomutt:*", "mutt:*",
+        "nmcli connection delete:*", "nmcli connection modify:*", "nmcli connection down:*",
+        "nmcli radio:*", "nmcli device disconnect:*", "bluetoothctl remove:*"
+    ].concat(["start", "stop", "restart", "reload", "enable", "disable", "mask", "unmask", "kill", "isolate"]
+        .map(v => "systemctl " + v + ":*"),
+        ["start", "stop", "restart", "reload", "enable", "disable", "mask", "unmask", "kill", "isolate"]
+        .map(v => "systemctl --user " + v + ":*"))
     function _allowRules() {
-        return ["WebSearch", "WebFetch", "Read", "Grep", "Glob"].concat(safeCommands.map(c => "Bash(" + c + ")"))
+        const brain = ["Edit(~/brain/**)", "Write(~/brain/**)", "Bash(python3 " + brainTool + ":*)",
+            "Bash(python3 -I " + brainTool + ":*)", "Bash(git -C " + brainDir + ":*)"]
+        return ["WebSearch", "WebFetch", "Read", "Grep", "Glob"].concat(safeCommands.map(c => "Bash(" + c + ")"), brain,
+            trusted ? ["Bash", "Edit(~/**)", "Write(~/**)"] : [])
     }
     function _denyRules() {
         return privatePaths.map(p => "Read(" + p + ")")
+            .concat(privatePaths.map(p => "Edit(" + p + ")"), privatePaths.map(p => "Write(" + p + ")"))
             .concat(["Bash(sudo:*)", "Bash(qs ipc call assistant:*)"])   // no terminal for a password; not itself
+    }
+    // "ask" rules beat "allow" ones: passed as flag settings (there is no CLI flag for them)
+    function _settings() {
+        return JSON.stringify({ permissions: { ask: trusted ? askCommands.map(c => "Bash(" + c + ")") : [] } })
     }
 
     // Quickshell's IPC targets (popups, panels…), for the prompt
@@ -144,11 +189,19 @@ Singleton {
     function capabilities() {
         return "\n\n## Your access to this computer\n"
             + "You can look into the user's system yourself: Read, Grep and Glob for files (images too), Bash for commands, "
-            + "Edit and Write to change files, WebSearch and WebFetch for the web. File reads and read-only commands "
-            + "(journalctl, systemctl status, ps, lsblk, pacman -Q, hyprctl queries…) run right away. Anything else "
-            + "(changing a file, a command that changes something) is shown to the user in the panel with Allow / Deny "
-            + "buttons: just call the tool and they decide. If they deny it, accept that and don't try another way to do "
-            + "the same thing. Private places (SSH and GPG keys, password stores, browser profiles, credentials) are off "
+            + "Edit and Write to change files, WebSearch and WebFetch for the web. "
+            + (trusted
+                ? "The user trusts you to act on your own: file reads, file edits in their home and most commands run right "
+                  + "away, without asking. Sensitive actions (deleting files, installing or removing packages, starting or "
+                  + "stopping services, killing processes, git push/reset, network transfers like curl/ssh, sending mail, "
+                  + "power actions) are shown to the user in the panel with Allow / Deny buttons: just call the tool and they "
+                  + "decide. Don't dodge that with an equivalent command (a script, find -delete, python…): when an action is "
+                  + "destructive or irreversible, use the command that asks. Before overwriting important configs outside "
+                  + "~/brain, make a .bak copy. "
+                : "File reads, read-only commands (journalctl, systemctl status, ps, lsblk, pacman -Q, hyprctl queries…) "
+                  + "and writes in ~/brain run right away. Anything else (changing a file, a command that changes something) "
+                  + "is shown to the user in the panel with Allow / Deny buttons: just call the tool and they decide. ")
+            + "If they deny it, accept that and don't try another way to do the same thing. Private places (SSH and GPG keys, password stores, browser profiles, credentials) are off "
             + "limits; don't try to get around that. sudo can't work here (there's no terminal for a password): when "
             + "something needs root, give the user the exact command to run in a terminal.\n"
             + "When the user has a problem, investigate first (logs, status, configs), then explain what you found and "
@@ -161,6 +214,16 @@ Singleton {
             + "To see the screen (only when the user asks you to look at or identify something on it), run `"
             + toolsDir + "/screenshot` (the focused monitor) or `" + toolsDir + "/screenshot window` (the focused window): "
             + "it prints the path of a PNG, which you then Read.\n"
+            + _brainSection()
+    }
+
+    function _brainSection() {
+        if (brainContext.trim() === "") return ""
+        return "\n## Sensei's second brain (~/brain)\n"
+            + "The user's second brain, shared with every other assistant. This conversation is logged automatically "
+            + "to ~/brain/conversations/" + personaId + "/. Follow the protocol below, and use the context to remember "
+            + "what the user said before (to you or to another assistant). Writing in ~/brain never needs approval.\n\n"
+            + brainContext + "\n"
     }
 
     function line(kind) {
@@ -286,7 +349,24 @@ Singleton {
         _pending = []
     }
 
+    // Fetch the brain's context first (brain.py context), then start the CLI
     function _start() {
+        if (brainLoader.running) return            // _launch follows when it's done
+        brainLoader.command = ["sh", "-c", "[ -f \"$1\" ] && python3 -I \"$1\" context \"$2\" 2>/dev/null; true",
+            "_", brainTool, personaId]
+        brainLoader.running = true
+    }
+    Process {
+        id: brainLoader
+        stdout: StdioCollector {
+            onStreamFinished: {
+                root.brainContext = this.text
+                if (!claude.running) root._launch()
+            }
+        }
+    }
+
+    function _launch() {
         const args = ["claude", "-p",
             "--input-format", "stream-json", "--output-format", "stream-json",
             "--verbose", "--include-partial-messages",
@@ -300,7 +380,11 @@ Singleton {
             "--add-dir", home]
             .concat(["--allowedTools"], _allowRules(), ["--disallowedTools"], _denyRules(), [
             // Skip the user's hooks, plugins and MCP servers (faster, isolated)
-            "--setting-sources", "", "--strict-mcp-config"])
+            "--setting-sources", "", "--strict-mcp-config",
+            "--settings", _settings(),
+            // The prompt carries the brain's context, rebuilt at each start:
+            // don't let a resumed conversation reuse the old one
+            "--system-prompt-snapshot", "off"])
         if (model !== "") args.push("--model", model)
         if (sessions[personaId]) args.push("--resume", sessions[personaId])
         _runningPersona = personaId
@@ -364,7 +448,40 @@ Singleton {
             .trim()
     }
 
+    // ── Logging each exchange to the brain ─────────────────────────────────
+    property var _logQueue: []
+    function _logTurn() {
+        let user = ""
+        const parts = [], tools = []
+        for (let i = messagesModel.count - 1; i >= 0; i--) {
+            const m = messagesModel.get(i)
+            if (m.role === "user") { user = m.text; break }
+            if (m.role === "assistant") parts.unshift(m.text)
+            else if (m.role.startsWith("tool:")) tools.unshift(m.role.slice(5).replace(/:err$/, " (failed)") + ": " + m.text)
+        }
+        if (user === "") return
+        const id = _runningPersona || personaId
+        const p = personas[id] || {}
+        const cut = (s, n) => s.length > n ? s.slice(0, n) + "\n…(cut)" : s
+        _logQueue.push([id, JSON.stringify({ name: p.name || id, user: cut(user, 30000),
+            assistant: cut(parts.join("\n\n"), 60000), tools: tools.slice(0, 40) })])
+        _logNext()
+    }
+    function _logNext() {
+        if (brainLogger.running || !_logQueue.length) return
+        const [id, payload] = _logQueue.shift()
+        brainLogger.command = ["sh", "-c", "[ -f \"$1\" ] && python3 -I \"$1\" log \"$2\" \"$3\"; true",
+            "_", brainTool, id, payload]
+        brainLogger.running = true
+    }
+    Process {
+        id: brainLogger
+        stderr: SplitParser { onRead: (l) => console.warn("assistant brain log:", l) }
+        onExited: root._logNext()
+    }
+
     function _finishTurn(errorText) {
+        _logTurn()
         const i = _assistantIndex()
         if (i >= 0) messagesModel.setProperty(i, "streaming", false)
         approvalsModel.clear()

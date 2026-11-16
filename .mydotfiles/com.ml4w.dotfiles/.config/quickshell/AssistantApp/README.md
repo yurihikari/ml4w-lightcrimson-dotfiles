@@ -22,19 +22,40 @@ and act on your computer:
 - **See the screen:** when you ask it to look at or identify something, it takes
   a screenshot of the focused monitor or window (`tools/screenshot`, saved to
   `~/.local/state/ml4w-assistant/screen.png`) and looks at it.
-- **Change things:** editing a file or running any command that isn't on the
-  read-only list stops and asks first. The panel shows what it wants to do
-  (the command, or the file and the change) with **Allow**, **Deny** and,
-  when Claude Code suggests a rule, **Always**, which allows that kind of
-  command for the rest of the chat. The panel opens itself if it was closed.
-  `qs ipc call assistant allow` / `deny` answer from a key binding.
+- **Change things:** file edits in your home and most commands run on their
+  own. Sensitive ones stop and ask first: deleting, installing or removing
+  packages, starting or stopping services, killing processes, `git push` /
+  `reset`, network transfers (`curl`, `ssh`, `rsync`…), sending mail, power
+  actions. The panel shows what it wants to do (the command, or the file and
+  the change) with **Allow**, **Deny** and, when Claude Code suggests a rule,
+  **Always**, which allows that kind of command for the rest of the chat. The
+  panel opens itself if it was closed. `qs ipc call assistant allow` / `deny`
+  answer from a key binding. Set `trusted` to `false` in
+  `services/Assistant.qml` to have it ask before every change instead.
 - **Never:** SSH and GPG keys, password stores, browser profiles and other
   credentials are off limits, for file reads and commands alike. `sudo` is
   blocked (there's no terminal for the password): it gives you the command to
   run instead.
 
-The read-only list is `safeCommands` and the off-limits paths are `privatePaths`,
-both in `services/Assistant.qml`.
+The read-only list is `safeCommands`, the sensitive commands `askCommands` and
+the off-limits paths `privatePaths`, all in `services/Assistant.qml`.
+
+## Second brain
+
+When `~/brain/tools/brain.py` exists, the assistants share a notes folder,
+`~/brain`, as their memory:
+
+- **Context:** each time the CLI starts, `brain.py context <persona>` is added to
+  the prompt: the brain's protocol, a profile of you, today's tasks, digests of
+  the last days, and today's conversations with every assistant. So what you
+  told Arona in the morning, Plana knows in the afternoon.
+- **Logs:** every exchange is appended to
+  `~/brain/conversations/<persona>/<date>.md` (`brain.py log`), even after **+**
+  clears the panel.
+- Writing in `~/brain` never asks.
+
+Without `~/brain/tools/brain.py`, none of this runs and the assistants work as
+before.
 
 ## Floating
 
