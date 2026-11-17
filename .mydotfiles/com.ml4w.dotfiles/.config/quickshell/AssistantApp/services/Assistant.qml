@@ -154,7 +154,7 @@ Singleton {
         const brain = ["Edit(~/brain/**)", "Write(~/brain/**)", "Bash(python3 " + brainTool + ":*)",
             "Bash(python3 -I " + brainTool + ":*)", "Bash(git -C " + brainDir + ":*)"]
         return ["WebSearch", "WebFetch", "Read", "Grep", "Glob"].concat(safeCommands.map(c => "Bash(" + c + ")"), brain,
-            trusted ? ["Bash", "Edit(~/**)", "Write(~/**)"] : [])
+            trusted ? ["Bash", "Edit(~/**)", "Write(~/**)"] : [], _mcpPerms("allow"))
     }
     function _denyRules() {
         return privatePaths.map(p => "Read(" + p + ")")
@@ -164,7 +164,16 @@ Singleton {
     }
     // "ask" rules beat "allow" ones: passed as flag settings (there is no CLI flag for them)
     function _settings() {
-        return JSON.stringify({ permissions: { ask: trusted ? askCommands.map(c => "Bash(" + c + ")") : [] } })
+        return JSON.stringify({ permissions: { ask: (trusted ? askCommands.map(c => "Bash(" + c + ")") : []).concat(_mcpPerms("ask")) } })
+    }
+
+    // Optional MCP servers for the panel: ~/.config/ml4w-assistant/mcp.json (Claude Code format), and
+    // their permission rules in mcp-permissions.json: {"allow": [read tools], "ask": [write tools]}
+    readonly property string mcpConfig: home + "/.config/ml4w-assistant/mcp.json"
+    FileView { id: mcpFile; path: root.mcpConfig; blockLoading: true; printErrors: false }
+    FileView { id: mcpPermFile; path: root.home + "/.config/ml4w-assistant/mcp-permissions.json"; blockLoading: true; printErrors: false }
+    function _mcpPerms(kind) {
+        try { return JSON.parse(mcpPermFile.text() || "{}")[kind] || [] } catch (e) { return [] }
     }
 
     // Quickshell's IPC targets (popups, panels…), for the prompt
@@ -459,6 +468,7 @@ Singleton {
             // The prompt carries the brain's context, rebuilt at each start:
             // don't let a resumed conversation reuse the old one
             "--system-prompt-snapshot", "off"])
+        if ((mcpFile.text() || "").trim() !== "") args.push("--mcp-config", mcpConfig)
         if (model !== "") args.push("--model", model)
         return args
     }
