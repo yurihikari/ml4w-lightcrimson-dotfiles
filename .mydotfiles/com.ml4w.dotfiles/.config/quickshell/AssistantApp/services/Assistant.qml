@@ -328,6 +328,7 @@ Singleton {
     property string status: ""       // "Searching the web…" and such
     property var sessions: ({})      // persona id -> Claude session id
     property string model: ""        // empty: the CLI's default
+    property string effort: "high"   // reasoning effort: low, medium, high, xhigh, max ("" = CLI default)
     // The panel's sizes (dockWidth, floatWidth, floatHeight), kept in state.json
     property var ui: ({})
     function setUi(values) { ui = Object.assign({}, ui, values); _save() }
@@ -470,6 +471,7 @@ Singleton {
             "--system-prompt-snapshot", "off"])
         if ((mcpFile.text() || "").trim() !== "") args.push("--mcp-config", mcpConfig)
         if (model !== "") args.push("--model", model)
+        if (effort !== "") args.push("--effort", effort)
         return args
     }
 
