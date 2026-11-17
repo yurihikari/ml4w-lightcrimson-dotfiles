@@ -143,7 +143,7 @@ Singleton {
         "git push:*", "git reset --hard:*", "git clean:*", "git checkout --:*", "git restore:*", "git rebase:*",
         "git branch -D:*", "git stash drop:*", "git filter-branch:*",
         "ssh:*", "scp:*", "sftp:*", "rsync:*", "curl:*", "wget:*", "nc:*",
-        "mail:*", "sendmail:*", "msmtp:*", "neomutt:*", "mutt:*",
+        "mail:*", "sendmail:*", "msmtp:*", "neomutt:*", "mutt:*", "mail-apply:*",
         "nmcli connection delete:*", "nmcli connection modify:*", "nmcli connection down:*",
         "nmcli radio:*", "nmcli device disconnect:*", "bluetoothctl remove:*"
     ].concat(["start", "stop", "restart", "reload", "enable", "disable", "mask", "unmask", "kill", "isolate"]
