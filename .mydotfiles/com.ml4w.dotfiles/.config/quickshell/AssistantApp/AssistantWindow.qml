@@ -379,6 +379,15 @@ PanelWindow {
                         + (Assistant.contextTokens > 100000 ? " · long: /handoff" : "")
                     : (Assistant.persona.tagline || "")
 
+                // Show or hide the character next to the panel (kept in state.json)
+                IconButton {
+                    icon: Assistant.characterHidden ? "󰈉" : "󰈈"; size: 30; iconSize: 15
+                    visible: Assistant.mode === "personal" && Assistant.canChat && root.editing === null
+                        && (Assistant.characterAvailable || Assistant.characterHidden)
+                    onClicked: Assistant.characterHidden = !Assistant.characterHidden
+                    ToolTip.visible: hovered; ToolTip.delay: 500
+                    ToolTip.text: Assistant.characterHidden ? "Show the character" : "Hide the character"
+                }
                 IconButton {
                     icon: "󰏫"; size: 30; iconSize: 15
                     visible: Assistant.mode === "personal" && Assistant.canChat && root.editing === null

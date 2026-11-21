@@ -1313,7 +1313,7 @@ Singleton {
     function _save() {
         if (!_loaded) return
         _stash()
-        stateFile.setText(JSON.stringify({ mode: mode, personalPersona: personalPersona, sessions: sessions, model: model, effort: effort, effortBy: effortBy, contextSizes: contextSizes, ui: ui,
+        stateFile.setText(JSON.stringify({ mode: mode, personalPersona: personalPersona, sessions: sessions, model: model, effort: effort, effortBy: effortBy, characterHidden: characterHidden, contextSizes: contextSizes, ui: ui,
             remote: remote ? { persona: remotePersona, url: remoteUrl, name: remoteName, since: remoteSince, seen: remoteSeen } : null }, null, 2))
         historyFile.setText(JSON.stringify(_histories))
     }
@@ -1489,6 +1489,7 @@ Singleton {
             if (s.model) model = s.model
             if (typeof s.effort === "string") effort = s.effort
             if (typeof s.effortBy === "string") effortBy = s.effortBy
+            if (s.characterHidden === true) characterHidden = true
             if (s.contextSizes) contextSizes = s.contextSizes
             if (s.ui) ui = s.ui
             if (s.remote && s.remote.persona) {
@@ -1517,7 +1518,7 @@ Singleton {
 
         function sync() {
             const id = root.personaId
-            const want = wanted && root.mode === "personal" && root.personaId !== ""
+            const want = wanted && !root.characterHidden && root.mode === "personal" && root.personaId !== ""
             if (!want) { if (charProc.running) charProc.running = false; return }
             if (charProc.running && shownFor === id) return
             if (charProc.running) charProc.running = false
@@ -1541,6 +1542,9 @@ Singleton {
     // Debug: fake a tap ("head", "body") or a pat on the character
     function pokeCharacter(kind) { character.send({ cmd: "selftest", kind: kind }) }
     readonly property alias characterAvailable: character.available
+    // Hidden by the user (header button): the character isn't started at all. Kept in state.json
+    property bool characterHidden: false
+    onCharacterHiddenChanged: { character.sync(); _save() }
     readonly property alias characterShown: charProc.running
     function showCharacter(on, panelRight) {
         character.wanted = on
@@ -1566,7 +1570,7 @@ Singleton {
         command: ["bash", "-c", "ls \"$1\"/*.atlas >/dev/null 2>&1", "_", root.charactersDir + "/" + target]
         onExited: (code) => {
             character.available = code === 0
-            if (code === 0 && character.wanted && root.personaId === target) character.launch(target)
+            if (code === 0 && character.wanted && !root.characterHidden && root.personaId === target) character.launch(target)
         }
     }
 
