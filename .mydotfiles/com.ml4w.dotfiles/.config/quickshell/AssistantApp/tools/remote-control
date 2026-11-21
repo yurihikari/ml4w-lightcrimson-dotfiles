@@ -35,9 +35,19 @@ start)
         sleep 0.5; i=$((i + 1))
         tmux -L $SOCK has-session -t $S 2>/dev/null || { echo "error Claude Code exited right away"; exit 1; }
         screen=$(tmux -L $SOCK capture-pane -p -J -t $S)
+        # Claude Code's "trust this folder?" question (older and newer wordings;
+        # it comes back each start because the home folder is added with
+        # --add-dir). It is drawn before it reads keys, so keys sent too early
+        # are lost: look at what is selected and retry until it's gone.
+        # "❯" on a Yes line → Enter, otherwise → Down (works whatever the order).
         case "$screen" in
-            *"trust this folder"*)
-                tmux -L $SOCK send-keys -t $S Down; sleep 0.2; tmux -L $SOCK send-keys -t $S Enter ;;
+            *"trust this folder"*|*"trust the files in this folder"*|*"Yes, add it"*|*"trusting it there lasts"*)
+                if printf '%s\n' "$screen" | grep -q '❯ *\(1\. *\)\{0,1\}Yes'; then
+                    tmux -L $SOCK send-keys -t $S Enter; sleep 1.5
+                else
+                    tmux -L $SOCK send-keys -t $S Down; sleep 0.5
+                fi
+                continue ;;
         esac
         url=$(printf '%s\n' "$screen" | grep -o 'https://claude\.ai/code/session_[A-Za-z0-9_-]*' | head -1)
         [ -n "$url" ] && { rm -f "$args"; echo "url $url"; exit 0; }
