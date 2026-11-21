@@ -1,0 +1,56 @@
+#!/bin/sh
+# effort: lets the panel assistant choose its own reasoning effort.
+#   effort                    print the current level
+#   effort <low|medium|high>  ask for that level (nothing else on the line:
+#                             the panel only applies a plain call)
+# The script only checks and answers; the panel sees this command succeed and
+# applies the level to the running CLI (control request apply_flag_settings),
+# then saves it in state.json. xhigh and max are the user's (/effort), and a
+# level the user set with /effort in this chat is kept.
+state="${XDG_STATE_HOME:-$HOME/.local/state}/ml4w-assistant/state.json"
+
+read_state() {
+    python3 -I - "$state" <<'EOF'
+import json, sys
+try:
+    s = json.load(open(sys.argv[1]))
+except Exception:
+    s = {}
+print(s.get("effort") or "default", s.get("effortBy") or "-")
+EOF
+}
+cur=$(read_state)
+level=${cur% *}
+by=${cur#* }
+
+if [ $# -eq 0 ]; then
+    echo "Effort: $level (set by: $by)"
+    exit 0
+fi
+
+if [ $# -gt 1 ]; then
+    echo "Usage: effort <low|medium|high> (one word, nothing else: the panel ignores other forms)"
+    exit 2
+fi
+
+want=$(printf '%s' "$1" | tr 'A-Z' 'a-z')
+case "$want" in
+    low|medium|high) ;;
+    xhigh|max)
+        echo "Refused: $want is only set by the user (/effort). Keep $level."
+        exit 2 ;;
+    *)
+        echo "Usage: effort <low|medium|high>"
+        exit 2 ;;
+esac
+
+if [ "$by" = "user" ] && [ "$want" != "$level" ]; then
+    echo "Refused: the user set effort to $level with /effort in this chat. Keep it unless they ask."
+    exit 3
+fi
+
+if [ "$want" = "$level" ]; then
+    echo "Effort is already $level."
+else
+    echo "Effort: $level -> $want (applies from your next step, at the latest from the next message)."
+fi

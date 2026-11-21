@@ -113,7 +113,9 @@ Singleton {
         "whoami:*", "groups:*", "locale:*", "fc-list:*", "fc-match:*", "xdg-mime query:*",
         "gsettings get:*", "gsettings list-recursively:*", "git status:*", "git log:*", "git diff:*", "git show:*",
         // the desktop: Quickshell's popups and panels, Hyprland's state, the screen
-        "qs ipc show:*", "qs ipc call:*", "qs log:*", toolsDir + "/screenshot:*"
+        "qs ipc show:*", "qs ipc call:*", "qs log:*", toolsDir + "/screenshot:*",
+        // the assistant's own reasoning effort (the panel applies it, see _effortRequest)
+        toolsDir + "/effort:*", "effort:*"
     ].concat(_hyprQueries.map(q => "hyprctl " + q + ":*"), _hyprQueries.map(q => "hyprctl -j " + q + ":*"))
     readonly property var privatePaths: ["~/.ssh/**", "~/.gnupg/**", "~/.password-store/**",
         "~/.local/share/keyrings/**", "~/.local/share/kwalletd/**", "~/.config/BraveSoftware/**",
@@ -289,6 +291,16 @@ Singleton {
             + "edits, decisions and anything the user must approve with you. Helpers can be wrong: check a value in "
             + "its file before acting on it. The user doesn't see the helper's report: tell them the result. Don't "
             + "use the other built-in agents.\n\n"
+            + "## Reasoning effort\n"
+            + "You choose your own effort with `" + toolsDir + "/effort <low|medium|high>` (exactly that, nothing "
+            + "else on the line; no argument shows the current level). It applies from your next step, at the latest "
+            + "from the next message, and runs without asking. A chat starts at medium unless the user chose another level.\n"
+            + "- medium: regular questions, recaps (\"what did I do…\"), brain searches, short drafts and mails.\n"
+            + "- high: implementation, code, diagnosis and troubleshooting, multi-step projects, careful reviews.\n"
+            + "- low: trivial actions (open a popup, a quick capture, a one-line answer).\n"
+            + "Switch first, then do the work. Go back to medium once the heavy work is done and the chat turns "
+            + "light; don't flip for a single message. xhigh and max are only set by the user (/effort). If the user "
+            + "set the level with /effort, the command refuses: keep it.\n\n"
             + "## The desktop\n"
             + "Hyprland, with a Quickshell shell (bar, popups, sidebar, settings, this assistant). Open, close or toggle its "
             + "popups and panels with `qs ipc call <target> <function> [args]`; that runs without asking, so do it when the "
@@ -400,7 +412,28 @@ Singleton {
     property string status: ""       // "Searching the web…" and such
     property var sessions: ({})      // persona id -> Claude session id
     property string model: ""        // empty: the CLI's default
-    property string effort: "medium" // reasoning effort: low, medium, high, xhigh, max ("" = CLI default); kept in state.json
+    property string effort: "medium" // reasoning effort: low, medium, high, xhigh, max ("" = CLI default); /effort, kept in state.json
+    // Who set it: "user" (/effort, kept until a new chat), "assistant" (tools/effort, back to medium
+    // in a new chat), "" (default)
+    property string effortBy: ""
+    property var _effortCalls: ({})  // tool_use id -> level, for tools/effort calls in this turn
+    // Change the effort, live: the running CLI applies it without a restart
+    // (control request apply_flag_settings, from its next step on)
+    // The level a Bash command asks for with tools/effort ("" if it's not that). Only a plain call
+    // counts (no pipes or chains), so the result the panel checks is the script's own.
+    function _effortRequest(command) {
+        const m = /^\s*(\S+)\s+(low|medium|high)\s*$/i.exec(command || "")
+        return m && (m[1] === toolsDir + "/effort" || m[1] === "effort") ? m[2].toLowerCase() : ""
+    }
+    function _setEffort(level, by) {
+        if (by === "assistant" && effortBy === "user") return   // the user's choice wins
+        effort = level
+        effortBy = by
+        _save()
+        if (claude.running && !_killing)
+            claude.write(JSON.stringify({ type: "control_request", request_id: "effort-" + Date.now(),
+                request: { subtype: "apply_flag_settings", settings: { effortLevel: level } } }) + "\n")
+    }
     // The panel's sizes (dockWidth, floatWidth, floatHeight), kept in state.json
     property var ui: ({})
     function setUi(values) { ui = Object.assign({}, ui, values); _save() }
@@ -493,6 +526,8 @@ Singleton {
         messagesModel.clear()
         const s = Object.assign({}, sessions); delete s[personaId]; sessions = s
         const z = Object.assign({}, contextSizes); delete z[personaId]; contextSizes = z
+        if (effortBy === "assistant") effort = "medium"   // the assistant's choice was for that chat
+        effortBy = ""
         _save()
     }
 
@@ -608,6 +643,7 @@ Singleton {
         { name: "remote-control", hint: "Same as /rc" },
         { name: "new", hint: "New chat" },
         { name: "handoff", hint: "Long chat: save a summary in the brain, then start a new chat with it" },
+        { name: "effort", hint: "Reasoning effort: low, medium, high, xhigh, max" },
         { name: "help", hint: "What you can type here" }]
     property var _streamed: ({})            // message id -> its text streamed
     property string _streamingMsg: ""
@@ -643,6 +679,17 @@ Singleton {
             return true
         }
         if (cmd === "new" || cmd === "clear") { newChat(); return true }
+        if (cmd === "effort") {
+            const levels = ["low", "medium", "high", "xhigh", "max"]
+            const want = arg.toLowerCase()
+            if (want === "") { _info("Effort: **" + (effort || "CLI default") + "**"
+                + (effortBy === "user" ? " (set by you)" : effortBy === "assistant" ? " (chosen by the assistant)" : "")
+                + ". `/effort <" + levels.join("|") + ">` changes it for this chat.") ; return true }
+            if (!levels.includes(want)) { _info("Unknown effort level. Choose: " + levels.join(", ") + "."); return true }
+            _setEffort(want, "user")    // applied live; kept until a new chat (the assistant won't change it)
+            _info("Effort: **" + effort + "**, set by you for this chat.")
+            return true
+        }
         if (cmd === "handoff") {
             if (remoteHere) { _info("This conversation is on Remote Control: /rc brings it back here first."); return true }
             if (busy || !canChat) return true
@@ -661,6 +708,7 @@ Singleton {
                 + "/rc again (or the button) brings it back here, with what was said there.  \n"
                 + "**/new** a new chat.  \n"
                 + "**/handoff** [focus] save a summary of this chat in the brain, then start a new chat that knows it.  \n"
+                + "**/effort** [level] show or change the reasoning effort (low, medium, high, xhigh, max).  \n"
                 + "Claude Code's own: " + cliCommands.map(c => "/" + c).join(", ") + ".")
             return true
         }
@@ -1040,6 +1088,7 @@ Singleton {
         if (i >= 0) messagesModel.setProperty(i, "streaming", false)
         approvalsModel.clear()
         _toolRows = {}
+        _effortCalls = {}
         if (errorText) messagesModel.append({ role: "note", text: errorText, streaming: false, files: "" })
         busy = false; status = ""
         _save()
@@ -1125,6 +1174,9 @@ Singleton {
                 if (i >= 0) messagesModel.setProperty(i, "streaming", false)
                 messagesModel.append({ role: "tool:" + c.name, text: toolSummary(c.name, c.input), streaming: false, files: "" })
                 const r = Object.assign({}, _toolRows); r[c.id] = messagesModel.count - 1; _toolRows = r
+                // tools/effort: applied once its result comes back without an error
+                const ef = c.name === "Bash" ? _effortRequest((c.input || {}).command) : ""
+                if (ef) { const e = Object.assign({}, _effortCalls); e[c.id] = ef; _effortCalls = e }
             }
             break
         }
@@ -1133,6 +1185,10 @@ Singleton {
             const content = (o.message || {}).content
             if (!Array.isArray(content)) break
             for (const c of content) {
+                if (c.type === "tool_result" && !c.is_error && _effortCalls[c.tool_use_id]) {
+                    _setEffort(_effortCalls[c.tool_use_id], "assistant")
+                    status = "Effort → " + effort
+                }
                 const row = c.type === "tool_result" ? _toolRows[c.tool_use_id] : undefined
                 if (row === undefined || !c.is_error || row >= messagesModel.count) continue
                 const role = messagesModel.get(row).role
@@ -1257,7 +1313,7 @@ Singleton {
     function _save() {
         if (!_loaded) return
         _stash()
-        stateFile.setText(JSON.stringify({ mode: mode, personalPersona: personalPersona, sessions: sessions, model: model, effort: effort, contextSizes: contextSizes, ui: ui,
+        stateFile.setText(JSON.stringify({ mode: mode, personalPersona: personalPersona, sessions: sessions, model: model, effort: effort, effortBy: effortBy, contextSizes: contextSizes, ui: ui,
             remote: remote ? { persona: remotePersona, url: remoteUrl, name: remoteName, since: remoteSince, seen: remoteSeen } : null }, null, 2))
         historyFile.setText(JSON.stringify(_histories))
     }
@@ -1431,6 +1487,8 @@ Singleton {
             if (s.personalPersona || s.specialPersona) personalPersona = s.personalPersona || s.specialPersona
             if (s.sessions) sessions = s.sessions
             if (s.model) model = s.model
+            if (typeof s.effort === "string") effort = s.effort
+            if (typeof s.effortBy === "string") effortBy = s.effortBy
             if (s.contextSizes) contextSizes = s.contextSizes
             if (s.ui) ui = s.ui
             if (s.remote && s.remote.persona) {
