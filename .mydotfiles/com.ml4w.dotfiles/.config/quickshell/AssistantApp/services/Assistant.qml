@@ -181,6 +181,45 @@ Singleton {
     }
     readonly property int compactWindow: 150000
 
+    // Helpers for the Agent tool: they read in their own context (a cheaper model) and send back a
+    // short report, so heavy reading doesn't stay in the conversation that every call re-sends.
+    // Same permission rules as the assistant (Bash that changes something still asks in the panel).
+    function _helperAgents() {
+        const rules = "Paths: the brain is " + brainDir + " (brain.py search prints paths relative to it); home is "
+            + home + ". Read-only: never edit, write, move or delete anything, never send anything, never change "
+            + "~/Mail. Off limits: SSH/GPG keys, password stores, browser profiles, credentials, "
+            + "~/.config/silverbullet/env, the keyring. Never invent: say what you didn't find. "
+        return JSON.stringify({
+            reader: {
+                description: "Fast, cheap reader. Searches and reads the brain (~/brain: notes, tickets, clients, "
+                    + "digests, old conversations), the read-only mail copy (~/Mail/infomaniak, notmuch), logs "
+                    + "(journalctl) and long local files, then reports a short summary with path:line references. "
+                    + "Use it when an answer needs several searches or long files. Read-only.",
+                prompt: "You read for another assistant and report back briefly. " + rules
+                    + "Look only where the task points (the brain unless it names mail, logs or files) and stop as "
+                    + "soon as you have the answer: don't confirm it in other sources. In the brain, start with `python3 " + brainTool + " search <words>` (options: --in "
+                    + "clients,tickets, --no-conv, -n 15), then Read only around the lines it returns (offset/limit), "
+                    + "never whole long files. Mail: `notmuch search`, `notmuch show --format=text id:<id>`. "
+                    + "Report in at most 20 lines: the answer first, then the facts with path:line (or mail date + "
+                    + "sender). Copy exact values verbatim (commands, IPs, versions, dates, names, error messages).",
+                tools: ["Bash", "Read", "Grep", "Glob"],
+                model: "haiku"
+            },
+            researcher: {
+                description: "Web researcher for multi-step research: several searches and long documentation "
+                    + "pages (vendor docs, changelogs, known issues, comparisons). Reports condensed findings with "
+                    + "source URLs. Read-only.",
+                prompt: "You research the web for another assistant and report back briefly. " + rules
+                    + "Never put client names, people's names, emails or other identifying details in searches: "
+                    + "search the technical problem only. Prefer official documentation and recent sources; note "
+                    + "versions and dates. Report in at most 30 lines: the answer first, then the key facts, exact "
+                    + "commands or settings verbatim, and the source URL for each.",
+                tools: ["WebSearch", "WebFetch", "Read", "Grep", "Glob"],
+                model: "sonnet"
+            }
+        })
+    }
+
     // Optional MCP servers for the panel: ~/.config/ml4w-assistant/mcp.json (Claude Code format), and
     // their permission rules in mcp-permissions.json: {"allow": [read tools], "ask": [write tools]}
     readonly property string mcpConfig: home + "/.config/ml4w-assistant/mcp.json"
@@ -241,6 +280,15 @@ Singleton {
             + "something needs root, give the user the exact command to run in a terminal.\n"
             + "When the user has a problem, investigate first (logs, status, configs), then explain what you found and "
             + "what you'd do. Keep tool use focused, and tell the user what you're checking.\n\n"
+            + "## Helpers (Agent tool)\n"
+            + "Every tool call re-sends this whole conversation, so heavy reading costs less in a helper: it works in "
+            + "its own context and only its short report comes back. `reader` (fast, cheap): when an answer needs "
+            + "several searches or long files (older conversations, mail threads, long logs, big configs). "
+            + "`researcher`: multi-step web research or long documentation. Give a precise task and say what to "
+            + "return (values, commands, path:line). Do it yourself for one quick search or one short file, and keep "
+            + "edits, decisions and anything the user must approve with you. Helpers can be wrong: check a value in "
+            + "its file before acting on it. The user doesn't see the helper's report: tell them the result. Don't "
+            + "use the other built-in agents.\n\n"
             + "## The desktop\n"
             + "Hyprland, with a Quickshell shell (bar, popups, sidebar, settings, this assistant). Open, close or toggle its "
             + "popups and panels with `qs ipc call <target> <function> [args]`; that runs without asking, so do it when the "
@@ -336,6 +384,7 @@ Singleton {
         case "Edit": case "Write": case "MultiEdit": return t(input.file_path)
         case "WebSearch": return input.query || ""
         case "WebFetch": return input.url || ""
+        case "Agent": case "Task": return (input.subagent_type || "helper") + ": " + (input.description || "")
         default: return JSON.stringify(input).slice(0, 200)
         }
     }
@@ -498,7 +547,8 @@ Singleton {
             // The web, files and commands: read-only things run right away,
             // anything else is asked in the panel (the CLI sends a
             // can_use_tool request, see _handle)
-            "--tools", "WebSearch,WebFetch,Bash,Read,Grep,Glob,Edit,Write",
+            "--tools", "WebSearch,WebFetch,Bash,Read,Grep,Glob,Edit,Write,Agent",
+            "--agents", _helperAgents(),
             "--add-dir", home]
             .concat(["--allowedTools"], _allowRules(), ["--disallowedTools"], _denyRules(), [
             // Skip the user's hooks, plugins and MCP servers (faster, isolated)
@@ -1024,6 +1074,7 @@ Singleton {
                 cliCommands = o.slash_commands.filter(c => !c.startsWith("_") && !(o.terminal_slash_commands || []).includes(c))
             break
         case "stream_event": {
+            if (o.parent_tool_use_id) break   // a helper's own stream (not shown)
             const e = o.event || {}
             // Another message in the same turn, in the same bubble (after a
             // server-side search; tool uses start a new bubble below their row)
@@ -1034,7 +1085,8 @@ Singleton {
                 if (b.type === "server_tool_use" || b.type === "tool_use")
                     status = ({ WebFetch: "Reading a page…", web_fetch: "Reading a page…", Bash: "Running a command…",
                                 Read: "Reading a file…", Grep: "Searching files…", Glob: "Looking for files…",
-                                Edit: "Editing a file…", Write: "Writing a file…" })[b.name] || "Searching the web…"
+                                Edit: "Editing a file…", Write: "Writing a file…",
+                                Agent: "Asking a helper…", Task: "Asking a helper…" })[b.name] || "Searching the web…"
                 else if (b.type === "text") status = ""
             } else if (e.type === "content_block_delta" && e.delta && e.delta.type === "text_delta") {
                 _turnStarted = true
@@ -1045,6 +1097,15 @@ Singleton {
         }
         // The whole message once it's done: a row for each tool it used
         case "assistant": {
+            // A helper's step (Agent tool): only in the status line, not in the chat or the brain log
+            if (o.parent_tool_use_id) {
+                for (const c of ((o.message || {}).content || []))
+                    if (c.type === "tool_use") {
+                        const s = toolSummary(c.name, c.input).replace(/\s+/g, " ")
+                        status = "Helper: " + (s.length > 70 ? s.slice(0, 70) + "…" : s)
+                    }
+                break
+            }
             const mid = (o.message || {}).id || ""
             const u = (o.message || {}).usage
             if (u && !o.parent_tool_use_id) {
