@@ -372,7 +372,12 @@ PanelWindow {
                 title: Assistant.persona.name || "Assistant"
                 subtitle: Assistant.drafting === Assistant.personaId && Assistant.drafting !== "" ? "Writing their lines…"
                     : Assistant.remoteStatus !== "" ? Assistant.remoteStatus
-                    : Assistant.busy ? (Assistant.status || "Thinking…") : (Assistant.persona.tagline || "")
+                    : Assistant.busy ? (Assistant.status || "Thinking…")
+                    // Context size of this conversation: past ~100k, each call gets expensive
+                    : Assistant.contextTokens > 0 ? Math.round(Assistant.contextTokens / 1000) + "k context"
+                        + (Assistant.effort !== "" && Assistant.effort !== "medium" ? " · " + Assistant.effort : "")
+                        + (Assistant.contextTokens > 100000 ? " · long: /handoff" : "")
+                    : (Assistant.persona.tagline || "")
 
                 IconButton {
                     icon: "󰏫"; size: 30; iconSize: 15

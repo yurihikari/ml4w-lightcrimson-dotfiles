@@ -174,8 +174,12 @@ Singleton {
     // "ask" rules beat "allow" ones: passed as flag settings (there is no CLI flag for them)
     function _settings() {
         return JSON.stringify({ permissions: { ask: (trusted ? askCommands.map(c => "Bash(" + c + ")") : [])
-            .concat(guardedFiles.map(p => "Edit(" + p + ")"), _mcpPerms("ask")) } })
+            .concat(guardedFiles.map(p => "Edit(" + p + ")"), _mcpPerms("ask")) },
+            // Every call re-sends the whole conversation: compact it around 150k
+            // tokens instead of letting it grow toward the 1M window
+            env: { CLAUDE_CODE_AUTO_COMPACT_WINDOW: String(compactWindow) } })
     }
+    readonly property int compactWindow: 150000
 
     // Optional MCP servers for the panel: ~/.config/ml4w-assistant/mcp.json (Claude Code format), and
     // their permission rules in mcp-permissions.json: {"allow": [read tools], "ask": [write tools]}
@@ -347,10 +351,18 @@ Singleton {
     property string status: ""       // "Searching the web…" and such
     property var sessions: ({})      // persona id -> Claude session id
     property string model: ""        // empty: the CLI's default
-    property string effort: "high"   // reasoning effort: low, medium, high, xhigh, max ("" = CLI default)
+    property string effort: "medium" // reasoning effort: low, medium, high, xhigh, max ("" = CLI default); kept in state.json
     // The panel's sizes (dockWidth, floatWidth, floatHeight), kept in state.json
     property var ui: ({})
     function setUi(values) { ui = Object.assign({}, ui, values); _save() }
+    // Tokens in each persona's conversation context (from every reply's usage), kept in state.json
+    property var contextSizes: ({})
+    readonly property int contextTokens: contextSizes[personaId] || 0
+    property bool _handoffPending: false
+    // The brain context each conversation started with (persona -> {session, text}). A resumed
+    // conversation gets the same system prompt, so the prompt cache (1 hour) stays valid; only a
+    // new chat gets a fresh context. Kept in contexts.json.
+    property var _contexts: ({})
 
     function send(text) {
         text = text.trim()
@@ -431,6 +443,7 @@ Singleton {
         busy = false; status = ""
         messagesModel.clear()
         const s = Object.assign({}, sessions); delete s[personaId]; sessions = s
+        const z = Object.assign({}, contextSizes); delete z[personaId]; contextSizes = z
         _save()
     }
 
@@ -456,6 +469,12 @@ Singleton {
     // Fetch the brain's context first (brain.py context), then start the CLI
     function _start() {
         if (brainLoader.running) return            // _launch follows when it's done
+        const kept = _contexts[personaId]
+        if (sessions[personaId] && kept && kept.session === sessions[personaId] && kept.text) {
+            brainContext = kept.text
+            if (!claude.running || _launchRemote) _launch()
+            return
+        }
         brainLoader.command = ["sh", "-c", "[ -f \"$1\" ] && python3 -I \"$1\" context \"$2\" 2>/dev/null; true",
             "_", brainTool, personaId]
         brainLoader.running = true
@@ -538,6 +557,7 @@ Singleton {
         { name: "rc", hint: "Remote Control: continue on claude.ai or the Claude app (again: bring it back)" },
         { name: "remote-control", hint: "Same as /rc" },
         { name: "new", hint: "New chat" },
+        { name: "handoff", hint: "Long chat: save a summary in the brain, then start a new chat with it" },
         { name: "help", hint: "What you can type here" }]
     property var _streamed: ({})            // message id -> its text streamed
     property string _streamingMsg: ""
@@ -547,6 +567,17 @@ Singleton {
         for (const c of cliCommands)
             if (c.startsWith(prefix) && !out.some(o => o.name === c)) out.push({ name: c, hint: "Claude Code" })
         return out.slice(0, 8)
+    }
+    function _handoffPrompt(focus) {
+        return "Handoff: this conversation is long, and a new chat will start as soon as you reply. "
+            + "Write ~/brain/memory/handoff/" + personaId + ".md (overwrite it), in English, as a formal document "
+            + "(the user's real name, never the chat nickname), at most 30 lines: the title `# Handoff "
+            + Qt.formatDateTime(new Date(), "yyyy-MM-dd HH:mm") + "`, then ## Where we are (the task, its state, "
+            + "files and hosts touched), ## Next steps, ## Open questions, ## Key facts (paths, commands, decisions "
+            + "needed to continue). Link the related notes ([[clients/x]], [[projects/y]]). Before that, file anything "
+            + "lasting where it belongs (tasks.md, tickets, client files, projects) as usual. "
+            + (focus ? "Focus on: " + focus + ". " : "")
+            + "Then reply with one short line."
     }
     function _info(text) {
         messagesModel.append({ role: "info", text: text, streaming: false, files: "" })
@@ -562,10 +593,24 @@ Singleton {
             return true
         }
         if (cmd === "new" || cmd === "clear") { newChat(); return true }
+        if (cmd === "handoff") {
+            if (remoteHere) { _info("This conversation is on Remote Control: /rc brings it back here first."); return true }
+            if (busy || !canChat) return true
+            if (!sessions[personaId]) { _info("Nothing to hand off yet."); return true }
+            _handoffPending = true
+            messagesModel.append({ role: "user", text: text, streaming: false, files: "" })
+            busy = true
+            _turn++
+            _turnStarted = false
+            status = "Writing the handoff…"
+            _queueUser([{ type: "text", text: _handoffPrompt(arg) }])
+            return true
+        }
         if (cmd === "help") {
             _info("**/rc** Remote Control: continue this conversation on claude.ai/code or in the Claude app; "
                 + "/rc again (or the button) brings it back here, with what was said there.  \n"
                 + "**/new** a new chat.  \n"
+                + "**/handoff** [focus] save a summary of this chat in the brain, then start a new chat that knows it.  \n"
                 + "Claude Code's own: " + cliCommands.map(c => "/" + c).join(", ") + ".")
             return true
         }
@@ -953,6 +998,13 @@ Singleton {
         if (!errorText) _speak(true)
         character.react(errorText ? "error" : "idle")
         if (errorText) character.say(line("error"))
+        if (_handoffPending) {
+            _handoffPending = false
+            if (!errorText) {
+                newChat()
+                _info("Handoff saved in `~/brain/memory/handoff/" + personaId + ".md`. New chat: it is in the context.")
+            }
+        }
     }
 
     function _handle(o) {
@@ -960,6 +1012,13 @@ Singleton {
         case "system":
             if (o.subtype === "init" && o.session_id) {
                 const s = Object.assign({}, sessions); s[_runningPersona] = o.session_id; sessions = s
+                if (brainContext !== "") {
+                    const k = {}
+                    for (const p in _contexts) if (sessions[p] && p !== _runningPersona) k[p] = _contexts[p]
+                    k[_runningPersona] = { session: o.session_id, text: brainContext }
+                    _contexts = k
+                    contextsFile.setText(JSON.stringify(k))
+                }
             }
             if (o.subtype === "init" && o.slash_commands)
                 cliCommands = o.slash_commands.filter(c => !c.startsWith("_") && !(o.terminal_slash_commands || []).includes(c))
@@ -987,6 +1046,12 @@ Singleton {
         // The whole message once it's done: a row for each tool it used
         case "assistant": {
             const mid = (o.message || {}).id || ""
+            const u = (o.message || {}).usage
+            if (u && !o.parent_tool_use_id) {
+                const z = Object.assign({}, contextSizes)
+                z[_runningPersona] = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0)
+                contextSizes = z
+            }
             for (const c of ((o.message || {}).content || [])) {
                 // Text that didn't stream (a slash command's output): show it whole
                 if (c.type === "text" && !_streamed[mid] && (c.text || "").trim() !== "") {
@@ -1100,6 +1165,13 @@ Singleton {
         blockLoading: true
         printErrors: false
     }
+    // The brain context of each persona's current conversation (see _contexts). Fixed path, like above.
+    FileView {
+        id: contextsFile
+        path: root.stateDir + "/contexts.json"
+        blockLoading: true
+        printErrors: false
+    }
 
     property bool _loaded: false
     property var _histories: ({})     // persona id -> [{role, text}]
@@ -1124,7 +1196,7 @@ Singleton {
     function _save() {
         if (!_loaded) return
         _stash()
-        stateFile.setText(JSON.stringify({ mode: mode, personalPersona: personalPersona, sessions: sessions, model: model, ui: ui,
+        stateFile.setText(JSON.stringify({ mode: mode, personalPersona: personalPersona, sessions: sessions, model: model, effort: effort, contextSizes: contextSizes, ui: ui,
             remote: remote ? { persona: remotePersona, url: remoteUrl, name: remoteName, since: remoteSince, seen: remoteSeen } : null }, null, 2))
         historyFile.setText(JSON.stringify(_histories))
     }
@@ -1291,12 +1363,14 @@ Singleton {
 
     Component.onCompleted: {
         try { _histories = JSON.parse(historyFile.text() || "{}") } catch (e) { _histories = {} }
+        try { _contexts = JSON.parse(contextsFile.text() || "{}") } catch (e) { _contexts = {} }
         try {
             const s = JSON.parse(stateFile.text() || "{}")
             if (s.mode) mode = s.mode === "special" ? "personal" : s.mode       // the old name
             if (s.personalPersona || s.specialPersona) personalPersona = s.personalPersona || s.specialPersona
             if (s.sessions) sessions = s.sessions
             if (s.model) model = s.model
+            if (s.contextSizes) contextSizes = s.contextSizes
             if (s.ui) ui = s.ui
             if (s.remote && s.remote.persona) {
                 remotePersona = s.remote.persona; remoteUrl = s.remote.url || ""
