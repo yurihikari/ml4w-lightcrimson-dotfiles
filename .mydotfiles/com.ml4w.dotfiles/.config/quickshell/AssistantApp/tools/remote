@@ -1,0 +1,377 @@
+#!/usr/bin/env -S python3 -I
+"""remote: let the assistant panel work on machines the user allowed, without
+an Allow / Deny prompt for every command, while critical actions still ask.
+
+  remote hosts                          list the allowed hosts
+  remote keygen                         create the assistant's own SSH key (once), print its public key
+  remote check 'COMMAND'                say whether COMMAND counts as critical (no connection)
+  remote run HOST 'COMMAND'             run COMMAND on HOST (stdin is /dev/null)
+  remote script HOST FILE [ARGS...]     run a local shell script on HOST (bash -s), after checking it
+  remote put HOST LOCAL REMOTE_PATH     copy a file or folder to HOST
+  remote get HOST REMOTE_PATH LOCAL     copy a file or folder from HOST
+  remote close HOST                     close the shared connection to HOST now
+
+`remote` refuses critical actions (exit 3). `remote-critical` (a symlink to this
+file) takes the same arguments without that filter: the panel lists it in its
+"ask" rules, so the user approves each one.
+
+Allowed hosts: ~/.config/ml4w-assistant/remote-hosts, one per line:
+    ALIAS  USER@ADDRESS  [PORT]  [password]
+The panel asks before anyone edits that file. The key lives in
+~/.config/ml4w-assistant/ssh/ (a private place for the assistants: they can't read it).
+
+Connections are shared (SSH ControlMaster): the first command logs in once, the
+following ones reuse that connection, which stays open 10 minutes after the last
+use. One login instead of one per command: faster, and no "SSH brute force"
+alarm on firewalls that count new connections.
+
+Hosts marked `password` (no key installed there) log in with a password that
+the user stores themselves in the GNOME keyring:
+    secret-tool store --label="ml4w remote: ALIAS" service ml4w-remote host ALIAS
+`remote` hands it to ssh through SSH_ASKPASS (this same file, which only answers
+when its parent is ssh). It never appears in arguments, logs or the chat.
+Remove it with: secret-tool clear service ml4w-remote host ALIAS
+
+Every action is logged in ~/.local/state/ml4w-assistant/remote.log.
+
+The filter is a seatbelt against mistakes, not a sandbox: a determined command
+can hide what it does. The assistants are told never to work around it.
+"""
+import datetime
+import os
+import re
+import shlex
+import socket
+import subprocess
+import sys
+from pathlib import Path
+
+HOME = Path.home()
+CONF = HOME / ".config/ml4w-assistant"
+HOSTS = CONF / "remote-hosts"
+SSHDIR = CONF / "ssh"
+KEY = SSHDIR / "id_ed25519"
+KNOWN = SSHDIR / "known_hosts"
+LOG = HOME / ".local/state/ml4w-assistant/remote.log"
+SELF = Path(__file__).resolve()
+CRITICAL = Path(sys.argv[0]).name.endswith("-critical")
+ME = "remote-critical" if CRITICAL else "remote"
+SECRET_ATTRS = ["service", "ml4w-remote", "host"]
+PERSIST = "10m"              # how long a shared connection stays open after the last command
+
+# ── what counts as critical ──────────────────────────────────────────────────
+W = r"(?<![\w./-])"          # start of a command word (not part of a path or a longer word)
+E = r"(?![\w-])"             # end of a word
+SEG = r"[^;&|\n]*"           # rest of the same simple command
+
+RULES = [
+    # disks, filesystems, storage
+    (W + r"(shred|wipefs|mkfs(\.\w+)?|fdisk|sfdisk|sgdisk|gdisk|parted|mkswap|cryptsetup|lvremove|vgremove|"
+         r"pvremove|lvreduce|resize2fs|dd)" + E, "disk or filesystem operation"),
+    (r">\s*/dev/(sd|nvme|vd|xvd|hd|mmcblk|dm-|mapper/)", "writing to a raw disk"),
+    (W + r"zfs\s+destroy|" + W + r"zpool\s+(destroy|remove|detach|offline|labelclear)", "ZFS destroy"),
+    (W + r"find\b" + SEG + r"\s-(delete|exec(dir)?\s+(rm|shred|truncate))", "find that deletes"),
+    (W + r"mv\s+(-\S+\s+)*/(etc|boot|usr|var|bin|sbin|lib|lib64|root|home|opt|srv)/?(\s|$)", "moving a system folder"),
+    (W + r"(chmod|chown|chgrp)\s+(\S+\s+)*(-\S*R|--recursive)", "recursive permission change"),
+    (W + r"truncate" + E, "truncating a file or table"),
+    # power
+    (W + r"(reboot|poweroff|shutdown|halt|kexec|telinit)" + E, "power action"),
+    (W + r"init\s+[06]" + E, "power action"),
+    (W + r"systemctl\s+(\S+\s+)*(reboot|poweroff|halt|kexec|suspend|hibernate|emergency|rescue|isolate|default)" + E,
+     "power or system-state action"),
+    # access: ssh, network, firewall, accounts
+    (W + r"(systemctl\s+(stop|disable|mask|kill)|service\s+\S*ssh\S*\s+stop)" + SEG + r"ssh", "stopping SSH (lock-out)"),
+    (W + r"systemctl\s+(stop|restart|disable|mask)" + SEG + r"(networking|systemd-networkd|NetworkManager)",
+     "network service change (lock-out)"),
+    (W + r"ip\s+(link\s+set\s+\S+\s+down|(addr|address|a|route|r)\s+(del|flush))|" + W + r"(ifdown|ifup|netplan\s+apply)" + E,
+     "network change (lock-out)"),
+    (W + r"(passwd|chpasswd|userdel|deluser|usermod|groupdel|delgroup|visudo|chage)" + E, "account or password change"),
+    (W + r"crontab\s+(\S+\s+)*-r", "deleting a crontab"),
+    (W + r"kill\s+(-\S+\s+)*-1" + E, "killing every process"),
+    # packages
+    (W + r"(apt|apt-get|aptitude)(\s+-\S+)*\s+(remove|purge|autoremove|autopurge)" + E, "removing packages"),
+    (W + r"dpkg\s+(\S+\s+)*(-r|-P|--remove|--purge)" + E, "removing packages"),
+    (W + r"do-release-upgrade" + E, "release upgrade"),
+    (W + r"(curl|wget)\b[^;&\n]*\|\s*(sudo\s+)?(ba|z|da)?sh" + E, "running a script straight from the internet"),
+    # docker data
+    (W + r"docker\s+(volume\s+(rm|remove|prune)|system\s+prune|(container|image|network|builder|buildx)\s+prune|rm|rmi)" + E,
+     "deleting Docker data"),
+    (W + r"docker[\s-]compose\b" + SEG + r"\sdown\b" + SEG + r"(\s-v\b|--volumes|--rmi)", "deleting Docker volumes"),
+    (W + r"docker[\s-]compose\b" + SEG + r"\srm" + E, "deleting Docker containers"),
+    # databases
+    (r"(?i)\b(drop\s+(database|schema|table|user)|delete\s+from|alter\s+table\s+\S+\s+drop)\b", "destructive SQL"),
+    (W + r"(mysqladmin|mariadb-admin)\b" + SEG + r"\sdrop" + E, "dropping a database"),
+    # proxmox
+    (W + r"(qm|pct)\s+(destroy|stop|shutdown|reboot|rollback|restore|migrate|unlock)" + E, "Proxmox VM/CT action"),
+    (W + r"(pvecm|pveceph)" + E, "Proxmox cluster or Ceph"),
+]
+SENSITIVE_FILES = (r"(sshd_config|authorized_keys|/etc/fstab|/etc/sudoers|/etc/shadow|/etc/passwd|/etc/group|"
+                   r"/etc/network/|/etc/netplan/|/boot/|/etc/default/grub|/etc/pve/|/etc/crypttab)")
+WRITE_OPS = (r"(>|" + W + r"(tee|mv|cp|rm|ln|install|truncate|chmod|chown|vi|vim|nano|dd)" + E
+             + r"|" + W + r"sed\s+(\S+\s+)*-i|" + W + r"perl\s+(\S+\s+)*-\S*i)")
+# redirections that write nothing anywhere (2>/dev/null, >/dev/null, 2>&1): ignored by the write check
+HARMLESS_REDIRECT = re.compile(r"(\d|&)?>>?\s*(/dev/null(?![\w/.-])|&\d)")
+SAFE_RM_PREFIXES = ("/tmp/", "/var/tmp/")
+_RM = re.compile(W + r"rm(?=\s|$)([^;&|\n)]*)")
+
+
+def critical_reasons(cmd):
+    """Reasons why a shell command is critical ([] if none)."""
+    reasons = []
+    for pattern, why in RULES:
+        if re.search(pattern, cmd) and why not in reasons:
+            reasons.append(why)
+    for seg in re.split(r"&&|\|\||[;|\n]", cmd):
+        seg = HARMLESS_REDIRECT.sub(" ", seg)
+        if re.search(SENSITIVE_FILES, seg) and re.search(WRITE_OPS, seg):
+            reasons.append("changing a sensitive system file (" + re.search(SENSITIVE_FILES, seg).group(1) + ")")
+            break
+    for m in re.finditer(r"(?<![\w./-])(iptables|ip6tables|nft|ufw|firewall-cmd)(?![\w-])(" + SEG + ")", cmd):
+        if not re.search(r"\s(-L|-S|-nL|-nvL|--list\S*|list\S*|status|--state)(\s|$)", m.group(2)):
+            reasons.append("firewall change (lock-out)")
+            break
+    for m in _RM.finditer(cmd):
+        try:
+            args = shlex.split(m.group(1))
+        except ValueError:
+            reasons.append("deleting files (unparsable rm)")
+            break
+        targets = [a for a in args if not a.startswith("-")]
+        if not targets or any(not t.startswith(SAFE_RM_PREFIXES) or ".." in t for t in targets):
+            reasons.append("deleting files outside /tmp")
+            break
+    return reasons
+
+
+# ── local paths ──────────────────────────────────────────────────────────────
+PRIVATE = [HOME / p for p in (".ssh", ".gnupg", ".password-store", ".local/share/keyrings",
+           ".local/share/kwalletd", ".config/BraveSoftware", ".mozilla", ".config/chromium",
+           ".config/google-chrome", ".config/vesktop", ".config/discord", ".claude", ".claude.json",
+           ".config/gh", ".git-credentials", ".netrc", ".aws", ".kube", ".docker", ".config/rclone",
+           ".config/silverbullet", ".config/ml4w-assistant/ssh", ".mbsyncrc", ".config/vdirsyncer")]
+CLIENT_DATA = [HOME / "brain", HOME / "Mail", Path("/mnt/ssd2/kDrive")]
+
+
+def _under(path, roots):
+    p = Path(path).expanduser().resolve()
+    return any(p == r or r in p.parents for r in roots)
+
+
+# ── plumbing ─────────────────────────────────────────────────────────────────
+def log(action, host, detail, result):
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    line = "\t".join([datetime.datetime.now().isoformat(timespec="seconds"), ME, action, host,
+                      str(result), detail.replace("\n", "\\n")])
+    with open(LOG, "a") as f:
+        f.write(line + "\n")
+
+
+def die(msg, code=2):
+    print(f"{ME}: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def refuse(action, host, detail, reasons):
+    log(action, host, detail, "REFUSED: " + "; ".join(reasons))
+    die("CRITICAL (" + "; ".join(reasons) + "). Not run.\n"
+        "If it's really needed, run the same arguments with `remote-critical` (the user approves it in the panel).", 3)
+
+
+def load_hosts():
+    """alias -> (user@address, port, uses_password)"""
+    hosts = {}
+    if HOSTS.exists():
+        for raw in HOSTS.read_text().splitlines():
+            parts = raw.split("#", 1)[0].split()
+            if len(parts) >= 2:
+                rest = parts[2:]
+                port = next((p for p in rest if p.isdigit()), "22")
+                hosts[parts[0]] = (parts[1], port, "password" in rest)
+    return hosts
+
+
+def secret_stored(alias):
+    r = subprocess.run(["secret-tool", "lookup", *SECRET_ATTRS, alias],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return r.returncode == 0
+
+
+def target(alias):
+    hosts = load_hosts()
+    if alias not in hosts:
+        die(f"'{alias}' is not an allowed host. Allowed: {', '.join(hosts) or 'none'} "
+            f"(list in {HOSTS}; the user approves changes to it).")
+    dest, port, password = hosts[alias]
+    if password:
+        if not secret_stored(alias):
+            die(f"no password stored for '{alias}'. the user runs, in their own terminal:\n"
+                f"  secret-tool store --label=\"ml4w remote: {alias}\" service ml4w-remote host {alias}")
+    elif not KEY.exists():
+        die("no assistant key yet: run `remote keygen` first.")
+    SSHDIR.mkdir(parents=True, exist_ok=True)
+    os.chmod(SSHDIR, 0o700)
+    return dest, port, password
+
+
+def ssh_opts(password=False):
+    base = ["-F", "none", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new",
+            "-o", f"UserKnownHostsFile={KNOWN}", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4",
+            # shared connection: one login, then every command reuses it (%C = hash of host, port, user)
+            "-o", "ControlMaster=auto", "-o", f"ControlPath={SSHDIR}/cm-%C", "-o", f"ControlPersist={PERSIST}"]
+    if password:
+        # one try only (no lock-out from repeated failures), the answer comes from SSH_ASKPASS
+        return base + ["-o", "PubkeyAuthentication=no", "-o", "PreferredAuthentications=keyboard-interactive,password",
+                       "-o", "NumberOfPasswordPrompts=1"]
+    return base + ["-i", str(KEY), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes"]
+
+
+def ssh_env(alias, password):
+    if not password:
+        return None
+    return dict(os.environ, SSH_ASKPASS=str(SELF), SSH_ASKPASS_REQUIRE="force", ML4W_REMOTE_ASKPASS=alias)
+
+
+def run_ssh(alias, remote_cmd, stdin=subprocess.DEVNULL):
+    dest, port, password = target(alias)
+    return subprocess.run(["ssh", *ssh_opts(password), "-p", port, "-T", dest, remote_cmd], stdin=stdin,
+                          env=ssh_env(alias, password)).returncode
+
+
+def askpass():
+    """SSH_ASKPASS mode: give ssh the stored password, and nobody else."""
+    alias = os.environ.get("ML4W_REMOTE_ASKPASS", "")
+    prompt = " ".join(sys.argv[1:])
+    try:
+        parent = os.path.basename(os.path.realpath(f"/proc/{os.getppid()}/exe"))
+    except OSError:
+        parent = ""
+    host = load_hosts().get(alias)
+    if parent != "ssh" or not host or not host[2] or not re.search(r"(?i)password", prompt):
+        return 1
+    r = subprocess.run(["secret-tool", "lookup", *SECRET_ATTRS, alias], capture_output=True, text=True)
+    if r.returncode or not r.stdout:
+        return 1
+    sys.stdout.write(r.stdout.rstrip("\n") + "\n")
+    return 0
+
+
+# ── commands ─────────────────────────────────────────────────────────────────
+def cmd_run(args):
+    if len(args) < 2:
+        die("usage: remote run HOST 'COMMAND'")
+    alias, command = args[0], " ".join(args[1:])
+    target(alias)
+    reasons = critical_reasons(command)
+    if reasons and not CRITICAL:
+        refuse("run", alias, command, reasons)
+    rc = run_ssh(alias, command)
+    log("run", alias, command, rc)
+    return rc
+
+
+def cmd_script(args):
+    if len(args) < 2:
+        die("usage: remote script HOST FILE [ARGS...]")
+    alias, path, extra = args[0], Path(args[1]).expanduser(), args[2:]
+    target(alias)
+    if _under(path, PRIVATE):
+        die("that file is in a private place.")
+    body = path.read_text()
+    reasons = critical_reasons(body + "\n" + " ".join(extra))
+    if reasons and not CRITICAL:
+        refuse("script", alias, str(path), reasons)
+    with open(path, "rb") as f:
+        rc = run_ssh(alias, "bash -s -- " + shlex.join(extra), stdin=f)
+    log("script", alias, f"{path} {shlex.join(extra)}", rc)
+    return rc
+
+
+def cmd_copy(args, direction):
+    if len(args) != 3:
+        die(f"usage: remote {direction} HOST " + ("LOCAL REMOTE_PATH" if direction == "put" else "REMOTE_PATH LOCAL"))
+    alias = args[0]
+    local, remote_path = (args[1], args[2]) if direction == "put" else (args[2], args[1])
+    dest, port, password = target(alias)
+    lp = Path(local).expanduser()
+    if _under(lp, PRIVATE):
+        die("that local path is in a private place: never copied.")
+    reasons = []
+    if direction == "put":
+        if _under(lp, CLIENT_DATA):
+            reasons.append("sending brain, mail or kDrive data to another machine")
+        if re.search(SENSITIVE_FILES, remote_path):
+            reasons.append("overwriting a sensitive system file")
+    else:
+        if not (_under(lp, [HOME]) or _under(lp, [Path("/tmp")])):
+            reasons.append("writing outside the home folder")
+        if lp.is_file():
+            reasons.append("overwriting an existing local file")
+    if reasons and not CRITICAL:
+        refuse(direction, alias, f"{local} <-> {remote_path}", reasons)
+    remote_spec = f"{dest}:{remote_path}"
+    src, dst = (str(lp), remote_spec) if direction == "put" else (remote_spec, str(lp))
+    rc = subprocess.run(["scp", *ssh_opts(password), "-P", port, "-r", "-p", src, dst], stdin=subprocess.DEVNULL,
+                        env=ssh_env(alias, password)).returncode
+    log(direction, alias, f"{src} -> {dst}", rc)
+    return rc
+
+
+def cmd_close(args):
+    if len(args) != 1:
+        die("usage: remote close HOST")
+    dest, port, password = target(args[0])
+    rc = subprocess.run(["ssh", *ssh_opts(password), "-p", port, "-O", "exit", dest],
+                        stdin=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
+    print("closed" if rc == 0 else "no open connection")
+    log("close", args[0], "-", rc)
+    return 0
+
+
+def cmd_keygen(_):
+    if not KEY.exists():
+        SSHDIR.mkdir(parents=True, exist_ok=True)
+        os.chmod(SSHDIR, 0o700)
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C",
+                        f"ml4w-assistant@{socket.gethostname()}", "-f", str(KEY)], check=True)
+        log("keygen", "-", str(KEY), 0)
+    pub = (SSHDIR / "id_ed25519.pub").read_text().strip()
+    print("Assistant public key (put it in ~/.ssh/authorized_keys of the user on each allowed machine):\n")
+    print(pub)
+    return 0
+
+
+def cmd_hosts(_):
+    hosts = load_hosts()
+    if not hosts:
+        print(f"No allowed host yet. Add lines 'ALIAS USER@ADDRESS [PORT] [password]' to {HOSTS}.")
+    for alias, (dest, port, password) in hosts.items():
+        auth = ("password (" + ("stored" if secret_stored(alias) else "NOT stored yet") + ")") if password else "key"
+        live = subprocess.run(["ssh", *ssh_opts(password), "-p", port, "-O", "check", dest],
+                              stdin=subprocess.DEVNULL, capture_output=True).returncode == 0
+        print(f"{alias}\t{dest}\tport {port}\t{auth}" + ("\tconnection open" if live else ""))
+    return 0
+
+
+def cmd_check(args):
+    reasons = critical_reasons(" ".join(args))
+    print("CRITICAL: " + "; ".join(reasons) if reasons else "ok (runs without asking)")
+    return 3 if reasons else 0
+
+
+def main():
+    if os.environ.get("ML4W_REMOTE_ASKPASS"):
+        return askpass()
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help", "help"):
+        print(__doc__.strip())
+        return 0
+    action, args = sys.argv[1], sys.argv[2:]
+    table = {"run": cmd_run, "script": cmd_script, "put": lambda a: cmd_copy(a, "put"),
+             "get": lambda a: cmd_copy(a, "get"), "close": cmd_close, "keygen": cmd_keygen,
+             "hosts": cmd_hosts, "check": cmd_check}
+    if action not in table:
+        die(f"unknown action '{action}' (see `{ME} --help`)")
+    return table[action](args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

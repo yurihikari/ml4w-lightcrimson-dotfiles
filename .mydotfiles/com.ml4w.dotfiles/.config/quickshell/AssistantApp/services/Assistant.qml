@@ -120,6 +120,7 @@ Singleton {
         "~/.mozilla/**", "~/.config/chromium/**", "~/.config/google-chrome/**", "~/.config/vesktop/**",
         "~/.config/discord/**", "~/.claude/**", "~/.claude.json", "~/.config/gh/**", "~/.git-credentials",
         "~/.netrc", "~/.aws/**", "~/.kube/**", "~/.docker/**", "~/.config/rclone/**",
+        "~/.config/ml4w-assistant/ssh/**",   // the assistants' own SSH key (used by tools/remote)
         // (absolute paths take a double slash in permission rules; a single
         // one is relative to the project)
         "//etc/shadow", "//etc/NetworkManager/system-connections/**"]
@@ -144,6 +145,9 @@ Singleton {
         "git branch -D:*", "git stash drop:*", "git filter-branch:*",
         "ssh:*", "scp:*", "sftp:*", "rsync:*", "curl:*", "wget:*", "nc:*",
         "mail:*", "sendmail:*", "msmtp:*", "neomutt:*", "mutt:*", "mail-apply:*",
+        // remote machines: `remote` runs freely on allowed hosts and refuses critical
+        // actions; `remote-critical` (same tool, no filter) always asks
+        "remote-critical:*", remoteTool + "-critical:*",
         "nmcli connection delete:*", "nmcli connection modify:*", "nmcli connection down:*",
         "nmcli radio:*", "nmcli device disconnect:*", "bluetoothctl remove:*"
     ].concat(["start", "stop", "restart", "reload", "enable", "disable", "mask", "unmask", "kill", "isolate"]
@@ -162,9 +166,15 @@ Singleton {
             .concat(privatePaths.map(p => "Edit(" + p + ")"))
             .concat(["Bash(sudo:*)", "Bash(qs ipc call assistant:*)"])   // no terminal for a password; not itself
     }
+    // Files that hold the assistants' own permissions (allowed remote hosts, MCP
+    // rules) and the remote tool's filter: changing them always asks
+    readonly property string remoteTool: toolsDir + "/remote"
+    readonly property var guardedFiles: ["~/.config/ml4w-assistant/**", "~/.config/quickshell/AssistantApp/tools/remote",
+        "~/.mydotfiles/com.lightcrimson.hyperba/.config/quickshell/AssistantApp/tools/remote"]
     // "ask" rules beat "allow" ones: passed as flag settings (there is no CLI flag for them)
     function _settings() {
-        return JSON.stringify({ permissions: { ask: (trusted ? askCommands.map(c => "Bash(" + c + ")") : []).concat(_mcpPerms("ask")) } })
+        return JSON.stringify({ permissions: { ask: (trusted ? askCommands.map(c => "Bash(" + c + ")") : [])
+            .concat(guardedFiles.map(p => "Edit(" + p + ")"), _mcpPerms("ask")) } })
     }
 
     // Optional MCP servers for the panel: ~/.config/ml4w-assistant/mcp.json (Claude Code format), and
@@ -210,6 +220,15 @@ Singleton {
                   + "decide. Don't dodge that with an equivalent command (a script, find -delete, python…): when an action is "
                   + "destructive or irreversible, use the command that asks. Before overwriting important configs outside "
                   + "~/brain, make a .bak copy. "
+                  + "Remote machines the user allowed (see `remote hosts`) are worked on with the `remote` tool, never with "
+                  + "ssh/scp directly: `remote run HOST 'command'`, `remote script HOST file.sh [args]`, `remote put HOST "
+                  + "LOCAL REMOTE_PATH`, `remote get HOST REMOTE_PATH LOCAL` (`remote --help`). These run without asking. "
+                  + "`remote` refuses critical actions (deleting outside /tmp, power, disks, firewall, SSH, accounts, package "
+                  + "removal, Docker volumes, destructive SQL, piping web scripts to a shell, Proxmox destroy…) with exit "
+                  + "code 3; when one is really needed, explain why and run the same arguments with `remote-critical`, "
+                  + "which asks the user. Never get around that filter (hiding a command in a script you put then run, "
+                  + "base64, eval…), and never edit the allowed hosts list or the tool yourself without the user's request. "
+                  + "Generate secrets on the remote side (e.g. openssl rand) rather than passing them in commands. "
                 : "File reads, read-only commands (journalctl, systemctl status, ps, lsblk, pacman -Q, hyprctl queries…) "
                   + "and writes in ~/brain run right away. Anything else (changing a file, a command that changes something) "
                   + "is shown to the user in the panel with Allow / Deny buttons: just call the tool and they decide. ")
