@@ -1171,6 +1171,9 @@ PanelWindow {
                 color: Theme.primary; opacity: PanelStyle.faint
                 font.pixelSize: PanelStyle.labelSize
                 horizontalAlignment: Text.AlignHCenter
+                // A narrow panel: wrap at the separators instead of spilling past the edges
+                wrapMode: Text.WordWrap
+                Layout.preferredWidth: 0   // the layout's width, not the text's one-line width
             }
         }
     }
